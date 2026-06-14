@@ -112,50 +112,69 @@ async def backfill_funding(
     client: httpx.AsyncClient,
     swap_id: str,
 ) -> int:
-    """Backfill funding_rates for one SWAP instrument. Returns rows inserted."""
-    rows_inserted = 0
-    params = {"instId": swap_id, "limit": "100"}
+    """Backfill funding_rates for one SWAP instrument (full history). Returns rows inserted."""
+    total_inserted = 0
+    after_ms: int | None = None  # paginate backwards using 'after'
 
-    r = await client.get(
-        OKX_BASE + "/api/v5/public/funding-rate-history",
-        params=params,
-        timeout=15,
-    )
-    data = r.json()
-    if str(data.get("code", "1")) != "0":
-        print(f"  [funding] {swap_id}: API error {data.get('code')} {data.get('msg')}")
-        return 0
+    while True:
+        params: dict = {"instId": swap_id, "limit": "100"}
+        if after_ms is not None:
+            params["after"] = str(after_ms)
 
-    records = []
-    for row in data.get("data", []):
-        ts = datetime.fromtimestamp(int(row["fundingTime"]) / 1000, tz=timezone.utc)
-        next_ts = (
-            datetime.fromtimestamp(int(row["nextFundingTime"]) / 1000, tz=timezone.utc)
-            if row.get("nextFundingTime")
-            else None
+        r = await client.get(
+            OKX_BASE + "/api/v5/public/funding-rate-history",
+            params=params,
+            timeout=15,
         )
-        records.append((
-            swap_id,
-            ts,
-            "okx",
-            float(row.get("fundingRate", 0)),
-            float(row.get("realizedRate", row.get("fundingRate", 0))),
-            next_ts,
-        ))
+        data = r.json()
+        if str(data.get("code", "1")) != "0":
+            print(f"  [funding] {swap_id}: API error {data.get('code')} {data.get('msg')}")
+            break
 
-    if records:
-        result = await conn.executemany(
-            """
-            INSERT INTO market_data.funding_rates
-                (instrument, ts, source, funding_rate, realized_rate, next_funding_time)
-            VALUES ($1, $2, $3, $4, $5, $6)
-            ON CONFLICT (instrument, ts, source) DO NOTHING
-            """,
-            records,
-        )
-        rows_inserted = int(result.split()[-1]) if result else 0
+        items = data.get("data", [])
+        if not items:
+            break
 
-    return rows_inserted
+        # OKX returns newest-first; use oldest ts to page further back
+        oldest_ms = int(items[-1]["fundingTime"])
+
+        records = []
+        for row in items:
+            ts = datetime.fromtimestamp(int(row["fundingTime"]) / 1000, tz=timezone.utc)
+            next_ts = (
+                datetime.fromtimestamp(int(row["nextFundingTime"]) / 1000, tz=timezone.utc)
+                if row.get("nextFundingTime")
+                else None
+            )
+            records.append((
+                swap_id,
+                ts,
+                "okx",
+                float(row.get("fundingRate", 0)),
+                float(row.get("realizedRate", row.get("fundingRate", 0))),
+                next_ts,
+            ))
+
+        if records:
+            result = await conn.executemany(
+                """
+                INSERT INTO market_data.funding_rates
+                    (instrument, ts, source, funding_rate, realized_rate, next_funding_time)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (instrument, ts, source) DO NOTHING
+                """,
+                records,
+            )
+            inserted = int(result.split()[-1]) if result else 0
+            total_inserted += inserted
+
+        if len(items) < 100:
+            break  # last page
+
+        after_ms = oldest_ms
+        await asyncio.sleep(0.12)
+
+    return total_inserted
 
 
 async def main(months: int = 12) -> None:
@@ -171,7 +190,7 @@ async def main(months: int = 12) -> None:
             total_ohlcv += n
             print(f"  {inst:15s}  {n:5d} rows  ({time.monotonic()-t0:.1f}s)")
 
-        print(f"\n=== Funding rate backfill (last 100 records each) ===")
+        print(f"\n=== Funding rate backfill (full available history) ===")
         total_funding = 0
         for swap in SWAP_INSTRUMENTS:
             n = await backfill_funding(conn, client, swap)
