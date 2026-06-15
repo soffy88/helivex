@@ -1,0 +1,46 @@
+strategy: vwap_mr_dual
+description: "1H SWAP VWAP mean reversion — VWAP z-score+BB+RSI+Stochastic confluence"
+timeframe: 1H
+instruments:
+  - SOL-USDT-SWAP
+  - BTC-USDT-SWAP
+db_table: market_data.ohlcv_1h
+db_source: okx_swap_5m    # 5m raw data; resample 12 bars → 1H
+resample_bars: 12          # 12 × 5m = 1H target resolution
+
+indicators:
+  vwap:
+    enabled: true
+    window: 4           # 4 × 1H = 4H rolling VWAP (matches R5.3 vwap_n=4)
+    z_threshold: 2.0
+  bollinger:
+    enabled: true
+    window: 20          # 20 × 1H = 20H
+    num_std: 2.0
+  rsi:
+    enabled: true
+    period: 14
+    oversold: 0.3
+    overbought: 0.7
+  stochastic:
+    enabled: true
+    k_period: 14
+    d_period: 3
+    smooth_k: 3
+    oversold: 0.2
+    overbought: 0.8
+
+signal_logic:
+  min_confluence: 2
+  direction: both
+
+risk:
+  cost_bps: 10.0
+  hold_bars: 6    # 6H time exit
+
+mode: backtest
+
+gate:
+  n_splits: 6
+  embargo_bars: 50    # 50 × 1H embargo
+  pbo_threshold: 0.5

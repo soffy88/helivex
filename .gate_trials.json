@@ -1,0 +1,153 @@
+{
+  "total_trials": 5,
+  "history": [
+    {
+      "trial_n": 1,
+      "config": "strategies/trend_dual.yaml",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -0.5361346060441041,
+            "pbo": 0.16666666666666666,
+            "mean_oos": 1.2292905134848968,
+            "gross_sharpe": 0.44941866139234016
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.1577417351513277,
+            "pbo": 0.6666666666666666,
+            "mean_oos": 0.021764601396829824,
+            "gross_sharpe": 0.8025992337930354
+          },
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.7962619066611956,
+            "pbo": 0.8333333333333334,
+            "mean_oos": -0.39381783638237916,
+            "gross_sharpe": 0.9010477057585567
+          }
+        },
+        "overall": "FAIL"
+      }
+    },
+    {
+      "trial_n": 2,
+      "config": "strategies/vwap_mr_1h.yaml",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.5521323206312556,
+            "pbo": 0.6666666666666666,
+            "mean_oos": -0.4632906292562346,
+            "gross_sharpe": -0.8329650970433019
+          },
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -4.240027008044233,
+            "pbo": 0.8333333333333334,
+            "mean_oos": -2.3378441609075584,
+            "gross_sharpe": -0.9229460306920261
+          }
+        },
+        "overall": "FAIL"
+      }
+    },
+    {
+      "trial_n": 3,
+      "config": "strategies/spot_trend_1d.yaml",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": 0.0,
+            "pbo": 0.0,
+            "mean_oos": 0.0,
+            "gross_sharpe": 0.0
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": 0.0,
+            "pbo": 0.0,
+            "mean_oos": 0.0,
+            "gross_sharpe": 0.0
+          },
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": 0.0,
+            "pbo": 0.0,
+            "mean_oos": 0.0,
+            "gross_sharpe": 0.0
+          }
+        },
+        "overall": "FAIL"
+      }
+    },
+    {
+      "trial_n": 4,
+      "config": "strategies/spot_trend_1d.yaml",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -0.5751875830444169,
+            "pbo": 0.5,
+            "mean_oos": 1.1230607824485668,
+            "gross_sharpe": 0.4243447899196144
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -0.6332764799347376,
+            "pbo": 0.3333333333333333,
+            "mean_oos": 0.5303314182299163,
+            "gross_sharpe": 0.5534872749304945
+          },
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -2.00999367434782,
+            "pbo": 0.8333333333333334,
+            "mean_oos": 0.03464825340076642,
+            "gross_sharpe": 0.8668737108338028
+          }
+        },
+        "overall": "FAIL"
+      }
+    },
+    {
+      "trial_n": 5,
+      "config": "strategies/spot_trend_1d.yaml",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -0.7422297425187263,
+            "pbo": 0.16666666666666666,
+            "mean_oos": 1.322587206988387,
+            "gross_sharpe": 1.3298463652253352
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -0.536814575828159,
+            "pbo": 0.6666666666666666,
+            "mean_oos": 0.8114807360510173,
+            "gross_sharpe": 1.347618364783478
+          },
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.6341568636103738,
+            "pbo": 0.6666666666666666,
+            "mean_oos": 0.2413461219016431,
+            "gross_sharpe": 1.082012677766509
+          }
+        },
+        "overall": "FAIL"
+      }
+    }
+  ]
+}

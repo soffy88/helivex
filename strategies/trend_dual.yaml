@@ -1,0 +1,44 @@
+strategy: trend_dual
+description: "4H SWAP trend following — SuperTrend+EMA+ADX+MACD confluence"
+timeframe: 4H
+instruments:
+  - BTC-USDT-SWAP
+  - ETH-USDT-SWAP
+  - SOL-USDT-SWAP
+db_table: market_data.ohlcv_1h
+db_source: okx_swap        # 4H bars already stored at 4H resolution
+resample_bars: 1           # no resample needed (data already 4H)
+
+indicators:
+  supertrend:
+    enabled: true
+    period: 10
+    multiplier: 3.0
+  ema:
+    enabled: true
+    fast: 20    # bars (20 × 4H = 3.3 days fast)
+    slow: 50    # bars (50 × 4H = 8.3 days slow)
+  adx:
+    enabled: true
+    period: 14
+    threshold: 25.0
+  macd:
+    enabled: true
+    fast: 12
+    slow: 26
+    signal: 9
+
+signal_logic:
+  min_confluence: 2   # at least 2 of 4 indicators must agree
+  direction: both     # long + short (SWAP)
+
+risk:
+  cost_bps: 10.0      # OKX taker 5bps/side = 10bps RT
+  bear_ma: 0          # no bear filter for SWAP
+
+mode: backtest
+
+gate:
+  n_splits: 6
+  embargo_bars: 50      # 50 × 4H = 200H embargo per fold
+  pbo_threshold: 0.5
