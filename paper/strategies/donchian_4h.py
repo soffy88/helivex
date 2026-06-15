@@ -67,8 +67,8 @@ class Donchian4H(Strategy):
         self._instrument_id_obj = InstrumentId.from_str(self.config.instrument_id)
         self.subscribe_bars(self._bar_type)
         self.log.info(f"[{self._strategy_id()}] started, subscribing to {self._bar_type}")
-        # DB init in background
-        asyncio.get_event_loop().run_until_complete(self._init_db())
+        # Schedule DB init as a task on NT's running loop; pool ready before first bar.
+        asyncio.ensure_future(self._init_db())
 
     def on_bar(self, bar: Bar) -> None:
         close = float(bar.close)
@@ -129,7 +129,7 @@ class Donchian4H(Strategy):
                         sig_b64=rec.get("sig_b64", ""),
                     )
                     self._pending_signal_id = sid
-            asyncio.get_event_loop().run_until_complete(_store())
+            asyncio.ensure_future(_store())
 
         self._signal_price = price
         self._signal_ts    = bar.ts_event
@@ -190,7 +190,7 @@ class Donchian4H(Strategy):
                         fill_type="taker",
                         signal_id=sig_id,
                     )
-            asyncio.get_event_loop().run_until_complete(_store())
+            asyncio.ensure_future(_store())
             self._pending_signal_id = None
 
     def on_stop(self) -> None:
@@ -198,4 +198,5 @@ class Donchian4H(Strategy):
         self.close_all_positions(inst_id)
         if self._db_pool:
             import asyncio
-            asyncio.get_event_loop().run_until_complete(self._db_pool.close())
+            asyncio.ensure_future(self._db_pool.close())
+            self._db_pool = None

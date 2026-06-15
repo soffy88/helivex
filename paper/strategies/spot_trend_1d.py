@@ -58,7 +58,7 @@ class SpotTrend1D(Strategy):
         import asyncio
         self._bar_type = BarType.from_str(self.config.bar_type)
         self.subscribe_bars(self._bar_type)
-        asyncio.get_event_loop().run_until_complete(self._init_db())
+        asyncio.ensure_future(self._init_db())
 
     def on_bar(self, bar: Bar) -> None:
         close = float(bar.close)
@@ -117,7 +117,7 @@ class SpotTrend1D(Strategy):
                         sig_b64=rec.get("sig_b64", ""),
                     )
                     self._pending_signal_id = sid
-            asyncio.get_event_loop().run_until_complete(_store())
+            asyncio.ensure_future(_store())
 
         self._signal_price = price
         self.log.info(
@@ -165,7 +165,7 @@ class SpotTrend1D(Strategy):
                         fill_type="taker",
                         signal_id=self._pending_signal_id,
                     )
-            asyncio.get_event_loop().run_until_complete(_store())
+            asyncio.ensure_future(_store())
             self._pending_signal_id = None
 
     def on_stop(self) -> None:
@@ -173,4 +173,5 @@ class SpotTrend1D(Strategy):
         self.close_all_positions(inst_id)
         if self._db_pool:
             import asyncio
-            asyncio.get_event_loop().run_until_complete(self._db_pool.close())
+            asyncio.ensure_future(self._db_pool.close())
+            self._db_pool = None

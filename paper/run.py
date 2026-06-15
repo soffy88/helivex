@@ -19,6 +19,11 @@ import os
 import sys
 from pathlib import Path
 
+# Ensure helivex root is on sys.path regardless of invocation method.
+_ROOT = Path(__file__).parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 
 def _load_env() -> None:
     env_path = Path(__file__).parent.parent / ".env"
@@ -58,7 +63,7 @@ async def _init_db_schema() -> None:
 def main() -> None:
     _load_env()
     _safety_gate()
-    asyncio.get_event_loop().run_until_complete(_init_db_schema())
+    asyncio.run(_init_db_schema())
 
     from paper.node import build_node
     node = build_node()

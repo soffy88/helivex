@@ -32,17 +32,17 @@ from paper.strategies.spot_trend_1d import SpotTrend1D, SpotTrend1DConfig
 
 
 def _okx_env():
-    from nautilus_trader.adapters.okx.common.enums import OKXEnvironment
+    from nautilus_trader.adapters.okx.config import OKXEnvironment
     return OKXEnvironment.DEMO
 
 
 def _okx_instrument_type_swap():
-    from nautilus_trader.adapters.okx.common.enums import OKXInstrumentType
+    from nautilus_trader.adapters.okx.config import OKXInstrumentType
     return OKXInstrumentType.SWAP
 
 
 def _okx_instrument_type_spot():
-    from nautilus_trader.adapters.okx.common.enums import OKXInstrumentType
+    from nautilus_trader.adapters.okx.config import OKXInstrumentType
     return OKXInstrumentType.SPOT
 
 
@@ -54,25 +54,25 @@ def build_node() -> TradingNode:
     okx_data_swap = OKXDataClientConfig(
         api_key=api_key,
         api_secret=api_secret,
-        passphrase=passphrase,
+        api_passphrase=passphrase,
         environment=_okx_env(),
-        instrument_type=_okx_instrument_type_swap(),
+        instrument_types=(_okx_instrument_type_swap(),),
         instrument_provider=InstrumentProviderConfig(load_all=True),
     )
     okx_data_spot = OKXDataClientConfig(
         api_key=api_key,
         api_secret=api_secret,
-        passphrase=passphrase,
+        api_passphrase=passphrase,
         environment=_okx_env(),
-        instrument_type=_okx_instrument_type_spot(),
+        instrument_types=(_okx_instrument_type_spot(),),
         instrument_provider=InstrumentProviderConfig(load_all=True),
     )
     okx_exec = OKXExecClientConfig(
         api_key=api_key,
         api_secret=api_secret,
-        passphrase=passphrase,
+        api_passphrase=passphrase,
         environment=_okx_env(),
-        instrument_type=_okx_instrument_type_swap(),
+        instrument_types=(_okx_instrument_type_swap(),),
         instrument_provider=InstrumentProviderConfig(load_all=True),
     )
 
@@ -122,14 +122,8 @@ def build_node() -> TradingNode:
         exec_clients={
             "OKX": okx_exec,
         },
-        strategies=[
-            donchian_btc,
-            donchian_eth,
-            donchian_sol,
-            vwap_sol,
-            spot_btc,
-            spot_eth,
-        ],
+        # strategies added via node.add_strategy() below — TradingNodeConfig.strategies
+        # expects ImportableStrategyConfig in v1.228+, not StrategyConfig instances
     )
 
     node = TradingNode(config=node_config)
@@ -137,11 +131,11 @@ def build_node() -> TradingNode:
     node.add_data_client_factory("OKX_SPOT", OKXLiveDataClientFactory)
     node.add_exec_client_factory("OKX", OKXLiveExecClientFactory)
 
-    node.add_strategy(Donchian4H(donchian_btc))
-    node.add_strategy(Donchian4H(donchian_eth))
-    node.add_strategy(Donchian4H(donchian_sol))
-    node.add_strategy(VwapMR1H(vwap_sol))
-    node.add_strategy(SpotTrend1D(spot_btc))
-    node.add_strategy(SpotTrend1D(spot_eth))
+    node.trader.add_strategy(Donchian4H(donchian_btc))
+    node.trader.add_strategy(Donchian4H(donchian_eth))
+    node.trader.add_strategy(Donchian4H(donchian_sol))
+    node.trader.add_strategy(VwapMR1H(vwap_sol))
+    node.trader.add_strategy(SpotTrend1D(spot_btc))
+    node.trader.add_strategy(SpotTrend1D(spot_eth))
 
     return node
