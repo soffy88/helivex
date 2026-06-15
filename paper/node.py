@@ -50,6 +50,8 @@ def build_node() -> TradingNode:
     api_key     = os.environ["OKX_API_KEY"]
     api_secret  = os.environ["OKX_API_SECRET"]
     passphrase  = os.environ["OKX_PASSPHRASE"]
+    # NT's Rust WS client bypasses shell proxy env vars; wire it explicitly.
+    proxy_url   = os.environ.get("OKX_WS_PROXY") or None
 
     okx_data_swap = OKXDataClientConfig(
         api_key=api_key,
@@ -57,6 +59,7 @@ def build_node() -> TradingNode:
         api_passphrase=passphrase,
         environment=_okx_env(),
         instrument_types=(_okx_instrument_type_swap(),),
+        proxy_url=proxy_url,
         instrument_provider=InstrumentProviderConfig(load_all=True),
     )
     okx_data_spot = OKXDataClientConfig(
@@ -65,6 +68,7 @@ def build_node() -> TradingNode:
         api_passphrase=passphrase,
         environment=_okx_env(),
         instrument_types=(_okx_instrument_type_spot(),),
+        proxy_url=proxy_url,
         instrument_provider=InstrumentProviderConfig(load_all=True),
     )
     okx_exec = OKXExecClientConfig(
@@ -73,6 +77,7 @@ def build_node() -> TradingNode:
         api_passphrase=passphrase,
         environment=_okx_env(),
         instrument_types=(_okx_instrument_type_swap(),),
+        proxy_url=proxy_url,
         instrument_provider=InstrumentProviderConfig(load_all=True),
     )
 
