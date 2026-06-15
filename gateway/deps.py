@@ -30,6 +30,13 @@ STRATEGY_YAML_MAP = {
     "spot_trend":   STRATEGIES_DIR / "spot_trend_1d.yaml",
 }
 
+# paper.signals strategy_id prefixes written by paper/strategies/*.py
+STRATEGY_SIGNAL_PREFIX = {
+    "trend_dual":   "donchian_4h_%",
+    "vwap_mr_dual": "vwap_mr_1h_%",
+    "spot_trend":   "spot_trend_1d_%",
+}
+
 _pool: asyncpg.Pool | None = None
 
 

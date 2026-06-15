@@ -26,6 +26,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from gateway.deps import (
     DB_DSN,
     PROJECT_ROOT,
+    STRATEGY_SIGNAL_PREFIX,
     STRATEGY_YAML_MAP,
     close_pool,
     get_pool,
@@ -95,10 +96,11 @@ async def get_strategies() -> list[dict]:
         cfg = _read_yaml(yaml_path) if yaml_path.exists() else {}
         verdict = latest_verdict(sid)
 
-        # Signal count from paper DB
+        # Signal count from paper DB — match by prefix (paper node uses instrument-qualified IDs)
+        prefix = STRATEGY_SIGNAL_PREFIX.get(sid, sid)
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT COUNT(*) AS n FROM paper.signals WHERE strategy_id=$1", sid
+                "SELECT COUNT(*) AS n FROM paper.signals WHERE strategy_id LIKE $1", prefix
             )
         n_signals = row["n"] if row else 0
 

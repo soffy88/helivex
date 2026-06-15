@@ -1,25 +1,21 @@
 strategy: spot_trend
-description: "Daily Donchian spot trend — long-only, 200d SMA bear filter (SWAP proxy)"
+description: "Daily Donchian spot trend \u2014 long-only, 200d SMA bear filter (SWAP\
+  \ proxy)"
 timeframe: 1D
 instruments:
-  - BTC-USDT-SWAP    # using SWAP as spot proxy (as in R6.0)
-  - ETH-USDT-SWAP
-  - SOL-USDT-SWAP
+- BTC-USDT-SWAP
+- ETH-USDT-SWAP
+- SOL-USDT-SWAP
 db_table: market_data.ohlcv_1h
 db_source: okx_swap_5m
-resample_to_1d: true   # resample 5m → 1D (288 5m bars per day)
-
-# Donchian standalone mode
+resample_to_1d: true
 donchian:
-  n_enter: 20    # 20-day breakout entry
-  n_exit: 10     # 10-day pullback exit
-
+  n_enter: 20
+  n_exit: 10
 risk:
-  cost_bps: 10.0    # use same taker rate for fair comparison
-  bear_ma: 200      # 200d SMA bear filter
+  cost_bps: 10.0
+  bear_ma: 200
   max_position_pct: 1.0
-
-# indicators block (all disabled — using donchian mode above)
 indicators:
   supertrend:
     enabled: false
@@ -29,14 +25,11 @@ indicators:
     enabled: false
   macd:
     enabled: false
-
 signal_logic:
   min_confluence: 1
   direction: long
-
-mode: backtest
-
+mode: paper
 gate:
   n_splits: 6
-  embargo_bars: 50    # 50 daily bars embargo
+  embargo_bars: 50
   pbo_threshold: 0.5
