@@ -91,6 +91,10 @@ interface GwBacktest {
   instruments?: Record<string, { mean_oos_sharpe?: number; pbo?: number; deflated_sharpe?: number; gross_sharpe?: number; oos_sharpes?: number[] }>;
 }
 
+interface GwPnlSeries {
+  series: Record<string, { ts: string; cum_pnl_usd: number }[]>;
+}
+
 // ── Adapters ───────────────────────────────────────────────────────────────
 
 /** Merge gateway summary into a StrategyState using mock as structural base */
@@ -288,6 +292,23 @@ export const helivexApi = {
   runBacktest: async (strategyId: string, instrument: string): Promise<BacktestResult> => {
     const d = await req<GwBacktest>(`/backtest/run?config=${encodeURIComponent(strategyId)}&instrument=${encodeURIComponent(instrument)}`, { method: 'POST' });
     return adaptBacktest(d);
+  },
+
+  pnl: async (): Promise<{ date: string; equity: number }[] | null> => {
+    const d = await req<GwPnlSeries>('/pnl');
+    const seriesMap = d.series ?? {};
+    const events: { ts: string; key: string; cum: number }[] = [];
+    for (const [key, pts] of Object.entries(seriesMap)) {
+      for (const p of pts) events.push({ ts: p.ts, key, cum: p.cum_pnl_usd });
+    }
+    if (events.length === 0) return null;
+    events.sort((a, b) => a.ts.localeCompare(b.ts));
+    const lastByKey: Record<string, number> = {};
+    return events.map(e => {
+      lastByKey[e.key] = e.cum;
+      const equity = Object.values(lastByKey).reduce((s, v) => s + v, 0);
+      return { date: e.ts, equity };
+    });
   },
 
   health: () => req<{ ok: boolean; ts: string }>('/health'),

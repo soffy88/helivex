@@ -195,32 +195,49 @@ export function ExecutionsTab() {
 
 // ── P&L Tab ──────────────────────────────────────────────────────────────────
 export function PnLTab() {
-  const [bt, setBt] = useState<BacktestResult>(MOCK_BACKTEST);
+  // undefined = loading, null = loaded but no fills, array = real data
+  const [points, setPoints] = useState<{ date: string; equity: number }[] | null | undefined>(
+    USE_MOCK ? MOCK_BACKTEST.equity_curve.map(p => ({ date: p.t, equity: p.net })) : undefined
+  );
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     if (USE_MOCK) return;
-    // Use last backtest result or fallback to mock
+    helivexApi.pnl()
+      .then(setPoints)
+      .catch(e => setErr(String(e)));
   }, []);
 
-  const data = bt.equity_curve.map(p => ({ date: p.t, equity: p.net }));
+  const hasData = points != null && points.length > 0;
+
   return (
     <div className="hv-tab">
-      <div className="hv-section-title">累计 P&L (gross vs net){USE_MOCK ? ' (mock)' : ' (backtest 曲线)'}</div>
-      <div className="hv-chart-box">
-        <OEquityCurveChart points={data} />
-      </div>
-      <div className="hv-honest-note">
-        ⚠️ Paper 首笔 fill 前 P&L 曲线为 backtest 历史数据。Gate FAIL 表示策略存在过拟合风险，此曲线含运气成分，不代表策略可上 live。
-      </div>
-
-      <div className="hv-section-title">Regime 分解</div>
-      <div className="hv-grid-3">
-        {bt.regime_breakdown.map(r => (
-          <div key={r.regime} className="hv-metric-card">
-            <ORegimeBadge regime={r.regime} />
-            <span className="hv-metric-val" style={{ color: r.sharpe >= 0 ? 'var(--success,#3fb950)' : 'var(--destructive)' }}>{r.sharpe.toFixed ? r.sharpe.toFixed(2) : r.sharpe}</span>
+      <div className="hv-section-title">累计 Paper P&L{USE_MOCK ? ' (mock)' : ''}</div>
+      {err && (
+        <div className="hv-honest-note" style={{ borderColor: 'var(--destructive)', color: 'var(--destructive)' }}>
+          ⚠ API error: {err}
+        </div>
+      )}
+      {!USE_MOCK && points === undefined && (
+        <div className="hv-empty">加载中…</div>
+      )}
+      {hasData ? (
+        <div className="hv-chart-box">
+          <OEquityCurveChart points={points!} />
+        </div>
+      ) : (
+        !USE_MOCK && points !== undefined && (
+          <div className="hv-empty">
+            暂无 fill 数据 — 等待首笔 bar 收盘后产生真实 P&amp;L。
           </div>
-        ))}
+        )
+      )}
+      <div className="hv-honest-note">
+        {USE_MOCK
+          ? '⚠️ 显示 mock backtest 数据。生产环境 USE_MOCK=false。'
+          : hasData
+            ? '⚠️ Gate FAIL 表示策略存在过拟合风险，P&L 含运气成分，不代表策略可上 live。'
+            : '⚠️ 当前 paper.fills 为空，无真实 P&L 数据。Gate 均为 FAIL，纸面交易中，等待 bar 收盘。'}
       </div>
     </div>
   );
