@@ -1,5 +1,8 @@
 node_modules/
 .next/
+helivex-web/node_modules/
+helivex-web/.next/
+helivex-web/.env.local
 __pycache__/
 *.pyc
 .env

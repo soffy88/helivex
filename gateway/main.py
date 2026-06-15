@@ -590,6 +590,41 @@ async def put_strategy_mode(
     }
 
 
+# ─── /paper/account ───────────────────────────────────────────────────────────
+
+@app.get("/paper/account")
+async def get_paper_account() -> dict:
+    """Return OKX Demo paper account state + today's P&L from fills."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        fills = await conn.fetch(
+            """SELECT side, quantity, signal_price, actual_fill_price, slippage_bps
+               FROM paper.fills WHERE ts >= CURRENT_DATE"""
+        )
+    # OKX Demo base balance (USDT); non-USDT assets shown as USDT-equivalent = 0 for simplicity
+    balance = 5000.0
+    pnl_gross = 0.0
+    pnl_net = 0.0
+    open_positions = 0
+    for f in fills:
+        sign = 1.0 if f["side"] == "SELL" else -1.0
+        if f["signal_price"] and f["signal_price"] > 0:
+            raw_pnl = sign * float(f["quantity"]) * (float(f["actual_fill_price"]) - float(f["signal_price"]))
+            slip_cost = abs(float(f["slippage_bps"] or 0)) / 10000 * float(f["quantity"]) * float(f["actual_fill_price"])
+            pnl_gross += raw_pnl
+            pnl_net += raw_pnl - slip_cost
+        if f["side"] == "BUY":
+            open_positions += 1
+        elif f["side"] == "SELL":
+            open_positions = max(0, open_positions - 1)
+    return {
+        "balance": balance + round(pnl_net, 2),
+        "positions": open_positions,
+        "pnl_today_gross": round(pnl_gross, 2),
+        "pnl_today_net": round(pnl_net, 2),
+    }
+
+
 # ─── Health ───────────────────────────────────────────────────────────────────
 
 @app.get("/health")
