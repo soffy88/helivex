@@ -24,7 +24,7 @@ const MOCK_BY_GW_ID: Record<string, StrategyState> = {
 export function OverviewTab() {
   const [strategies, setStrategies] = useState<StrategyState[]>(MOCK_STRATEGIES);
   const [chain, setChain] = useState<ChainHealth>(MOCK_CHAIN);
-  const [account, setAccount] = useState<PaperAccount>(MOCK_ACCOUNT);
+  const [account, setAccount] = useState<PaperAccount | null>(USE_MOCK ? MOCK_ACCOUNT : null);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
@@ -79,18 +79,18 @@ export function OverviewTab() {
       <div className="hv-grid-3">
         <div className="hv-metric-card">
           <span className="hv-metric-label">USDT 余额</span>
-          <span className="hv-metric-val">${account.balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+          <span className="hv-metric-val">{account ? `$${account.balance.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : '—'}</span>
         </div>
         <div className="hv-metric-card">
           <span className="hv-metric-label">今日 P&L (gross)</span>
-          <span className={`hv-metric-val ${account.pnl_today_gross >= 0 ? 'hv-pos' : 'hv-neg'}`}>
-            {account.pnl_today_gross >= 0 ? '+' : ''}{account.pnl_today_gross.toFixed(2)}
+          <span className={`hv-metric-val ${account && account.pnl_today_gross >= 0 ? 'hv-pos' : 'hv-neg'}`}>
+            {account ? `${account.pnl_today_gross >= 0 ? '+' : ''}${account.pnl_today_gross.toFixed(2)}` : '—'}
           </span>
         </div>
         <div className="hv-metric-card">
           <span className="hv-metric-label">今日 P&L (net)</span>
-          <span className={`hv-metric-val ${account.pnl_today_net >= 0 ? 'hv-pos' : 'hv-neg'}`}>
-            {account.pnl_today_net >= 0 ? '+' : ''}{account.pnl_today_net.toFixed(2)}
+          <span className={`hv-metric-val ${account && account.pnl_today_net >= 0 ? 'hv-pos' : 'hv-neg'}`}>
+            {account ? `${account.pnl_today_net >= 0 ? '+' : ''}${account.pnl_today_net.toFixed(2)}` : '—'}
           </span>
           <span className="hv-metric-note">net &lt; gross (手续费/滑点)</span>
         </div>
