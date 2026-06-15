@@ -234,10 +234,10 @@ export function PnLTab() {
       )}
       <div className="hv-honest-note">
         {USE_MOCK
-          ? '⚠️ 显示 mock backtest 数据。生产环境 USE_MOCK=false。'
+          ? '⚠️ 当前为 MOCK 模式，显示 mock backtest 曲线。生产环境请设置 USE_MOCK=false。'
           : hasData
-            ? '⚠️ Gate FAIL 表示策略存在过拟合风险，P&L 含运气成分，不代表策略可上 live。'
-            : '⚠️ 当前 paper.fills 为空，无真实 P&L 数据。Gate 均为 FAIL，纸面交易中，等待 bar 收盘。'}
+            ? '⚠️ 真实 P&L 数据。Gate FAIL 表示策略存在过拟合风险，P&L 含运气成分，不代表策略可上 live。'
+            : '⚠️ 真实环境：当前无 fill 记录，P&L 为空。等待首笔 bar 收盘，不显示 mock 历史曲线以示诚实。'}
       </div>
     </div>
   );
