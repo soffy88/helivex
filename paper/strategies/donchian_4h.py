@@ -73,9 +73,11 @@ class Donchian4H(Strategy):
     def on_bar(self, bar: Bar) -> None:
         close = float(bar.close)
         self._closes.append(close)
+        self.log.info(f"[on_bar] {bar.bar_type} close={close:.4f} n={len(self._closes)}")
 
         c = self.config
         if len(self._closes) < c.n_enter + 1:
+            self._fire_signal(bar, "NEUTRAL", close)
             return
 
         closes_list = list(self._closes)
@@ -99,8 +101,7 @@ class Donchian4H(Strategy):
             if close > high_exit:
                 action = "exit_short"
 
-        if action:
-            self._fire_signal(bar, action, close)
+        self._fire_signal(bar, action or "NEUTRAL", close)
 
     def _fire_signal(self, bar: Bar, action: str, price: float) -> None:
         import asyncio
@@ -137,6 +138,9 @@ class Donchian4H(Strategy):
             f"[{strat}] SIGNAL {action} @ {price:.2f}  "
             f"record={rec['record_id']}  tier={rec['tier']}"
         )
+
+        if action == "NEUTRAL":
+            return
 
         # Submit order
         instrument = self.cache.instrument(

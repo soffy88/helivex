@@ -63,10 +63,12 @@ class SpotTrend1D(Strategy):
     def on_bar(self, bar: Bar) -> None:
         close = float(bar.close)
         self._closes.append(close)
+        self.log.info(f"[on_bar] {bar.bar_type} close={close:.4f} n={len(self._closes)}")
 
         c = self.config
         need = max(c.n_enter, c.n_exit, c.bear_ma) + 1
         if len(self._closes) < need:
+            self._fire_signal(bar, "NEUTRAL", close)
             return
 
         closes_list = list(self._closes)
@@ -88,8 +90,7 @@ class SpotTrend1D(Strategy):
             if close < low_exit:
                 action = "exit_long"
 
-        if action:
-            self._fire_signal(bar, action, close)
+        self._fire_signal(bar, action or "NEUTRAL", close)
 
     def _fire_signal(self, bar: Bar, action: str, price: float) -> None:
         import asyncio
@@ -124,6 +125,9 @@ class SpotTrend1D(Strategy):
             f"[{strat}] SIGNAL {action} @ {price:.4f}  "
             f"record={rec['record_id']}  tier={rec['tier']}"
         )
+
+        if action == "NEUTRAL":
+            return
 
         instrument = self.cache.instrument(InstrumentId.from_str(self.config.instrument_id))
         if instrument is None:

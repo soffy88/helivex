@@ -65,6 +65,7 @@ class VwapMR1H(Strategy):
         volume = float(bar.volume)
         self._closes.append(close)
         self._volumes.append(volume)
+        self.log.info(f"[on_bar] {bar.bar_type} close={close:.4f} n={len(self._closes)}")
 
         # Decrement hold / time-based exit
         if self._position != 0:
@@ -78,6 +79,7 @@ class VwapMR1H(Strategy):
 
         # Need at least vwap_n+1 bars
         if len(self._closes) < self.config.vwap_n + 1:
+            self._fire_signal(bar, "NEUTRAL", close)
             return
 
         c_arr = list(self._closes)
@@ -92,6 +94,7 @@ class VwapMR1H(Strategy):
 
         import statistics
         if len(prior_c) < 2:
+            self._fire_signal(bar, "NEUTRAL", close)
             return
         std = statistics.stdev(prior_c)
         z   = (close - vwap) / (std + 1e-10)
@@ -100,6 +103,8 @@ class VwapMR1H(Strategy):
             self._fire_signal(bar, "enter_short", close)
         elif z < -self.config.z_thr:
             self._fire_signal(bar, "enter_long", close)
+        else:
+            self._fire_signal(bar, "NEUTRAL", close)
 
     def _fire_signal(self, bar: Bar, action: str, price: float) -> None:
         import asyncio
@@ -133,6 +138,9 @@ class VwapMR1H(Strategy):
             f"[{strat}] SIGNAL {action} @ {price:.4f}  "
             f"record={rec['record_id']}  tier={rec['tier']}"
         )
+
+        if action == "NEUTRAL":
+            return
 
         instrument = self.cache.instrument(InstrumentId.from_str(self.config.instrument_id))
         if instrument is None:

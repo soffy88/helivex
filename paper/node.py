@@ -53,21 +53,15 @@ def build_node() -> TradingNode:
     # NT's Rust WS client bypasses shell proxy env vars; wire it explicitly.
     proxy_url   = os.environ.get("OKX_WS_PROXY") or None
 
-    okx_data_swap = OKXDataClientConfig(
+    # Single unified client for both SWAP and SPOT — eliminates venue routing
+    # overwrite bug where two OKX clients both register venue=OKX and the second
+    # (OKX_SPOT) silently shadows the first, routing all bar subscriptions wrong.
+    okx_data = OKXDataClientConfig(
         api_key=api_key,
         api_secret=api_secret,
         api_passphrase=passphrase,
         environment=_okx_env(),
-        instrument_types=(_okx_instrument_type_swap(),),
-        proxy_url=proxy_url,
-        instrument_provider=InstrumentProviderConfig(load_all=True),
-    )
-    okx_data_spot = OKXDataClientConfig(
-        api_key=api_key,
-        api_secret=api_secret,
-        api_passphrase=passphrase,
-        environment=_okx_env(),
-        instrument_types=(_okx_instrument_type_spot(),),
+        instrument_types=(_okx_instrument_type_swap(), _okx_instrument_type_spot()),
         proxy_url=proxy_url,
         instrument_provider=InstrumentProviderConfig(load_all=True),
     )
@@ -82,38 +76,39 @@ def build_node() -> TradingNode:
     )
 
     # Strategy 1 — Donchian 4H SWAP (BTC, ETH, SOL)
+    # LAST-INTERNAL: NT aggregates from trade ticks — no dependency on business WS candle push
     donchian_btc = Donchian4HConfig(
         instrument_id="BTC-USDT-SWAP.OKX",
-        bar_type="BTC-USDT-SWAP.OKX-4-HOUR-LAST-EXTERNAL",
+        bar_type="BTC-USDT-SWAP.OKX-4-HOUR-LAST-INTERNAL",
         n_enter=20, n_exit=10, qty_usd=200.0,
     )
     donchian_eth = Donchian4HConfig(
         instrument_id="ETH-USDT-SWAP.OKX",
-        bar_type="ETH-USDT-SWAP.OKX-4-HOUR-LAST-EXTERNAL",
+        bar_type="ETH-USDT-SWAP.OKX-4-HOUR-LAST-INTERNAL",
         n_enter=20, n_exit=10, qty_usd=200.0,
     )
     donchian_sol = Donchian4HConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
-        bar_type="SOL-USDT-SWAP.OKX-4-HOUR-LAST-EXTERNAL",
+        bar_type="SOL-USDT-SWAP.OKX-4-HOUR-LAST-INTERNAL",
         n_enter=20, n_exit=10, qty_usd=200.0,
     )
 
     # Strategy 2 — VWAP-MR 1H SWAP (SOL)
     vwap_sol = VwapMR1HConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
-        bar_type="SOL-USDT-SWAP.OKX-1-HOUR-LAST-EXTERNAL",
+        bar_type="SOL-USDT-SWAP.OKX-1-HOUR-LAST-INTERNAL",
         vwap_n=4, z_thr=2.0, hold=6, qty_usd=200.0,
     )
 
     # Strategy 3 — Daily Donchian Spot (BTC, ETH)
     spot_btc = SpotTrend1DConfig(
         instrument_id="BTC-USDT.OKX",
-        bar_type="BTC-USDT.OKX-1-DAY-LAST-EXTERNAL",
+        bar_type="BTC-USDT.OKX-1-DAY-LAST-INTERNAL",
         n_enter=20, n_exit=10, bear_ma=200, qty_usd=200.0,
     )
     spot_eth = SpotTrend1DConfig(
         instrument_id="ETH-USDT.OKX",
-        bar_type="ETH-USDT.OKX-1-DAY-LAST-EXTERNAL",
+        bar_type="ETH-USDT.OKX-1-DAY-LAST-INTERNAL",
         n_enter=20, n_exit=10, bear_ma=200, qty_usd=200.0,
     )
 
@@ -121,8 +116,7 @@ def build_node() -> TradingNode:
         trader_id="HELIVEX-PAPER-001",
         exec_engine=LiveExecEngineConfig(reconciliation=True),
         data_clients={
-            "OKX_SWAP": okx_data_swap,
-            "OKX_SPOT": okx_data_spot,
+            "OKX": okx_data,
         },
         exec_clients={
             "OKX": okx_exec,
@@ -132,8 +126,7 @@ def build_node() -> TradingNode:
     )
 
     node = TradingNode(config=node_config)
-    node.add_data_client_factory("OKX_SWAP", OKXLiveDataClientFactory)
-    node.add_data_client_factory("OKX_SPOT", OKXLiveDataClientFactory)
+    node.add_data_client_factory("OKX", OKXLiveDataClientFactory)
     node.add_exec_client_factory("OKX", OKXLiveExecClientFactory)
 
     node.trader.add_strategy(Donchian4H(donchian_btc))
