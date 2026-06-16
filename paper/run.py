@@ -16,8 +16,11 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 import sys
 from pathlib import Path
+
+_PID_FILE = Path("/tmp/helivex_paper_node.pid")
 
 # Ensure helivex root is on sys.path regardless of invocation method.
 _ROOT = Path(__file__).parent.parent
@@ -60,10 +63,26 @@ async def _init_db_schema() -> None:
         print(f"[paper/run.py] DB init warning (non-fatal): {e}")
 
 
+def _write_pid() -> None:
+    _PID_FILE.write_text(str(os.getpid()))
+    print(f"[paper/run.py] PID {os.getpid()} → {_PID_FILE}")
+
+
+def _remove_pid() -> None:
+    try:
+        _PID_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def main() -> None:
     _load_env()
     _safety_gate()
     asyncio.run(_init_db_schema())
+
+    _write_pid()
+    # Clean up PID on SIGTERM so monitor detects intentional shutdown immediately
+    signal.signal(signal.SIGTERM, lambda *_: (_remove_pid(), sys.exit(0)))
 
     from paper.node import build_node
     node = build_node()
@@ -73,6 +92,7 @@ def main() -> None:
         print("[paper/run.py] Starting node — 3 strategies on OKX DEMO.")
         node.run()
     finally:
+        _remove_pid()
         node.dispose()
         print("[paper/run.py] Node stopped.")
 
