@@ -20,7 +20,7 @@ from typing import Any
 import asyncpg
 
 from nautilus_trader.config import StrategyConfig
-from nautilus_trader.model.data import Bar, BarType
+from nautilus_trader.model.data import Bar, BarType, TradeTick
 from nautilus_trader.model.enums import OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
@@ -51,6 +51,7 @@ class Donchian4H(Strategy):
         self._signal_ts: int | None = None
         self._pending_signal_id: int | None = None
         self._db_pool: asyncpg.Pool | None = None
+        self._tick_count: int = 0     # probe: count trade ticks received
 
     def _strategy_id(self) -> str:
         inst = self.config.instrument_id.replace(".", "_").replace("-", "_").lower()
@@ -66,9 +67,19 @@ class Donchian4H(Strategy):
         self._bar_type     = BarType.from_str(self.config.bar_type)
         self._instrument_id_obj = InstrumentId.from_str(self.config.instrument_id)
         self.subscribe_bars(self._bar_type)
+        # Probe: explicit trade sub so on_trade fires — verifies public WS tick flow
+        self.subscribe_trade_ticks(self._instrument_id_obj)
         self.log.info(f"[{self._strategy_id()}] started, subscribing to {self._bar_type}")
         # Schedule DB init as a task on NT's running loop; pool ready before first bar.
         asyncio.ensure_future(self._init_db())
+
+    def on_trade_tick(self, tick: TradeTick) -> None:
+        self._tick_count += 1
+        if self._tick_count <= 3 or self._tick_count % 100 == 0:
+            self.log.info(
+                f"[tick_probe] {tick.instrument_id} px={tick.price} "
+                f"sz={tick.size} n={self._tick_count}"
+            )
 
     def on_bar(self, bar: Bar) -> None:
         close = float(bar.close)
