@@ -3,7 +3,7 @@
  * 诚实背景:三策略 backtest 均未过 gate(DSR/PBO 不达标),mock 如实反映。
  */
 import type {
-  StrategyState, GateResult, BacktestResult, Execution,
+  StrategyState, GateVerdict, GateResult, BacktestResult, Execution,
   AuditDecision, ChainHealth, PaperAccount,
 } from '@/types/api';
 
@@ -25,18 +25,25 @@ export const MOCK_STRATEGIES: StrategyState[] = [
     gate: { verdict: 'fail', dsr: 0.31, pbo: 0.62, reason: 'OOS fold 方差过高,DSR 低于阈值' },
   },
   {
-    strategy_id: 'vwap_mr_dual', name: 'VWAP 均值回归 (1H)', mode: 'paper', regime: 'chop',
+    strategy_id: 'mean_revert', name: '策略2 均值回归', mode: 'shadow', regime: 'chop',
     position: '空仓', signals_today: 1,
     indicators: mkIndicators([['VWAP','primary_direction'],['Bollinger','reversion_band'],['RSI','overbought'],['Stochastic','timing'],['Keltner','volatility'],['ATR','risk_sizing']]),
-    signal_logic: { entry: 'price < vwap_lower AND z < -2', exit: 'price > vwap OR time_exit', min_confluence: 2, direction_mode: 'dual' },
+    signal_logic: { entry: 'price < bb_lower AND rsi < 30', exit: 'price > vwap', min_confluence: 2, direction_mode: 'dual' },
     gate: { verdict: 'fail', dsr: 0.44, pbo: 0.58, reason: 'PBO 高于 0.5,过拟合风险' },
   },
   {
-    strategy_id: 'spot_trend', name: '现货趋势 (日线)', mode: 'paper', regime: 'bear',
+    strategy_id: 'momentum_multi', name: '策略3 多周期动量', mode: 'shadow', regime: 'bear',
     position: '空仓', signals_today: 0,
-    indicators: mkIndicators([['Donchian','breakout'],['MA200','bear_filter'],['ATR','risk_sizing'],['OBV','volume_confirm']]),
-    signal_logic: { entry: 'close > donchian_high AND not bear', exit: 'close < donchian_low', min_confluence: 2, direction_mode: 'long_only' },
+    indicators: mkIndicators([['EMA multi','trend_align'],['SuperTrend','primary_direction'],['ADX','strength'],['MACD','momentum_confirm'],['RSI','filter'],['OBV','volume_confirm']]),
+    signal_logic: { entry: 'ema_stack_aligned AND adx > 30 AND obv_rising', exit: 'ema_cross_down', min_confluence: 4, direction_mode: 'long_only' },
     gate: { verdict: 'pending' },
+  },
+  {
+    strategy_id: 'scalp_5m', name: '策略4 高频剥头皮', mode: 'shadow', regime: 'chop',
+    position: '空仓', signals_today: 0,
+    indicators: mkIndicators([['EMA fast','primary_direction'],['ATR','risk_sizing']]),
+    signal_logic: { entry: 'ema_fast_cross', exit: 'atr_stop', min_confluence: 1, direction_mode: 'dual' },
+    gate: { verdict: 'no-go' as GateVerdict, dsr: 0.18, pbo: 0.71, reason: '观察对象,DSR 过低暂不启用' },
   },
 ];
 

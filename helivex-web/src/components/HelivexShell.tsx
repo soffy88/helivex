@@ -1,14 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { OverviewTab } from './tabs/OverviewTab';
 import { ConfigureTab } from './tabs/ConfigureTab';
 import { StrategiesTab, BacktestTab, ExecutionsTab, PnLTab, AuditTab } from './tabs/OtherTabs';
 import { PortfolioTab } from './tabs/PortfolioTab';
 import { StrategyDetail } from './StrategyDetail';
-import { helivexApi } from '@/lib/api-client';
+import { TabErrorBoundary } from './TabErrorBoundary';
 import { MOCK_STRATEGIES } from '@/lib/mock-data';
-import type { StrategyState } from '@/types/api';
 
 const TABS = [
   { id: 'overview',   label: 'Overview' },
@@ -24,13 +23,8 @@ const TABS = [
 export function HelivexShell() {
   const [tab, setTab] = useState('overview');
   const [drillId, setDrillId] = useState<string | null>(null);
-  const [strategies, setStrategies] = useState<StrategyState[]>(MOCK_STRATEGIES);
 
-  useEffect(() => {
-    helivexApi.strategies().then(setStrategies).catch(console.error);
-  }, []);
-
-  const drilledStrategy = drillId ? strategies.find(s => s.strategy_id === drillId) : null;
+  const drilledStrategy = drillId ? MOCK_STRATEGIES.find(s => s.strategy_id === drillId) : null;
 
   const renderTab = () => {
     if (tab === 'strategies' && drilledStrategy) {
@@ -38,7 +32,7 @@ export function HelivexShell() {
     }
     switch (tab) {
       case 'overview':   return <OverviewTab />;
-      case 'strategies': return <StrategiesTab strategies={strategies} onDrill={setDrillId} />;
+      case 'strategies': return <StrategiesTab onDrill={setDrillId} />;
       case 'portfolio':  return <PortfolioTab />;
       case 'configure':  return <ConfigureTab />;
       case 'backtest':   return <BacktestTab />;
@@ -63,7 +57,9 @@ export function HelivexShell() {
         <span className="hv-mode-global">paper mode</span>
       </header>
       <main className="hv-main">
-        {renderTab()}
+        <TabErrorBoundary tabName={tab} key={tab + (drillId ?? '')}>
+          {renderTab()}
+        </TabErrorBoundary>
       </main>
     </div>
   );

@@ -153,3 +153,9 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 .hv-kill-actions { display: flex; gap: 8px; }
 .hv-kill-cancel { padding: 8px 16px; border-radius: 7px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); cursor: pointer; }
 .hv-kill-confirm-btn { padding: 8px 16px; border-radius: 7px; border: none; background: var(--destructive); color: #fff; font-weight: 600; cursor: pointer; }
+
+/* ── 健壮性:Tab 错误边界 ── */
+.hv-tab-error { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 16px; gap: 8px; }
+.hv-tab-error__text { font-size: var(--text-base); font-weight: 600; color: var(--foreground); }
+.hv-tab-error__sub { font-size: var(--text-sm); color: var(--muted-foreground); }
+.hv-tab-error__retry { margin-top: 8px; padding: 8px 20px; border-radius: 8px; border: 1px solid var(--primary); background: color-mix(in oklch, var(--primary) 10%, transparent); color: var(--primary); font-size: var(--text-sm); cursor: pointer; }

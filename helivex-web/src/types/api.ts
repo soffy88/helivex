@@ -5,7 +5,7 @@
 
 export type StrategyMode = 'shadow' | 'paper' | 'live';
 export type Regime = 'trend' | 'chop' | 'bear' | 'bull' | 'unknown';
-export type GateVerdict = 'pass' | 'fail' | 'pending';
+export type GateVerdict = 'pass' | 'fail' | 'pending' | 'no-go' | 'unknown';
 
 export interface IndicatorConfig {
   name: string;

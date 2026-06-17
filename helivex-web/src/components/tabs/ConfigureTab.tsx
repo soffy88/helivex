@@ -5,7 +5,8 @@
 'use client';
 
 import { useState } from 'react';
-import { OIndicatorCard, OGateBadge } from '@helios/blocks';
+import { OIndicatorCard } from '@helios/blocks';
+import { SafeGateBadge } from '../SafeBadges';
 import { MOCK_STRATEGIES, MOCK_GATE_RESULT } from '@/lib/mock-data';
 import type { GateResult } from '@/types/api';
 import { helivexApi, USE_MOCK } from '@/lib/api-client';
@@ -89,7 +90,7 @@ export function ConfigureTab() {
         </button>
         {gateResult && (
           <div className="hv-gate-result">
-            <OGateBadge verdict={gateResult.verdict} dsr={gateResult.dsr} pbo={gateResult.pbo} reason={gateResult.reason} />
+            <SafeGateBadge verdict={gateResult.verdict} dsr={gateResult.dsr} pbo={gateResult.pbo} reason={gateResult.reason} />
             <div className="hv-gate-metrics">
               <span>Gross SR <strong>{gateResult.gross_sr}</strong></span>
               <span>OOS Sharpe <strong>{gateResult.oos_sharpe}</strong></span>
