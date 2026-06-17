@@ -8,18 +8,18 @@
     "start": "next start"
   },
   "dependencies": {
+    "@helios/blocks": "file:vendor/helios-blocks-2.8.0.tgz",
+    "@helios/oui": "file:./vendor/helios-oui-1.6.0.tgz",
     "next": "^16.0.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "@helios/blocks": "file:./vendor/helios-blocks-2.8.0.tgz",
-    "@helios/oui": "file:./vendor/helios-oui-1.6.0.tgz"
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "typescript": "^5",
     "tailwindcss": "^4",
-    "@tailwindcss/postcss": "^4"
+    "typescript": "^5"
   }
 }
