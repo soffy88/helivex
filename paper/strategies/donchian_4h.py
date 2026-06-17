@@ -88,7 +88,7 @@ class Donchian4H(Strategy):
 
         c = self.config
         if len(self._closes) < c.n_enter + 1:
-            self._fire_signal(bar, "NEUTRAL", close)
+            self._fire_signal(bar, "NEUTRAL", close, {"n_bars": len(self._closes), "warmup": True})
             return
 
         closes_list = list(self._closes)
@@ -112,9 +112,17 @@ class Donchian4H(Strategy):
             if close > high_exit:
                 action = "exit_short"
 
-        self._fire_signal(bar, action or "NEUTRAL", close)
+        indic = {
+            "high_enter": round(high_enter, 4),
+            "low_enter":  round(low_enter, 4),
+            "high_exit":  round(high_exit, 4),
+            "low_exit":   round(low_exit, 4),
+            "n_bars":     len(self._closes),
+            "position":   self._position,
+        }
+        self._fire_signal(bar, action or "NEUTRAL", close, indic)
 
-    def _fire_signal(self, bar: Bar, action: str, price: float) -> None:
+    def _fire_signal(self, bar: Bar, action: str, price: float, indicators: dict | None = None) -> None:
         import asyncio
 
         inst = self.config.instrument_id
@@ -132,6 +140,7 @@ class Donchian4H(Strategy):
 
         # Persist signal
         if self._db_pool:
+            _indicators = indicators
             async def _store():
                 async with self._db_pool.acquire() as conn:
                     sid = await log_signal(
@@ -139,6 +148,7 @@ class Donchian4H(Strategy):
                         audit_record_id=rec["record_id"],
                         fingerprint_hex=rec["fingerprint_hex"],
                         sig_b64=rec.get("sig_b64", ""),
+                        indicators=_indicators,
                     )
                     self._pending_signal_id = sid
             asyncio.ensure_future(_store())

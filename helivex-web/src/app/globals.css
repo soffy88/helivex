@@ -107,3 +107,49 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 .hv-audit-detail__head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; font-size: var(--text-sm); }
 .hv-verify-btn { padding: 4px 12px; border-radius: 6px; border: 1px solid var(--primary); background: none; color: var(--primary); font-size: var(--text-xs); cursor: pointer; }
 .hv-json { font-family: var(--font-mono, monospace); font-size: var(--text-xs); background: var(--muted); border-radius: 8px; padding: 12px; overflow-x: auto; margin: 0; }
+
+/* ── V2 策略详情页 ── */
+.hv-detail-page { display: flex; flex-direction: column; gap: 16px; }
+.hv-detail-header { display: flex; align-items: center; gap: 12px; }
+.hv-back-btn { padding: 6px 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); font-size: var(--text-sm); cursor: pointer; }
+.hv-detail-title { font-size: var(--text-xl); font-weight: 780; margin: 0; }
+.hv-subview-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.hv-subview-tab { padding: 8px 14px; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; color: var(--muted-foreground); font-size: var(--text-sm); }
+.hv-subview-tab[data-active="true"] { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+.hv-subview-body { min-height: 200px; }
+.hv-drill-btn { margin-top: 8px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--primary); background: color-mix(in oklch, var(--primary) 10%, transparent); color: var(--primary); font-size: var(--text-sm); cursor: pointer; }
+
+/* 诚实空状态 */
+.hv-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 16px; gap: 6px; }
+.hv-empty__text { font-size: var(--text-base); color: var(--muted-foreground); font-weight: 500; }
+.hv-empty__sub { font-size: var(--text-sm); color: var(--muted-foreground); opacity: 0.7; }
+
+/* 信号历史 */
+.hv-signal-list { display: flex; flex-direction: column; gap: 4px; }
+.hv-signal-item { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.hv-signal-head { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--card); border: none; cursor: pointer; width: 100%; text-align: left; }
+.hv-signal-head:hover { background: var(--muted); }
+.hv-signal-time { font-size: var(--text-xs); color: var(--muted-foreground); font-variant-numeric: tabular-nums; width: 120px; }
+.hv-signal-dir { font-size: var(--text-sm); font-weight: 600; text-transform: uppercase; width: 70px; }
+.hv-signal-strength { font-size: var(--text-xs); color: var(--muted-foreground); }
+.hv-signal-acted { font-size: var(--text-xs); padding: 1px 8px; border-radius: 99px; background: var(--muted); color: var(--muted-foreground); margin-left: auto; }
+.hv-signal-acted[data-acted="true"] { background: color-mix(in oklch, var(--primary) 18%, transparent); color: var(--primary); }
+.hv-signal-indicators { padding: 10px 14px; border-top: 1px solid var(--border); display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+.hv-indicator-snap { display: flex; justify-content: space-between; font-size: var(--text-xs); padding: 4px 8px; border-radius: 6px; background: var(--muted); }
+.hv-indicator-name { color: var(--muted-foreground); }
+.hv-indicator-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* 交易筛选 */
+.hv-trade-filters { display: flex; gap: 8px; margin-bottom: 12px; align-items: center; }
+.hv-export-btn { margin-left: auto; padding: 6px 14px; border-radius: 7px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); font-size: var(--text-sm); cursor: pointer; }
+
+/* 相关性矩阵 */
+.hv-corr-matrix { overflow-x: auto; }
+.hv-corr-matrix .hv-table td { border: 1px solid var(--border); }
+
+/* kill switch */
+.hv-kill-btn { align-self: flex-start; padding: 10px 20px; border-radius: 8px; border: 1px solid var(--destructive); background: color-mix(in oklch, var(--destructive) 10%, transparent); color: var(--destructive); font-size: var(--text-sm); font-weight: 600; cursor: pointer; }
+.hv-kill-confirm { padding: 16px; border-radius: 10px; border: 1px solid var(--destructive); background: color-mix(in oklch, var(--destructive) 8%, transparent); display: flex; flex-direction: column; gap: 12px; }
+.hv-kill-actions { display: flex; gap: 8px; }
+.hv-kill-cancel { padding: 8px 16px; border-radius: 7px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); cursor: pointer; }
+.hv-kill-confirm-btn { padding: 8px 16px; border-radius: 7px; border: none; background: var(--destructive); color: #fff; font-weight: 600; cursor: pointer; }

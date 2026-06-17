@@ -85,34 +85,106 @@ def _detect_regime(closes: list[float], ma_period: int = 200) -> str:
     return "bull" if closes[-1] > ma else "bear"
 
 
+STRATEGY_DISPLAY_NAMES = {
+    "trend_dual":   "趋势双向 (Donchian 4H)",
+    "vwap_mr_dual": "VWAP 均值回归 (1H)",
+    "spot_trend":   "现货趋势 (日线)",
+}
+
+
+def _latest_gate_metrics(strategy_id: str) -> dict:
+    data = load_trials()
+    yaml_name = STRATEGY_YAML_MAP.get(strategy_id, Path(strategy_id)).stem
+    for entry in reversed(data.get("history", [])):
+        cfg_path = entry.get("config", "")
+        if strategy_id in cfg_path or yaml_name in cfg_path:
+            instruments = entry.get("metrics", {}).get("instruments", {})
+            if instruments:
+                dsrs = [v.get("dsr") for v in instruments.values() if v.get("dsr") is not None]
+                pbos = [v.get("pbo") for v in instruments.values() if v.get("pbo") is not None]
+                return {
+                    "dsr": round(sum(dsrs) / len(dsrs), 4) if dsrs else None,
+                    "pbo": round(sum(pbos) / len(pbos), 4) if pbos else None,
+                }
+    return {"dsr": None, "pbo": None}
+
+
+def _action_direction(action: str) -> str:
+    if action in ("enter_long", "exit_short"):
+        return "long"
+    if action in ("enter_short", "exit_long", "time_exit"):
+        return "short"
+    return "neutral"
+
+
+def _row_to_signal_log(r: Any) -> dict:
+    action = r["action"]
+    direction = _action_direction(action)
+    acted = action != "NEUTRAL"
+    indic_raw: dict = json.loads(r["indicators"]) if r["indicators"] else {}
+    indicator_values = [
+        {"name": k, "value": v}
+        for k, v in indic_raw.items()
+        if k != "warmup"
+    ]
+    return {
+        "time": r["ts"].isoformat(),
+        "direction": direction,
+        "strength": 0.75 if acted else 0.2,
+        "acted": acted,
+        "indicator_values": indicator_values,
+        "instrument": r["instrument"],
+        "action": action,
+        "signal_price": r["signal_price"],
+        "has_signature": bool(r["sig_b64"]),
+        "tier": "GOLD" if r["sig_b64"] else "STANDARD",
+    }
+
+
 # ─── /strategies ──────────────────────────────────────────────────────────────
 
 @app.get("/strategies")
 async def get_strategies() -> list[dict]:
-    """Return status + config summary + regime for all 3 strategies."""
+    """Return StrategyState-compatible list for all 3 strategies."""
     pool = await get_pool()
     result = []
     for sid, yaml_path in STRATEGY_YAML_MAP.items():
         cfg = _read_yaml(yaml_path) if yaml_path.exists() else {}
         verdict = latest_verdict(sid)
+        gate_m = _latest_gate_metrics(sid)
 
-        # Signal count from paper DB — match by prefix (paper node uses instrument-qualified IDs)
         prefix = STRATEGY_SIGNAL_PREFIX.get(sid, sid)
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 "SELECT COUNT(*) AS n FROM paper.signals WHERE strategy_id LIKE $1", prefix
             )
-        n_signals = row["n"] if row else 0
+        n_signals = int(row["n"]) if row else 0
 
+        sl = cfg.get("signal_logic", {})
         result.append({
-            "id": sid,
-            "strategy": cfg.get("strategy", sid),
-            "timeframe": cfg.get("timeframe", ""),
-            "instruments": cfg.get("instruments", []),
-            "mode": cfg.get("mode", "backtest"),
-            "last_gate_verdict": verdict,
-            "gate_passed": verdict == "PASS",
+            "strategy_id": sid,
+            "name": STRATEGY_DISPLAY_NAMES.get(sid, sid),
+            "mode": cfg.get("mode", "paper"),
+            "regime": "unknown",
+            "position": "空仓",
+            "signals_today": n_signals,
+            "indicators": [],
+            "signal_logic": {
+                "entry": str(sl.get("entry", "")),
+                "exit": str(sl.get("exit", "")),
+                "min_confluence": sl.get("min_confluence", 1),
+                "direction_mode": sl.get("direction_mode", "dual"),
+            },
+            "gate": {
+                "verdict": ("pass" if verdict == "PASS" else "fail") if verdict else "pending",
+                "dsr": gate_m.get("dsr"),
+                "pbo": gate_m.get("pbo"),
+                "reason": verdict,
+            },
+            # Extra context fields (not in StrategyState type, ignored by frontend)
             "n_paper_signals": n_signals,
+            "instruments": cfg.get("instruments", []),
+            "timeframe": cfg.get("timeframe", ""),
             "config_path": str(yaml_path.relative_to(PROJECT_ROOT)),
         })
     return result
@@ -623,6 +695,346 @@ async def get_paper_account() -> dict:
         "pnl_today_gross": round(pnl_gross, 2),
         "pnl_today_net": round(pnl_net, 2),
     }
+
+
+# ─── /strategies/{id}/positions ───────────────────────────────────────────────
+
+def _prefix_for(strategy_id: str) -> str:
+    if strategy_id not in STRATEGY_SIGNAL_PREFIX:
+        raise HTTPException(404, f"Unknown strategy: {strategy_id}")
+    return STRATEGY_SIGNAL_PREFIX[strategy_id]
+
+
+@app.get("/strategies/{strategy_id}/positions")
+async def get_strategy_positions(strategy_id: str) -> list:
+    """Return net open positions as Position[] inferred from fill history."""
+    prefix = _prefix_for(strategy_id)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT instrument, side, SUM(quantity) AS qty, AVG(actual_fill_price) AS avg_px
+               FROM paper.fills WHERE strategy_id LIKE $1
+               GROUP BY instrument, side ORDER BY instrument""",
+            prefix,
+        )
+    from collections import defaultdict
+    net: dict[str, dict] = defaultdict(lambda: {"buy_qty": 0.0, "sell_qty": 0.0, "buy_px": 0.0, "sell_px": 0.0})
+    for r in rows:
+        inst = r["instrument"]
+        if r["side"] == "BUY":
+            net[inst]["buy_qty"] += float(r["qty"]); net[inst]["buy_px"] = float(r["avg_px"])
+        else:
+            net[inst]["sell_qty"] += float(r["qty"]); net[inst]["sell_px"] = float(r["avg_px"])
+
+    positions = []
+    for inst, d in net.items():
+        net_qty = d["buy_qty"] - d["sell_qty"]
+        if abs(net_qty) < 1e-9:
+            continue
+        side = "long" if net_qty > 0 else "short"
+        avg_entry = d["buy_px"] if net_qty > 0 else d["sell_px"]
+        positions.append({
+            "instrument": inst,
+            "side": side,
+            "quantity": round(abs(net_qty), 8),
+            "avg_entry_price": round(avg_entry, 4),
+            "current_price": None,
+            "unrealized_pnl": 0.0,
+            "unrealized_pnl_pct": 0.0,
+            "holding_duration": "—",
+            "margin_used": None,
+            "leverage": None,
+            "liquidation_price": None,
+        })
+    return positions
+
+
+# ─── /strategies/{id}/trades ──────────────────────────────────────────────────
+
+@app.get("/strategies/{strategy_id}/trades")
+async def get_strategy_trades(strategy_id: str) -> list:
+    """Return Trade[] — empty until fill pairs accumulate."""
+    _prefix_for(strategy_id)  # validate
+    return []
+
+
+# ─── /strategies/{id}/equity ──────────────────────────────────────────────────
+
+@app.get("/strategies/{strategy_id}/equity")
+async def get_strategy_equity(strategy_id: str) -> dict:
+    """Return StrategyEquity with equity curve points (5000 base + cum P&L)."""
+    prefix = _prefix_for(strategy_id)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT ts, side, quantity, signal_price, actual_fill_price
+               FROM paper.fills WHERE strategy_id LIKE $1 ORDER BY ts ASC""",
+            prefix,
+        )
+    base = 5000.0
+    cum = 0.0
+    points = []
+    for r in rows:
+        sign = 1.0 if r["side"] == "SELL" else -1.0
+        sp = float(r["signal_price"] or 0)
+        fp = float(r["actual_fill_price"])
+        if sp > 0:
+            cum += sign * float(r["quantity"]) * (fp - sp)
+        points.append({
+            "date": r["ts"].isoformat(),
+            "equity": round(base + cum, 2),
+            "drawdown": 0.0,
+            "realized_pnl": round(cum, 4),
+        })
+    if not points:
+        points = [{"date": datetime.now(timezone.utc).isoformat(), "equity": base, "drawdown": 0.0, "realized_pnl": 0.0}]
+    return {"points": points, "by_instrument": None}
+
+
+# ─── /strategies/{id}/signals ─────────────────────────────────────────────────
+
+@app.get("/strategies/{strategy_id}/signals")
+async def get_strategy_signals(
+    strategy_id: str,
+    limit: int = Query(100),
+) -> list:
+    """Return SignalLog[] with indicator snapshots for a strategy."""
+    prefix = _prefix_for(strategy_id)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT ts, instrument, action, signal_price, sig_b64, indicators
+               FROM paper.signals WHERE strategy_id LIKE $1
+               ORDER BY ts DESC LIMIT $2""",
+            prefix, limit,
+        )
+    return [_row_to_signal_log(r) for r in rows]
+
+
+# ─── /strategies/{id}/stats ───────────────────────────────────────────────────
+
+@app.get("/strategies/{strategy_id}/stats")
+async def get_strategy_stats(strategy_id: str) -> dict:
+    """Return StrategyStats — honest zeros until fills accumulate."""
+    prefix = _prefix_for(strategy_id)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        fill_row = await conn.fetchrow(
+            """SELECT COUNT(*) AS n_fills,
+                      SUM(CASE WHEN side='SELL' THEN 1.0 ELSE -1.0 END
+                          * quantity * (actual_fill_price - COALESCE(signal_price, actual_fill_price))
+                      ) AS total_pnl
+               FROM paper.fills WHERE strategy_id LIKE $1""",
+            prefix,
+        )
+    n_fills = int(fill_row["n_fills"]) if fill_row else 0
+    total_pnl = float(fill_row["total_pnl"]) if fill_row and fill_row["total_pnl"] else 0.0
+    gate_m = _latest_gate_metrics(strategy_id)
+    return {
+        "total_trades": n_fills // 2,
+        "win_rate": 0.0,
+        "profit_factor": 0.0,
+        "avg_holding": "—",
+        "max_drawdown": 0.0,
+        "forward_sharpe": 0.0,
+        "total_pnl": round(total_pnl, 4),
+        "backtest_oos_sharpe": None,
+        "sample_sufficient": n_fills >= 30,
+    }
+
+
+# ─── /strategies/{id}/execution ───────────────────────────────────────────────
+
+@app.get("/strategies/{strategy_id}/execution")
+async def get_strategy_execution(
+    strategy_id: str,
+    limit: int = Query(200),
+) -> dict:
+    """Return StrategyExecution with fill list and slippage summary."""
+    prefix = _prefix_for(strategy_id)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT id, ts, instrument, signal_price, actual_fill_price, fill_type, slippage_bps
+               FROM paper.fills WHERE strategy_id LIKE $1
+               ORDER BY ts DESC LIMIT $2""",
+            prefix, limit,
+        )
+        agg = await conn.fetchrow(
+            """SELECT AVG(slippage_bps) AS mean_slip, MAX(slippage_bps) AS max_slip
+               FROM paper.fills WHERE strategy_id LIKE $1""",
+            prefix,
+        )
+
+    return {
+        "fills": [
+            {
+                "fill_id": str(r["id"]),
+                "time": r["ts"].isoformat(),
+                "instrument": r["instrument"],
+                "expected_price": float(r["signal_price"] or 0),
+                "actual_price": float(r["actual_fill_price"]),
+                "liquidity": r["fill_type"] or "taker",
+            }
+            for r in rows
+        ],
+        "avg_slippage_bps": round(float(agg["mean_slip"]), 4) if agg and agg["mean_slip"] else 0.0,
+        "max_slippage_bps": round(float(agg["max_slip"]), 4) if agg and agg["max_slip"] else 0.0,
+        "backtest_assumed_bps": 2,
+    }
+
+
+# ─── /portfolio/equity ────────────────────────────────────────────────────────
+
+@app.get("/portfolio/equity")
+async def get_portfolio_equity() -> dict:
+    """Return PortfolioEquity: combined curve + per-strategy breakdown."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT ts, strategy_id, side, quantity, signal_price, actual_fill_price
+               FROM paper.fills ORDER BY ts ASC"""
+        )
+
+    from collections import defaultdict
+    by_strat_rows: dict[str, list] = defaultdict(list)
+    for r in rows:
+        by_strat_rows[r["strategy_id"]].append(r)
+
+    BASE_PER_STRATEGY = 5000.0
+    by_strategy = []
+    combined_map: dict[str, float] = {}
+
+    for sid, fills in by_strat_rows.items():
+        cum = 0.0
+        points = []
+        for r in fills:
+            sign = 1.0 if r["side"] == "SELL" else -1.0
+            sp = float(r["signal_price"] or 0)
+            fp = float(r["actual_fill_price"])
+            if sp > 0:
+                cum += sign * float(r["quantity"]) * (fp - sp)
+            ts_str = r["ts"].isoformat()
+            combined_map[ts_str] = combined_map.get(ts_str, 0.0) + cum
+            points.append({"date": ts_str, "equity": round(BASE_PER_STRATEGY + cum, 2), "drawdown": 0.0})
+        by_strategy.append({"strategy_id": sid, "points": points, "contribution_pct": 0.0})
+
+    combined = [
+        {"date": ts, "equity": round(BASE_PER_STRATEGY * 3 + v, 2), "drawdown": 0.0}
+        for ts, v in sorted(combined_map.items())
+    ]
+    if not combined:
+        now = datetime.now(timezone.utc).isoformat()
+        combined = [{"date": now, "equity": BASE_PER_STRATEGY * 3, "drawdown": 0.0}]
+
+    return {"combined": combined, "by_strategy": by_strategy}
+
+
+# ─── /portfolio/correlation ───────────────────────────────────────────────────
+
+@app.get("/portfolio/correlation")
+async def get_portfolio_correlation() -> dict:
+    """Return CorrelationMatrix {strategies, matrix: number[][]} from daily P&L."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT DATE(ts) AS day, strategy_id,
+                      SUM(CASE WHEN side='SELL' THEN 1.0 ELSE -1.0 END
+                          * quantity * (actual_fill_price - COALESCE(signal_price, actual_fill_price))
+                      ) AS daily_pnl
+               FROM paper.fills GROUP BY DATE(ts), strategy_id ORDER BY day""",
+        )
+
+    from collections import defaultdict
+    daily: dict[str, dict[str, float]] = defaultdict(dict)
+    strats: set[str] = set()
+    for r in rows:
+        daily[str(r["day"])][r["strategy_id"]] = float(r["daily_pnl"])
+        strats.add(r["strategy_id"])
+
+    strat_list = sorted(strats)
+    if len(strat_list) < 2:
+        return {"strategies": strat_list, "matrix": [[1.0]] if len(strat_list) == 1 else []}
+
+    days = sorted(daily.keys())
+    vecs = {s: [daily[d].get(s, 0.0) for d in days] for s in strat_list}
+
+    def _corr(a: list[float], b: list[float]) -> float:
+        n = len(a)
+        if n < 2:
+            return 1.0 if a == b else 0.0
+        ma, mb = sum(a) / n, sum(b) / n
+        num = sum((x - ma) * (y - mb) for x, y in zip(a, b))
+        da = sum((x - ma) ** 2 for x in a) ** 0.5
+        db = sum((y - mb) ** 2 for y in b) ** 0.5
+        return round(num / (da * db), 4) if da > 1e-12 and db > 1e-12 else (1.0 if a == b else 0.0)
+
+    matrix = [[_corr(vecs[s1], vecs[s2]) for s2 in strat_list] for s1 in strat_list]
+    return {"strategies": strat_list, "matrix": matrix}
+
+
+# ─── /portfolio/summary ───────────────────────────────────────────────────────
+
+@app.get("/portfolio/summary")
+async def get_portfolio_summary() -> dict:
+    """Return PortfolioSummary with realized P&L and exposure."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        fill_rows = await conn.fetch(
+            """SELECT instrument, side, quantity,
+                      CASE WHEN side='SELL' THEN 1.0 ELSE -1.0 END
+                          * quantity * (actual_fill_price - COALESCE(signal_price, actual_fill_price)) AS pnl
+               FROM paper.fills"""
+        )
+
+    from collections import defaultdict
+    net_exp: dict[str, float] = defaultdict(float)
+    total_pnl = 0.0
+    for r in fill_rows:
+        sign = 1.0 if r["side"] == "BUY" else -1.0
+        net_exp[r["instrument"]] += sign * float(r["quantity"])
+        total_pnl += float(r["pnl"])
+
+    net_exposure = [{"instrument": k, "net": round(v, 8)} for k, v in net_exp.items() if abs(v) > 1e-9]
+    return {
+        "total_positions": len(net_exposure),
+        "total_unrealized_pnl": 0.0,
+        "total_realized_pnl": round(total_pnl, 4),
+        "net_exposure": net_exposure,
+        "margin_used": 0.0,
+        "available": 15000.0,
+    }
+
+
+# ─── /portfolio/kill ──────────────────────────────────────────────────────────
+
+@app.post("/portfolio/kill")
+async def post_portfolio_kill() -> dict:
+    """Send SIGTERM to paper node → on_stop() closes all positions."""
+    import signal as _signal
+    import os as _os
+
+    pid_file = "/tmp/helivex_paper_node.pid"
+    try:
+        pid = int(Path(pid_file).read_text().strip())
+    except (FileNotFoundError, ValueError):
+        return {"ok": False, "reason": "paper node PID file not found — node may not be running"}
+
+    try:
+        _os.kill(pid, 0)
+    except ProcessLookupError:
+        return {"ok": False, "reason": f"PID {pid} not found — node already stopped"}
+
+    try:
+        _os.kill(pid, _signal.SIGTERM)
+        return {
+            "ok": True,
+            "pid": pid,
+            "action": "SIGTERM sent — node will run on_stop() and close all positions",
+            "next": "wait ~10s then restart via paper/start_all.sh",
+        }
+    except PermissionError:
+        return {"ok": False, "reason": f"permission denied sending SIGTERM to PID {pid}"}
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────

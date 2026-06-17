@@ -68,7 +68,7 @@ class SpotTrend1D(Strategy):
         c = self.config
         need = max(c.n_enter, c.n_exit, c.bear_ma) + 1
         if len(self._closes) < need:
-            self._fire_signal(bar, "NEUTRAL", close)
+            self._fire_signal(bar, "NEUTRAL", close, {"n_bars": len(self._closes), "warmup": True})
             return
 
         closes_list = list(self._closes)
@@ -90,9 +90,17 @@ class SpotTrend1D(Strategy):
             if close < low_exit:
                 action = "exit_long"
 
-        self._fire_signal(bar, action or "NEUTRAL", close)
+        indic = {
+            "ma200":      round(ma200, 4),
+            "bear":       bear,
+            "high_enter": round(high_enter, 4),
+            "low_exit":   round(low_exit, 4),
+            "n_bars":     len(self._closes),
+            "position":   self._position,
+        }
+        self._fire_signal(bar, action or "NEUTRAL", close, indic)
 
-    def _fire_signal(self, bar: Bar, action: str, price: float) -> None:
+    def _fire_signal(self, bar: Bar, action: str, price: float, indicators: dict | None = None) -> None:
         import asyncio
         strat = self._strategy_id()
         inst  = self.config.instrument_id
@@ -109,6 +117,7 @@ class SpotTrend1D(Strategy):
         rec = sign_signal(audit_body)
 
         if self._db_pool:
+            _indicators = indicators
             async def _store():
                 async with self._db_pool.acquire() as conn:
                     sid = await log_signal(
@@ -116,6 +125,7 @@ class SpotTrend1D(Strategy):
                         audit_record_id=rec["record_id"],
                         fingerprint_hex=rec["fingerprint_hex"],
                         sig_b64=rec.get("sig_b64", ""),
+                        indicators=_indicators,
                     )
                     self._pending_signal_id = sid
             asyncio.ensure_future(_store())

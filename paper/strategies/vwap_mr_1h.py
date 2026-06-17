@@ -71,7 +71,9 @@ class VwapMR1H(Strategy):
         if self._position != 0:
             self._bars_left -= 1
             if self._bars_left <= 0:
-                self._fire_signal(bar, "time_exit", close)
+                self._fire_signal(bar, "time_exit", close, {
+                    "n_bars": len(self._closes), "position": self._position, "bars_left": 0,
+                })
                 return
 
         if self._position != 0:
@@ -79,7 +81,7 @@ class VwapMR1H(Strategy):
 
         # Need at least vwap_n+1 bars
         if len(self._closes) < self.config.vwap_n + 1:
-            self._fire_signal(bar, "NEUTRAL", close)
+            self._fire_signal(bar, "NEUTRAL", close, {"n_bars": len(self._closes), "warmup": True})
             return
 
         c_arr = list(self._closes)
@@ -94,19 +96,27 @@ class VwapMR1H(Strategy):
 
         import statistics
         if len(prior_c) < 2:
-            self._fire_signal(bar, "NEUTRAL", close)
+            self._fire_signal(bar, "NEUTRAL", close, {"n_bars": len(self._closes), "warmup": True})
             return
         std = statistics.stdev(prior_c)
         z   = (close - vwap) / (std + 1e-10)
 
+        indic = {
+            "vwap":      round(vwap, 4),
+            "std":       round(std, 6),
+            "z":         round(z, 4),
+            "n_bars":    len(self._closes),
+            "position":  self._position,
+            "bars_left": self._bars_left,
+        }
         if z > self.config.z_thr:
-            self._fire_signal(bar, "enter_short", close)
+            self._fire_signal(bar, "enter_short", close, indic)
         elif z < -self.config.z_thr:
-            self._fire_signal(bar, "enter_long", close)
+            self._fire_signal(bar, "enter_long", close, indic)
         else:
-            self._fire_signal(bar, "NEUTRAL", close)
+            self._fire_signal(bar, "NEUTRAL", close, indic)
 
-    def _fire_signal(self, bar: Bar, action: str, price: float) -> None:
+    def _fire_signal(self, bar: Bar, action: str, price: float, indicators: dict | None = None) -> None:
         import asyncio
         strat = self._strategy_id()
         inst  = self.config.instrument_id
@@ -122,6 +132,7 @@ class VwapMR1H(Strategy):
         rec = sign_signal(audit_body)
 
         if self._db_pool:
+            _indicators = indicators
             async def _store():
                 async with self._db_pool.acquire() as conn:
                     sid = await log_signal(
@@ -129,6 +140,7 @@ class VwapMR1H(Strategy):
                         audit_record_id=rec["record_id"],
                         fingerprint_hex=rec["fingerprint_hex"],
                         sig_b64=rec.get("sig_b64", ""),
+                        indicators=_indicators,
                     )
                     self._pending_signal_id = sid
             asyncio.ensure_future(_store())

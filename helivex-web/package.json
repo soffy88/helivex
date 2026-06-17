@@ -1,6 +1,6 @@
 {
   "name": "helivex-web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "scripts": {
     "dev": "next dev -p 3400",
@@ -8,21 +8,18 @@
     "start": "next start"
   },
   "dependencies": {
-    "@helios/blocks": "file:./vendor/helios-blocks-2.8.0.tgz",
-    "@helios/oui": "file:./vendor/helios-oui-1.6.0.tgz",
-    "@react-three/drei": "^10.7.7",
-    "@react-three/fiber": "^9.6.1",
     "next": "^16.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "three": "^0.184.0"
+    "@helios/blocks": "file:./vendor/helios-blocks-2.8.0.tgz",
+    "@helios/oui": "file:./vendor/helios-oui-1.6.0.tgz"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "typescript": "^5",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "@tailwindcss/postcss": "^4"
   }
 }

@@ -1,45 +1,24 @@
 /**
  * ConfigureTab — 配置编辑器(Wiki 核心诉求,P1)
  * 6 指标卡 + signal_logic + 实时 gate 反馈 + mode 切换(带 gate 保护)
- * Run Gate 连真实 /gate/run endpoint。
  */
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { OIndicatorCard, OGateBadge } from '@helios/blocks';
 import { MOCK_STRATEGIES, MOCK_GATE_RESULT } from '@/lib/mock-data';
-import type { GateResult, StrategyState } from '@/types/api';
-import { helivexApi, USE_MOCK, mergeGatewayStrategy } from '@/lib/api-client';
-
-const MOCK_BY_GW_ID: Record<string, StrategyState> = {
-  trend_dual:   MOCK_STRATEGIES[0]!,
-  vwap_mr_dual: MOCK_STRATEGIES[1]!,
-  spot_trend:   MOCK_STRATEGIES[2]!,
-};
-
-const GW_IDS = ['trend_dual', 'vwap_mr_dual', 'spot_trend'];
+import type { GateResult } from '@/types/api';
+import { helivexApi, USE_MOCK } from '@/lib/api-client';
 
 export function ConfigureTab() {
-  const [strategies, setStrategies] = useState<StrategyState[]>(MOCK_STRATEGIES);
   const [stratIdx, setStratIdx] = useState(0);
-  const [strategy, setStrategy] = useState<StrategyState>(MOCK_STRATEGIES[0]!);
+  const [strategy, setStrategy] = useState(MOCK_STRATEGIES[0]!);
   const [gateResult, setGateResult] = useState<GateResult | null>(null);
   const [running, setRunning] = useState(false);
 
-  useEffect(() => {
-    if (USE_MOCK) return;
-    helivexApi.strategies()
-      .then(rows => {
-        const merged = rows.map(gw => mergeGatewayStrategy(MOCK_BY_GW_ID[gw.id] ?? MOCK_STRATEGIES[0]!, gw));
-        setStrategies(merged);
-        setStrategy(merged[stratIdx] ?? merged[0]!);
-      })
-      .catch(console.error);
-  }, []);
-
   const switchStrat = (i: number) => {
     setStratIdx(i);
-    setStrategy(strategies[i] ?? MOCK_STRATEGIES[i] ?? MOCK_STRATEGIES[0]!);
+    setStrategy(MOCK_STRATEGIES[i]!);
     setGateResult(null);
   };
 
@@ -53,27 +32,16 @@ export function ConfigureTab() {
 
   const runGate = async () => {
     setRunning(true);
-    if (USE_MOCK) {
-      setTimeout(() => { setGateResult(MOCK_GATE_RESULT); setRunning(false); }, 1200);
-      return;
-    }
-    try {
-      // Call /gate/run?config=<strategy_id> — uses YAML config on disk, runs real backtest gate
-      const gwId = GW_IDS[stratIdx] ?? GW_IDS[0]!;
-      const r = await helivexApi.runGate(gwId);
-      setGateResult(r);
-    } catch (e) {
-      setGateResult({ ...MOCK_GATE_RESULT, verdict: 'fail', reason: String(e) });
-    } finally {
-      setRunning(false);
-    }
+    if (USE_MOCK) { setTimeout(() => { setGateResult(MOCK_GATE_RESULT); setRunning(false); }, 1200); return; }
+    try { const r = await helivexApi.runGate(strategy.strategy_id, strategy.indicators); setGateResult(r); }
+    finally { setRunning(false); }
   };
 
   return (
     <div className="hv-tab">
       {/* 策略选择 */}
       <div className="hv-strat-tabs">
-        {strategies.map((s, i) => (
+        {MOCK_STRATEGIES.map((s, i) => (
           <button key={s.strategy_id} className="hv-strat-tab"
             data-active={stratIdx === i ? 'true' : undefined}
             onClick={() => switchStrat(i)}>{s.name}</button>
@@ -102,7 +70,7 @@ export function ConfigureTab() {
       </div>
 
       {/* 6 指标卡 */}
-      <div className="hv-section-title">指标配置 (6){USE_MOCK ? ' (mock params)' : ''}</div>
+      <div className="hv-section-title">指标配置(6)</div>
       <div className="hv-grid-indicators">
         {strategy.indicators.map(ind => (
           <OIndicatorCard
@@ -117,22 +85,22 @@ export function ConfigureTab() {
       {/* 实时 gate */}
       <div className="hv-gate-section">
         <button className="hv-run-gate" onClick={runGate} disabled={running}>
-          {running ? '运行 gate 中…' : USE_MOCK ? 'Run Gate (mock)' : 'Run Gate (真实)'}
+          {running ? '运行 gate 中…' : 'Run Gate'}
         </button>
         {gateResult && (
           <div className="hv-gate-result">
             <OGateBadge verdict={gateResult.verdict} dsr={gateResult.dsr} pbo={gateResult.pbo} reason={gateResult.reason} />
             <div className="hv-gate-metrics">
-              <span>Gross SR <strong>{typeof gateResult.gross_sr === 'number' ? gateResult.gross_sr.toFixed(3) : gateResult.gross_sr}</strong></span>
-              <span>OOS Sharpe <strong>{typeof gateResult.oos_sharpe === 'number' ? gateResult.oos_sharpe.toFixed(3) : gateResult.oos_sharpe}</strong></span>
-              <span>DSR <strong>{typeof gateResult.dsr === 'number' ? gateResult.dsr.toFixed(3) : gateResult.dsr}</strong></span>
-              <span>PBO <strong>{typeof gateResult.pbo === 'number' ? (gateResult.pbo * 100).toFixed(0) : gateResult.pbo}%</strong></span>
+              <span>Gross SR <strong>{gateResult.gross_sr}</strong></span>
+              <span>OOS Sharpe <strong>{gateResult.oos_sharpe}</strong></span>
+              <span>DSR <strong>{gateResult.dsr}</strong></span>
+              <span>PBO <strong>{(gateResult.pbo * 100).toFixed(0)}%</strong></span>
             </div>
             {gateResult.reason && <div className="hv-gate-reason">{gateResult.reason}</div>}
-            {/* 防 p-hacking 提醒 — 诚实展示全局 trial 计数 */}
+            {/* 防 p-hacking 提醒 */}
             <div className="hv-trial-warn">
-              ⚠️ 已试 <strong>{gateResult.global_trial_count}</strong> 个配置，DSR 阈值 = <strong>{typeof gateResult.dsr_threshold === 'number' ? gateResult.dsr_threshold.toFixed(3) : gateResult.dsr_threshold}</strong>。
-              试太多配置挑最好 = p-hacking，全局 N 校正已提高门槛，DSR 需更高才能 PASS。
+              ⚠️ 已试 {gateResult.global_trial_count} 个配置,DSR 阈值 = {gateResult.dsr_threshold}。
+              试太多配置挑最好 = p-hacking,全局 N 校正已提高门槛。
             </div>
           </div>
         )}

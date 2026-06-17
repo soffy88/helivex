@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import json
 from typing import Any
 
 import asyncpg
@@ -21,8 +22,12 @@ CREATE TABLE IF NOT EXISTS paper.signals (
     signal_price DOUBLE PRECISION NOT NULL,
     audit_record_id TEXT,
     fingerprint_hex TEXT,
-    sig_b64     TEXT
+    sig_b64     TEXT,
+    indicators  JSONB
 );
+
+-- Migration: add indicators to existing tables that predate this column
+ALTER TABLE IF EXISTS paper.signals ADD COLUMN IF NOT EXISTS indicators JSONB;
 
 CREATE TABLE IF NOT EXISTS paper.fills (
     id                  BIGSERIAL PRIMARY KEY,
@@ -68,15 +73,17 @@ async def log_signal(
     audit_record_id: str = "",
     fingerprint_hex: str = "",
     sig_b64: str = "",
+    indicators: dict | None = None,
 ) -> int:
     row = await conn.fetchrow(
         """INSERT INTO paper.signals
            (strategy_id, instrument, action, signal_price,
-            audit_record_id, fingerprint_hex, sig_b64)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)
+            audit_record_id, fingerprint_hex, sig_b64, indicators)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
            RETURNING id""",
         strategy_id, instrument, action, signal_price,
         audit_record_id, fingerprint_hex, sig_b64,
+        json.dumps(indicators) if indicators else None,
     )
     return row["id"]
 
