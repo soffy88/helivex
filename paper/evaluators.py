@@ -11,6 +11,7 @@ Each alert event must contain: entity_id, severity, message.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from datetime import datetime, timezone
@@ -184,3 +185,52 @@ async def eval_on_bar_trigger(*, config: dict | None = None) -> list[dict]:
 
 def _alert(entity_id: str, severity: str, message: str) -> dict:
     return {"entity_id": entity_id, "severity": severity, "message": message}
+
+
+# ── 5. gateway liveness ───────────────────────────────────────────────────────
+
+async def eval_gateway_alive(*, config: dict | None = None) -> list[dict]:
+    """HTTP health check against FastAPI gateway :8765."""
+    cfg = config or {}
+    port: int = cfg.get("port", 8765)
+    timeout: float = cfg.get("timeout", 5.0)
+
+    loop = asyncio.get_event_loop()
+
+    def _check() -> int | str:
+        import urllib.request
+        try:
+            resp = urllib.request.urlopen(f"http://localhost:{port}/health", timeout=timeout)
+            return resp.status
+        except Exception as e:
+            return str(e)
+
+    result = await loop.run_in_executor(None, _check)
+    if result == 200:
+        return []
+    return [_alert(
+        "gateway_alive", "critical",
+        f"Gateway unreachable at :{port} — {result}. systemd will restart (Restart=always).",
+    )]
+
+
+# ── 6. frontend liveness ──────────────────────────────────────────────────────
+
+async def eval_web_alive(*, config: dict | None = None) -> list[dict]:
+    """TCP port check for Next.js frontend :3400."""
+    cfg = config or {}
+    port: int = cfg.get("port", 3400)
+    timeout: float = cfg.get("timeout", 5.0)
+
+    try:
+        reader, writer = await asyncio.wait_for(
+            asyncio.open_connection("127.0.0.1", port), timeout=timeout
+        )
+        writer.close()
+        await writer.wait_closed()
+        return []
+    except Exception as e:
+        return [_alert(
+            "web_alive", "high",
+            f"Frontend unreachable at :{port} — {e}. systemd will restart (Restart=on-failure).",
+        )]

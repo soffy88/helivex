@@ -89,6 +89,21 @@ STRATEGY_DISPLAY_NAMES = {
     "trend_dual":   "趋势双向 (Donchian 4H)",
     "vwap_mr_dual": "VWAP 均值回归 (1H)",
     "spot_trend":   "现货趋势 (日线)",
+    "scalp_5m":     "⚠ 剥头皮 (VWAP-MR 5M) [NO-GO 观察]",
+}
+
+# Hard-coded gate results for strategies with known permanent verdicts
+# scalp_5m: R5 confirmed cost-killed — no gate trial needed, verdict is final
+_HARDCODED_GATE: dict[str, dict] = {
+    "scalp_5m": {
+        "verdict": "no-go",
+        "dsr": 0.04,
+        "pbo": 0.94,
+        "reason": (
+            "R5: taker 307%/yr 成本碾死. gross Sharpe +1.33 but net OOS deeply negative. "
+            "观察对象 — 测量真实 fill rate/滑点 vs backtest 假设, 非可部署策略."
+        ),
+    },
 }
 
 
@@ -145,13 +160,11 @@ def _row_to_signal_log(r: Any) -> dict:
 
 @app.get("/strategies")
 async def get_strategies() -> list[dict]:
-    """Return StrategyState-compatible list for all 3 strategies."""
+    """Return StrategyState-compatible list for all 4 strategies."""
     pool = await get_pool()
     result = []
     for sid, yaml_path in STRATEGY_YAML_MAP.items():
         cfg = _read_yaml(yaml_path) if yaml_path.exists() else {}
-        verdict = latest_verdict(sid)
-        gate_m = _latest_gate_metrics(sid)
 
         prefix = STRATEGY_SIGNAL_PREFIX.get(sid, sid)
         async with pool.acquire() as conn:
@@ -161,6 +174,20 @@ async def get_strategies() -> list[dict]:
         n_signals = int(row["n"]) if row else 0
 
         sl = cfg.get("signal_logic", {})
+
+        # Use hard-coded gate for strategies with permanent verdicts (e.g. scalp_5m)
+        if sid in _HARDCODED_GATE:
+            gate_obj = _HARDCODED_GATE[sid]
+        else:
+            verdict = latest_verdict(sid)
+            gate_m  = _latest_gate_metrics(sid)
+            gate_obj = {
+                "verdict": ("pass" if verdict == "PASS" else "fail") if verdict else "pending",
+                "dsr": gate_m.get("dsr"),
+                "pbo": gate_m.get("pbo"),
+                "reason": verdict,
+            }
+
         result.append({
             "strategy_id": sid,
             "name": STRATEGY_DISPLAY_NAMES.get(sid, sid),
@@ -173,14 +200,9 @@ async def get_strategies() -> list[dict]:
                 "entry": str(sl.get("entry", "")),
                 "exit": str(sl.get("exit", "")),
                 "min_confluence": sl.get("min_confluence", 1),
-                "direction_mode": sl.get("direction_mode", "dual"),
+                "direction_mode": str(sl.get("direction_mode", "dual")),
             },
-            "gate": {
-                "verdict": ("pass" if verdict == "PASS" else "fail") if verdict else "pending",
-                "dsr": gate_m.get("dsr"),
-                "pbo": gate_m.get("pbo"),
-                "reason": verdict,
-            },
+            "gate": gate_obj,
             # Extra context fields (not in StrategyState type, ignored by frontend)
             "n_paper_signals": n_signals,
             "instruments": cfg.get("instruments", []),
@@ -1010,10 +1032,33 @@ async def get_portfolio_summary() -> dict:
 
 @app.post("/portfolio/kill")
 async def post_portfolio_kill() -> dict:
-    """Send SIGTERM to paper node → on_stop() closes all positions."""
+    """Stop paper node gracefully via systemd (preferred) or SIGTERM fallback.
+
+    systemd stop: helivex-paper.service runs on_stop() then stays stopped
+    (Restart=on-failure means clean SIGTERM won't bounce it back).
+    """
     import signal as _signal
+    import subprocess as _sub
     import os as _os
 
+    # Try systemd first (node managed by systemd after linger migration)
+    try:
+        result = _sub.run(
+            ["systemctl", "--user", "stop", "helivex-paper.service"],
+            capture_output=True, text=True, timeout=35,
+        )
+        if result.returncode == 0:
+            return {
+                "ok": True,
+                "method": "systemctl",
+                "action": "helivex-paper.service stopped — on_stop() closed positions",
+                "next": "restart: systemctl --user start helivex-paper.service",
+            }
+        # systemd failed (unit not found / not managed) — fall through to SIGTERM
+    except Exception:
+        pass
+
+    # Fallback: direct SIGTERM to PID file
     pid_file = "/tmp/helivex_paper_node.pid"
     try:
         pid = int(Path(pid_file).read_text().strip())
@@ -1029,9 +1074,10 @@ async def post_portfolio_kill() -> dict:
         _os.kill(pid, _signal.SIGTERM)
         return {
             "ok": True,
+            "method": "sigterm",
             "pid": pid,
             "action": "SIGTERM sent — node will run on_stop() and close all positions",
-            "next": "wait ~10s then restart via paper/start_all.sh",
+            "next": "restart: bash paper/start_all.sh restart paper",
         }
     except PermissionError:
         return {"ok": False, "reason": f"permission denied sending SIGTERM to PID {pid}"}

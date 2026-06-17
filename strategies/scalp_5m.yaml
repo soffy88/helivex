@@ -1,0 +1,32 @@
+strategy: scalp_5m
+description: "5M SWAP VWAP-MR 剥头皮 (BTC/ETH/SOL) — NO-GO 观察对象"
+timeframe: 5M
+instruments:
+  - BTC-USDT-SWAP
+  - ETH-USDT-SWAP
+  - SOL-USDT-SWAP
+
+# ⚠ GATE: NO-GO — R5 成本碾死
+# gross Sharpe +1.33 但 taker 成本 307%/yr
+# 净回报: deeply negative OOS
+# 运行目的: 测量真实 fill rate / 滑点 vs backtest 假设 (97% maker, 2bps)
+gate_status: no-go
+gate_reason: "R5: taker 307%/yr 成本碾死, gross +1.33 net deeply negative. 观察对象."
+gross_sharpe_backtest: 1.33
+taker_cost_pct_yr: 307.0
+
+indicators:
+  vwap:
+    enabled: true
+    window: 12        # 12 × 5m = 1H rolling VWAP
+    z_threshold: 2.0
+signal_logic:
+  entry: "abs(z) > z_thr  (2-sigma VWAP deviation)"
+  exit:  "time_exit after 6 bars (30min)"
+  min_confluence: 1
+  direction_mode: dual
+risk:
+  cost_bps: 10.0    # backtest assumed; real taker likely higher
+  hold_bars: 6
+  qty_usd: 50       # intentionally small — known loser, limit paper burn
+mode: paper

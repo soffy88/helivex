@@ -89,7 +89,7 @@ def main() -> None:
     node.build()
 
     try:
-        print("[paper/run.py] Starting node — 3 strategies on OKX DEMO.")
+        print("[paper/run.py] Starting node — 4 strategies on OKX DEMO (scalp_5m is NO-GO observation).")
         node.run()
     finally:
         _remove_pid()

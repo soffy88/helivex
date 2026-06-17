@@ -1,9 +1,12 @@
-"""paper.node — NautilusTrader TradingNode wired to OKX Demo for all 3 strategies.
+"""paper.node — NautilusTrader TradingNode wired to OKX Demo for all 4 strategies.
 
 Strategies:
   1. Donchian4H   — BTC/ETH/SOL USDT-SWAP 4H trend (long + short)
   2. VwapMR1H     — SOL USDT-SWAP 1H VWAP mean reversion (taker)
   3. SpotTrend1D  — BTC/ETH spot daily Donchian trend (long-only)
+  4. Scalp5M      — BTC/ETH/SOL USDT-SWAP 5M VWAP-MR scalper ⚠ NO-GO observation only
+                    R5: gross +1.33 Sharpe but taker costs 307%/yr kill it.
+                    Paper run measures real fill rate/slippage vs backtest assumptions.
 
 All use OKXEnvironment.DEMO. Real OKX keys are only read from env; never hardcoded.
 """
@@ -26,9 +29,10 @@ from nautilus_trader.config import (
 )
 from nautilus_trader.live.node import TradingNode
 
-from paper.strategies.donchian_4h import Donchian4H, Donchian4HConfig
-from paper.strategies.vwap_mr_1h  import VwapMR1H,  VwapMR1HConfig
+from paper.strategies.donchian_4h   import Donchian4H,   Donchian4HConfig
+from paper.strategies.vwap_mr_1h    import VwapMR1H,    VwapMR1HConfig
 from paper.strategies.spot_trend_1d import SpotTrend1D, SpotTrend1DConfig
+from paper.strategies.scalp_5m      import Scalp5M,     Scalp5MConfig
 
 
 def _okx_env():
@@ -129,11 +133,33 @@ def build_node() -> TradingNode:
     node.add_data_client_factory("OKX", OKXLiveDataClientFactory)
     node.add_exec_client_factory("OKX", OKXLiveExecClientFactory)
 
+    # Strategy 4 — Scalp 5M VWAP-MR SWAP (BTC, ETH, SOL) ⚠ NO-GO observation
+    # R5: gross +1.33 Sharpe but taker costs 307%/yr kill net return.
+    # Paper purpose: measure real fill rate/slippage vs R5 backtest assumptions.
+    scalp_btc = Scalp5MConfig(
+        instrument_id="BTC-USDT-SWAP.OKX",
+        bar_type="BTC-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
+        vwap_n=12, z_thr=2.0, hold=6, qty_usd=50.0,
+    )
+    scalp_eth = Scalp5MConfig(
+        instrument_id="ETH-USDT-SWAP.OKX",
+        bar_type="ETH-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
+        vwap_n=12, z_thr=2.0, hold=6, qty_usd=50.0,
+    )
+    scalp_sol = Scalp5MConfig(
+        instrument_id="SOL-USDT-SWAP.OKX",
+        bar_type="SOL-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
+        vwap_n=12, z_thr=2.0, hold=6, qty_usd=50.0,
+    )
+
     node.trader.add_strategy(Donchian4H(donchian_btc))
     node.trader.add_strategy(Donchian4H(donchian_eth))
     node.trader.add_strategy(Donchian4H(donchian_sol))
     node.trader.add_strategy(VwapMR1H(vwap_sol))
     node.trader.add_strategy(SpotTrend1D(spot_btc))
     node.trader.add_strategy(SpotTrend1D(spot_eth))
+    node.trader.add_strategy(Scalp5M(scalp_btc))
+    node.trader.add_strategy(Scalp5M(scalp_eth))
+    node.trader.add_strategy(Scalp5M(scalp_sol))
 
     return node

@@ -24,8 +24,10 @@ from oservi.engines.alerter import AlerterEngine
 
 from paper.evaluators import (
     eval_audit_chain,
+    eval_gateway_alive,
     eval_node_alive,
     eval_on_bar_trigger,
+    eval_web_alive,
     eval_ws_tick_flow,
 )
 
@@ -76,6 +78,8 @@ def build_alerter() -> AlerterEngine:
             eval_ws_tick_flow,
             eval_audit_chain,
             eval_on_bar_trigger,
+            eval_gateway_alive,
+            eval_web_alive,
         ],
         channels=channels,
         trigger={"on_interval": 120},  # check every 2 minutes
@@ -100,6 +104,14 @@ def build_alerter() -> AlerterEngine:
                 },
                 "eval_on_bar_trigger": {
                     "lag_budget_seconds": 5 * 60,  # 5 min after bar close
+                },
+                "eval_gateway_alive": {
+                    "port": 8765,
+                    "timeout": 5.0,
+                },
+                "eval_web_alive": {
+                    "port": 3400,
+                    "timeout": 5.0,
                 },
             },
         },
