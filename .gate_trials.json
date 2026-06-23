@@ -1,5 +1,5 @@
 {
-  "total_trials": 5,
+  "total_trials": 8,
   "history": [
     {
       "trial_n": 1,
@@ -147,6 +147,101 @@
           }
         },
         "overall": "FAIL"
+      }
+    },
+    {
+      "trial_n": 6,
+      "config": "/home/soffy/projects/helivex/strategies/trend_dual.yaml",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -0.5361346060441041,
+            "pbo": 0.16666666666666666,
+            "mean_oos": 1.2292905134848968,
+            "gross_sharpe": 0.44941866139234016
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.1577417351513277,
+            "pbo": 0.6666666666666666,
+            "mean_oos": 0.021764601396829824,
+            "gross_sharpe": 0.8025992337930354
+          },
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.7962619066611956,
+            "pbo": 0.8333333333333334,
+            "mean_oos": -0.39381783638237916,
+            "gross_sharpe": 0.9010477057585567
+          }
+        },
+        "overall": "FAIL"
+      }
+    },
+    {
+      "trial_n": 7,
+      "config": "ops/scripts/hmm_regime_combo_gate.py (R11)",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -3.549866053043864,
+            "pbo": 0.8333333333333334,
+            "mean_oos": -1.2509974931627938,
+            "gross_sharpe": 0.3717321062396874
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -0.773920362456077,
+            "pbo": 0.5,
+            "mean_oos": 0.3301821450628787,
+            "gross_sharpe": 0.6422145132708872
+          },
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": 0.36965873422802353,
+            "pbo": 0.16666666666666666,
+            "mean_oos": 1.782616840736176,
+            "gross_sharpe": 0.8326772850142223
+          }
+        },
+        "overall": "FAIL",
+        "note": "R11 HMM 3-state regime soft-router combining donchian/vwap_mr legs"
+      }
+    },
+    {
+      "trial_n": 8,
+      "config": "ops/scripts/hmm_xasset_regime_gate.py (R12)",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -4.270059567395459,
+            "pbo": 0.8333333333333334,
+            "mean_oos": -1.39904689065344,
+            "gross_sharpe": -0.17594526796320167
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -3.1124145013169824,
+            "pbo": 0.5,
+            "mean_oos": -0.6290613421426511,
+            "gross_sharpe": -0.05411006140109303
+          },
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.4461009641018627,
+            "pbo": 0.8333333333333334,
+            "mean_oos": 0.5856215457072375,
+            "gross_sharpe": 1.53252511808278
+          }
+        },
+        "overall": "FAIL",
+        "note": "R12 cross-asset single regime (OHLCV market-structure proxies; funding/dominance history unavailable)"
       }
     }
   ]
