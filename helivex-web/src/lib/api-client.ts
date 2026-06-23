@@ -3,7 +3,7 @@
  * 文档 §7 endpoint。USE_MOCK=true 时用 mock。
  */
 import type {
-  StrategyState, GateResult, BacktestResult, Execution,
+  StrategyState, GateResult, BacktestResult, ExecutionsResponse,
   AuditDecision, ChainHealth, PaperAccount, IndicatorConfig,
 } from '@/types/api';
 
@@ -26,7 +26,7 @@ export const helivexApi = {
   runGate:       (id: string, config?: IndicatorConfig[]) => req<GateResult>('/gate/run', { method: 'POST', body: JSON.stringify({ strategy_id: id, config }) }),
   gateTrials:    () => req<GateResult[]>('/gate/trials'),
   runBacktest:   (body: unknown) => req<BacktestResult>('/backtest/run', { method: 'POST', body: JSON.stringify(body) }),
-  executions:    () => req<Execution[]>('/executions'),
+  executions:    () => req<ExecutionsResponse>('/executions'),
   decisions:     () => req<AuditDecision[]>('/audit/decisions'),
   verifySig:     (eventId: string) => req<{ valid: boolean }>(`/audit/verify_signature?event_id=${eventId}`),
   chainHealth:   () => req<ChainHealth>('/audit/chain/verify'),

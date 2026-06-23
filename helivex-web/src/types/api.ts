@@ -58,6 +58,37 @@ export interface Execution {
   actual_price: number;
 }
 
+// Real /executions response (gateway). No mock — honest empty when no fills.
+export interface Fill {
+  id: number;
+  ts: string;
+  strategy_id: string;
+  instrument: string;
+  side: string;
+  quantity: number;
+  signal_price: number | null;
+  actual_fill_price: number;
+  slippage_bps: number | null;
+  order_id: string;
+  latency_ms: number | null;
+  fill_type: string;
+}
+
+export interface FidelityRow {
+  strategy_id: string;
+  n_signals: number;
+  n_fills: number;
+  fill_rate: number | null;
+  mean_slippage_bps: number | null;
+  p95_slippage_bps: number | null;
+  mean_latency_ms: number | null;
+}
+
+export interface ExecutionsResponse {
+  fidelity: FidelityRow[];
+  fills: Fill[];
+}
+
 export interface AuditDecision {
   event_id: string;
   time: string;

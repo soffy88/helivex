@@ -3,7 +3,7 @@
  * 诚实背景:三策略 backtest 均未过 gate(DSR/PBO 不达标),mock 如实反映。
  */
 import type {
-  StrategyState, GateVerdict, GateResult, BacktestResult, Execution,
+  StrategyState, GateVerdict, GateResult, BacktestResult,
   AuditDecision, ChainHealth, PaperAccount,
 } from '@/types/api';
 
@@ -71,12 +71,6 @@ export const MOCK_BACKTEST: BacktestResult = {
     { regime: 'bear', sharpe: -0.8 },
   ],
 };
-
-export const MOCK_EXECUTIONS: Execution[] = [
-  { fill_id: 'f-1', time: '09:32', strategy: 'trend_dual', instrument: 'BTC-USDT', side: 'buy', qty: 0.05, backtest_price: 67400, actual_price: 67449 },
-  { fill_id: 'f-2', time: '10:15', strategy: 'trend_dual', instrument: 'BTC-USDT', side: 'sell', qty: 0.05, backtest_price: 67800, actual_price: 67751 },
-  { fill_id: 'f-3', time: '11:48', strategy: 'mean_revert', instrument: 'ETH-USDT', side: 'buy', qty: 0.5, backtest_price: 3520, actual_price: 3524 },
-];
 
 export const MOCK_DECISIONS: AuditDecision[] = [
   { event_id: 'evt-001', time: '09:32:01', strategy: 'trend_dual', event_type: 'signal_generated', conformance_tier: 'GOLD', signature_valid: true,

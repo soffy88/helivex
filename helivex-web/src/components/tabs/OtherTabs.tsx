@@ -3,11 +3,14 @@
  */
 'use client';
 
-import { useState } from 'react';
-import { OWalkForwardChart, OExecutionFidelity, OEquityCurveChart } from '@helios/blocks';
+import { useState, useEffect } from 'react';
+import { OWalkForwardChart, OEquityCurveChart } from '@helios/blocks';
 import { SafeGateBadge, SafeRegimeBadge } from '../SafeBadges';
+import { EmptyState } from '../EmptyState';
+import { helivexApi } from '@/lib/api-client';
+import type { ExecutionsResponse } from '@/types/api';
 import {
-  MOCK_STRATEGIES, MOCK_BACKTEST, MOCK_EXECUTIONS, MOCK_DECISIONS,
+  MOCK_STRATEGIES, MOCK_BACKTEST, MOCK_DECISIONS,
 } from '@/lib/mock-data';
 
 // ── Strategies Tab ──────────────────────────────
@@ -78,37 +81,93 @@ export function BacktestTab() {
   );
 }
 
-// ── Executions Tab ──────────────────────────────
+// ── Executions Tab (真实 /executions,无 mock,无成交即诚实空状态)──────────
+const fmt = (v: number | null, d = 1, suffix = '') =>
+  v === null || v === undefined ? '—' : `${v.toFixed(d)}${suffix}`;
+
 export function ExecutionsTab() {
-  const fidelity = [
-    { label: '平均滑点 (bps)', backtest: 2, actual: 7.3, worseWhenHigher: true },
-    { label: 'maker fill rate', backtest: 95, actual: 71, unit: '%', worseWhenHigher: false },
-    { label: 'funding (bps/8h)', backtest: 1.0, actual: 1.4, worseWhenHigher: true },
-    { label: '拒单率', backtest: 0, actual: 2.1, unit: '%', worseWhenHigher: true },
-  ];
+  const [data, setData] = useState<ExecutionsResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      helivexApi.executions()
+        .then(d => { if (alive) { setData(d); setError(null); } })
+        .catch(e => { if (alive) setError(String(e?.message ?? e)); })
+        .finally(() => { if (alive) setLoading(false); });
+    };
+    load();
+    const t = setInterval(load, 15000);   // refresh — first fill arrives async
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+
+  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={`/executions: ${error}`} /></div>;
+
+  const fidelity = data?.fidelity ?? [];
+  const fills = data?.fills ?? [];
+  const sideColor = (s: string) =>
+    s.toUpperCase() === 'BUY' ? 'var(--success,#3fb950)' : 'var(--destructive)';
+
   return (
     <div className="hv-tab">
-      <div className="hv-section-title">执行真实度(backtest vs 真实,决定 backtest 可信度)</div>
-      <OExecutionFidelity metrics={fidelity} />
-      <div className="hv-honest-note">真实滑点是 backtest 假设的 3.6 倍,fill rate 低 25%。backtest 偏乐观,P&L 需打折看。</div>
-
-      <div className="hv-section-title">Fill 列表</div>
-      <table className="hv-table">
-        <thead><tr><th>时间</th><th>策略</th><th>品种</th><th>方向</th><th>数量</th><th>BT价</th><th>真实价</th><th>滑点</th></tr></thead>
-        <tbody>
-          {MOCK_EXECUTIONS.map(e => {
-            const slip = ((e.actual_price - e.backtest_price) / e.backtest_price * 10000).toFixed(1);
-            return (
-              <tr key={e.fill_id}>
-                <td>{e.time}</td><td>{e.strategy}</td><td>{e.instrument}</td>
-                <td style={{ color: e.side === 'buy' ? 'var(--success,#3fb950)' : 'var(--destructive)' }}>{e.side}</td>
-                <td className="hv-num">{e.qty}</td><td className="hv-num">{e.backtest_price}</td><td className="hv-num">{e.actual_price}</td>
-                <td className="hv-num">{slip} bps</td>
+      <div className="hv-section-title">执行真实度(真实成交 vs backtest 假设,决定 backtest 可信度)</div>
+      {fidelity.length === 0 ? (
+        <EmptyState
+          text="尚无真实成交 — 无执行真实度可算"
+          sub="backtest 假设(scalp ~2bps / 其余 ~10bps)需首笔真实 fill 才能校验。绝不用假数据冒充。"
+        />
+      ) : (
+        <table className="hv-table">
+          <thead><tr>
+            <th>策略</th><th>signals</th><th>fills</th><th>fill rate</th>
+            <th>平均滑点</th><th>p95 滑点</th><th>平均延迟</th>
+          </tr></thead>
+          <tbody>
+            {fidelity.map(f => (
+              <tr key={f.strategy_id}>
+                <td>{f.strategy_id}</td>
+                <td className="hv-num">{f.n_signals}</td>
+                <td className="hv-num">{f.n_fills}</td>
+                <td className="hv-num">{f.fill_rate === null ? '—' : `${(f.fill_rate * 100).toFixed(1)}%`}</td>
+                <td className="hv-num">{fmt(f.mean_slippage_bps, 1, ' bps')}</td>
+                <td className="hv-num">{fmt(f.p95_slippage_bps, 1, ' bps')}</td>
+                <td className="hv-num">{fmt(f.mean_latency_ms, 0, ' ms')}</td>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div className="hv-section-title">Fill 列表(真实成交)</div>
+      {fills.length === 0 ? (
+        <EmptyState text="尚无真实 fill" sub="四策略下单后等市场成交;首笔 fill 出现即记录真实滑点 / maker-taker / 延迟。" />
+      ) : (
+        <table className="hv-table">
+          <thead><tr>
+            <th>时间</th><th>策略</th><th>品种</th><th>方向</th><th>数量</th>
+            <th>信号价</th><th>真实价</th><th>滑点</th><th>类型</th><th>延迟</th>
+          </tr></thead>
+          <tbody>
+            {fills.map(f => (
+              <tr key={f.id}>
+                <td>{new Date(f.ts).toLocaleString()}</td>
+                <td>{f.strategy_id}</td>
+                <td>{f.instrument}</td>
+                <td style={{ color: sideColor(f.side) }}>{f.side}</td>
+                <td className="hv-num">{f.quantity}</td>
+                <td className="hv-num">{f.signal_price ?? '—'}</td>
+                <td className="hv-num">{f.actual_fill_price}</td>
+                <td className="hv-num">{fmt(f.slippage_bps, 1, ' bps')}</td>
+                <td>{f.fill_type}</td>
+                <td className="hv-num">{f.latency_ms === null ? '—' : `${f.latency_ms} ms`}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

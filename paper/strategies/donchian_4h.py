@@ -21,12 +21,13 @@ import asyncpg
 
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType, TradeTick
-from nautilus_trader.model.enums import OrderSide, TimeInForce
+from nautilus_trader.model.enums import LiquiditySide, OrderSide, TimeInForce
 from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
 from paper.audit import sign_signal
 from paper.db import DB_DSN, ensure_schema, log_signal, log_fill
+from paper.order_ids import next_client_order_id
 
 
 class Donchian4HConfig(StrategyConfig, frozen=True):
@@ -50,6 +51,7 @@ class Donchian4H(Strategy):
         self._signal_price: float | None = None
         self._signal_ts: int | None = None
         self._pending_signal_id: int | None = None
+        self._order_submit_ns: int | None = None
         self._db_pool: asyncpg.Pool | None = None
         self._tick_count: int = 0     # probe: count trade ticks received
 
@@ -190,7 +192,9 @@ class Donchian4H(Strategy):
             order_side=side,
             quantity=qty,
             time_in_force=TimeInForce.IOC,
+            client_order_id=next_client_order_id(strat),   # OKX-safe alphanumeric clOrdId
         )
+        self._order_submit_ns = self.clock.timestamp_ns()
         self.submit_order(order)
         self.log.info(f"[{strat}] ORDER submitted: {side} {qty}")
 
@@ -203,6 +207,10 @@ class Donchian4H(Strategy):
             strat      = self._strategy_id()
             inst       = self.config.instrument_id
             sig_id     = self._pending_signal_id
+            fill_type  = "maker" if getattr(event, "liquidity_side", None) == LiquiditySide.MAKER else "taker"
+            latency_ms = None
+            if self._order_submit_ns is not None:
+                latency_ms = max(0, int((self.clock.timestamp_ns() - self._order_submit_ns) / 1_000_000))
 
             async def _store():
                 async with self._db_pool.acquire() as conn:
@@ -212,11 +220,13 @@ class Donchian4H(Strategy):
                         actual_fill_price=fill_price,
                         order_id=str(event.client_order_id),
                         venue_order_id=str(getattr(event, "venue_order_id", "")),
-                        fill_type="taker",
+                        latency_ms=latency_ms,
+                        fill_type=fill_type,
                         signal_id=sig_id,
                     )
             asyncio.ensure_future(_store())
             self._pending_signal_id = None
+            self._order_submit_ns = None
 
     def on_stop(self) -> None:
         inst_id = InstrumentId.from_str(self.config.instrument_id)
