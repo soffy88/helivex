@@ -1,5 +1,5 @@
 {
-  "total_trials": 8,
+  "total_trials": 10,
   "history": [
     {
       "trial_n": 1,
@@ -242,6 +242,56 @@
         },
         "overall": "FAIL",
         "note": "R12 cross-asset single regime (OHLCV market-structure proxies; funding/dominance history unavailable)"
+      }
+    },
+    {
+      "trial_n": 9,
+      "config": "ops/scripts/scalp_maker_gate.py (scalp maker-v2)",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -5.677680502777839,
+            "pbo": 0.5,
+            "mean_oos": -3.9262284810715573,
+            "gross_sharpe": -2.9044103077369483
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -5.619701669425488,
+            "pbo": 0.8333333333333334,
+            "mean_oos": -4.470971556851663,
+            "gross_sharpe": -2.9090692568275784
+          },
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -5.2335645997622855,
+            "pbo": 0.5,
+            "mean_oos": -2.1278010635321443,
+            "gross_sharpe": -1.9277330747362307
+          }
+        },
+        "overall": "FAIL",
+        "note": "scalp maker-v2 (z=2.5, scale-out bracket, maker 2.0bps, fill_rate 0.75)"
+      }
+    },
+    {
+      "trial_n": 10,
+      "config": "ops/scripts/sr_reversal_gate.py (S/R reversal ETH)",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.0093529377007346,
+            "pbo": 0.6666666666666666,
+            "mean_oos": -0.21611375779741357,
+            "gross_sharpe": -0.09395141627900169
+          }
+        },
+        "overall": "FAIL",
+        "note": "price-action S/R reversal ETH 4h, daily multi-touch zones + pin/engulf, 1R/3R, maker"
       }
     }
   ]
