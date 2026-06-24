@@ -1,14 +1,13 @@
 /**
- * helivex API client — 对接重建后 api-gateway。
- * 文档 §7 endpoint。USE_MOCK=true 时用 mock。
+ * helivex API client — 对接 api-gateway(:8765)。全部真实数据,无 mock。
+ * 文档 §7 endpoint。
  */
 import type {
   StrategyState, GateResult, BacktestResult, ExecutionsResponse,
   AuditDecision, ChainHealth, PaperAccount, IndicatorConfig,
 } from '@/types/api';
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8080';
-export const USE_MOCK = (process.env.NEXT_PUBLIC_USE_MOCK ?? 'true').toLowerCase() === 'true';
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8765';
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -21,7 +20,7 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const helivexApi = {
   strategies:    () => req<StrategyState[]>('/strategies'),
-  getConfig:     (id: string) => req<IndicatorConfig[]>(`/strategies/${id}/config`),
+  getConfig:     (id: string) => req<unknown>(`/strategies/${id}/config`),
   putConfig:     (id: string, config: IndicatorConfig[]) => req<void>(`/strategies/${id}/config`, { method: 'PUT', body: JSON.stringify(config) }),
   runGate:       (id: string, config?: IndicatorConfig[]) => req<GateResult>('/gate/run', { method: 'POST', body: JSON.stringify({ strategy_id: id, config }) }),
   gateTrials:    () => req<GateResult[]>('/gate/trials'),

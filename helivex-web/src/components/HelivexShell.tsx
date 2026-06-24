@@ -7,7 +7,7 @@ import { StrategiesTab, BacktestTab, ExecutionsTab, PnLTab, AuditTab } from './t
 import { PortfolioTab } from './tabs/PortfolioTab';
 import { StrategyDetail } from './StrategyDetail';
 import { TabErrorBoundary } from './TabErrorBoundary';
-import { MOCK_STRATEGIES } from '@/lib/mock-data';
+import type { StrategyState } from '@/types/api';
 
 const TABS = [
   { id: 'overview',   label: 'Overview' },
@@ -22,17 +22,15 @@ const TABS = [
 
 export function HelivexShell() {
   const [tab, setTab] = useState('overview');
-  const [drillId, setDrillId] = useState<string | null>(null);
-
-  const drilledStrategy = drillId ? MOCK_STRATEGIES.find(s => s.strategy_id === drillId) : null;
+  const [drilled, setDrilled] = useState<StrategyState | null>(null);
 
   const renderTab = () => {
-    if (tab === 'strategies' && drilledStrategy) {
-      return <StrategyDetail strategy={drilledStrategy} onBack={() => setDrillId(null)} />;
+    if (tab === 'strategies' && drilled) {
+      return <StrategyDetail strategy={drilled} onBack={() => setDrilled(null)} />;
     }
     switch (tab) {
       case 'overview':   return <OverviewTab />;
-      case 'strategies': return <StrategiesTab onDrill={setDrillId} />;
+      case 'strategies': return <StrategiesTab onDrill={setDrilled} />;
       case 'portfolio':  return <PortfolioTab />;
       case 'configure':  return <ConfigureTab />;
       case 'backtest':   return <BacktestTab />;
@@ -51,13 +49,13 @@ export function HelivexShell() {
           {TABS.map(t => (
             <button key={t.id} className="hv-nav-item"
               data-active={tab === t.id ? 'true' : undefined}
-              onClick={() => { setTab(t.id); if (t.id !== 'strategies') setDrillId(null); }}>{t.label}</button>
+              onClick={() => { setTab(t.id); if (t.id !== 'strategies') setDrilled(null); }}>{t.label}</button>
           ))}
         </nav>
         <span className="hv-mode-global">paper mode</span>
       </header>
       <main className="hv-main">
-        <TabErrorBoundary tabName={tab} key={tab + (drillId ?? '')}>
+        <TabErrorBoundary tabName={tab} key={tab + (drilled?.strategy_id ?? '')}>
           {renderTab()}
         </TabErrorBoundary>
       </main>

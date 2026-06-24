@@ -1,24 +1,31 @@
 /**
  * 其余 Tab:Strategies / Backtest / Executions / P&L / Audit
+ * 全部真实数据(无 mock)。无数据 → 诚实空状态。
  */
 'use client';
 
-import { useState, useEffect } from 'react';
-import { OWalkForwardChart, OEquityCurveChart } from '@helios/blocks';
+import { useState } from 'react';
+import { OEquityCurveChart } from '@helios/blocks';
 import { SafeGateBadge, SafeRegimeBadge } from '../SafeBadges';
 import { EmptyState } from '../EmptyState';
-import { helivexApi } from '@/lib/api-client';
-import type { ExecutionsResponse } from '@/types/api';
-import {
-  MOCK_STRATEGIES, MOCK_BACKTEST, MOCK_DECISIONS,
-} from '@/lib/mock-data';
+import { helivexApi, portfolioApi } from '@/lib/api-client';
+import { useApi } from '@/lib/use-api';
+import type { ExecutionsResponse, StrategyState, PortfolioEquity } from '@/types/api';
 
-// ── Strategies Tab ──────────────────────────────
-export function StrategiesTab({ onDrill }: { onDrill?: (id: string) => void }) {
-  const [expanded, setExpanded] = useState<string | null>('trend_dual');
+const fmt = (v: number | null | undefined, d = 1, suffix = '') =>
+  v === null || v === undefined ? '—' : `${v.toFixed(d)}${suffix}`;
+
+// ── Strategies Tab (真实 /strategies) ──────────────────────────────
+export function StrategiesTab({ onDrill }: { onDrill?: (s: StrategyState) => void }) {
+  const { data, loading, error } = useApi(() => helivexApi.strategies(), [], 15000);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
+  const strategies = data ?? [];
+  if (strategies.length === 0) return <div className="hv-tab"><EmptyState text="暂无策略" /></div>;
   return (
     <div className="hv-tab">
-      {(MOCK_STRATEGIES ?? []).map(s => (
+      {strategies.map(s => (
         <div key={s.strategy_id} className="hv-strat-detail">
           <button className="hv-strat-detail__head" onClick={() => setExpanded(e => e === s.strategy_id ? null : s.strategy_id)}>
             <span className="hv-strat-name">{s.name}</span>
@@ -29,11 +36,11 @@ export function StrategiesTab({ onDrill }: { onDrill?: (id: string) => void }) {
           </button>
           {expanded === s.strategy_id && (
             <div className="hv-strat-detail__body">
-              <div className="hv-detail-row"><span>生效配置:</span> {s.indicators.filter(i => i.enabled).map(i => i.name).join(', ')}</div>
-              <div className="hv-detail-row"><span>signal:</span> <code>{s.signal_logic.entry}</code></div>
+              <div className="hv-detail-row"><span>生效配置:</span> {(s.indicators ?? []).filter(i => i.enabled).map(i => i.name).join(', ') || '—'}</div>
+              <div className="hv-detail-row"><span>signal:</span> <code>{s.signal_logic?.entry || '—'}</code></div>
               <div className="hv-detail-row"><span>持仓:</span> {s.position}</div>
-              <div className="hv-detail-row"><span>gate:</span> <SafeGateBadge verdict={s.gate?.verdict} dsr={s.gate?.dsr} pbo={s.gate?.pbo} /></div>
-              <button className="hv-drill-btn" onClick={() => onDrill?.(s.strategy_id)}>查看详情(持仓/交易/资金/信号/统计/执行)→</button>
+              <div className="hv-detail-row"><span>gate:</span> <SafeGateBadge verdict={s.gate?.verdict} dsr={s.gate?.dsr} pbo={s.gate?.pbo} reason={s.gate?.reason} /></div>
+              <button className="hv-drill-btn" onClick={() => onDrill?.(s)}>查看详情(持仓/交易/资金/信号/统计/执行)→</button>
             </div>
           )}
         </div>
@@ -42,89 +49,61 @@ export function StrategiesTab({ onDrill }: { onDrill?: (id: string) => void }) {
   );
 }
 
-// ── Backtest Tab ────────────────────────────────
+// ── Backtest Tab (真实 gate 账本 /gate/trials) ──────────────────────
+interface TrialInst { status: string; dsr: number; pbo: number; mean_oos: number; gross_sharpe: number; }
+interface Trial { trial_n: number; config: string; verdict: string; metrics: { instruments: Record<string, TrialInst>; overall: string }; }
+interface GateLedger { total_trials: number; history: Trial[]; }
+
 export function BacktestTab() {
-  const bt = MOCK_BACKTEST;
+  const { data, loading, error } = useApi(() => helivexApi.gateTrials() as unknown as Promise<GateLedger>, []);
+  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
+  const hist = data?.history ?? [];
+  const passes = hist.filter(t => t.verdict?.toUpperCase() === 'PASS').length;
   return (
     <div className="hv-tab">
-      <div className="hv-section-title">Backtest 运行器</div>
-      <div className="hv-bt-controls">
-        <select className="hv-select"><option>策略1 趋势双向</option></select>
-        <select className="hv-select"><option>BTC-USDT</option></select>
-        <select className="hv-select"><option>2025-01 ~ 2026-06</option></select>
-        <button className="hv-run-gate">Run Backtest</button>
-      </div>
-
-      <div className="hv-grid-4">
-        <div className="hv-metric-card"><span className="hv-metric-label">Sharpe</span><span className="hv-metric-val">{bt.sharpe}</span></div>
-        <div className="hv-metric-card"><span className="hv-metric-label">Max DD</span><span className="hv-metric-val hv-neg">{(bt.max_drawdown * 100).toFixed(0)}%</span></div>
-        <div className="hv-metric-card"><span className="hv-metric-label">Fills</span><span className="hv-metric-val">{bt.fill_count}</span></div>
-        <div className="hv-metric-card"><span className="hv-metric-label">年化</span><span className="hv-metric-val">{(bt.annualized * 100).toFixed(0)}%</span></div>
-      </div>
-
-      <div className="hv-section-title">Walk-Forward(fold 方差是 FAIL 主因)</div>
-      <OWalkForwardChart folds={bt.folds} threshold={0} />
-
-      <div className="hv-section-title">Regime 分段表现(诚实诊断)</div>
-      <div className="hv-grid-3">
-        {bt.regime_breakdown.map(r => (
-          <div key={r.regime} className="hv-metric-card">
-            <SafeRegimeBadge regime={r.regime} />
-            <span className="hv-metric-val" style={{ color: r.sharpe >= 0 ? 'var(--success,#3fb950)' : 'var(--destructive)' }}>
-              {r.sharpe >= 0 ? '+' : ''}{r.sharpe}
-            </span>
-          </div>
-        ))}
-      </div>
-      <div className="hv-honest-note">策略只在 trend regime 有效(+1.2),chop/bear 为负。这是真实 regime 依赖。</div>
+      <div className="hv-section-title">Gate 账本(真实,全局 N = {data?.total_trials ?? 0})</div>
+      {hist.length === 0 ? <EmptyState text="暂无 gate 记录" /> : (
+        <>
+          <div className="hv-honest-note">{passes}/{hist.length} 个配置过 gate。所有 DSR/PBO 经 walk-forward + 全局 N 多重检验校正。</div>
+          <table className="hv-table">
+            <thead><tr><th>#</th><th>配置</th><th>裁决</th><th>每标的 DSR / PBO</th></tr></thead>
+            <tbody>
+              {hist.slice().reverse().map(t => (
+                <tr key={t.trial_n}>
+                  <td className="hv-num">{t.trial_n}</td>
+                  <td><code>{t.config?.split('/').pop()}</code></td>
+                  <td><SafeGateBadge verdict={t.verdict} compact /></td>
+                  <td className="hv-num" style={{ fontSize: 'var(--text-sm)' }}>
+                    {Object.entries(t.metrics?.instruments ?? {}).map(([inst, m]) =>
+                      `${inst.split('-')[0]}: ${fmt(m.dsr, 2)}/${fmt(m.pbo, 2)}`).join('  ·  ') || '—'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
     </div>
   );
 }
 
 // ── Executions Tab (真实 /executions,无 mock,无成交即诚实空状态)──────────
-const fmt = (v: number | null, d = 1, suffix = '') =>
-  v === null || v === undefined ? '—' : `${v.toFixed(d)}${suffix}`;
-
 export function ExecutionsTab() {
-  const [data, setData] = useState<ExecutionsResponse | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
-      helivexApi.executions()
-        .then(d => { if (alive) { setData(d); setError(null); } })
-        .catch(e => { if (alive) setError(String(e?.message ?? e)); })
-        .finally(() => { if (alive) setLoading(false); });
-    };
-    load();
-    const t = setInterval(load, 15000);   // refresh — first fill arrives async
-    return () => { alive = false; clearInterval(t); };
-  }, []);
-
+  const { data, loading, error } = useApi<ExecutionsResponse>(() => helivexApi.executions(), [], 15000);
   if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
   if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={`/executions: ${error}`} /></div>;
-
   const fidelity = data?.fidelity ?? [];
   const fills = data?.fills ?? [];
-  const sideColor = (s: string) =>
-    s.toUpperCase() === 'BUY' ? 'var(--success,#3fb950)' : 'var(--destructive)';
-
+  const sideColor = (s: string) => s.toUpperCase() === 'BUY' ? 'var(--success,#3fb950)' : 'var(--destructive)';
   return (
     <div className="hv-tab">
-      <div className="hv-section-title">执行真实度(真实成交 vs backtest 假设,决定 backtest 可信度)</div>
+      <div className="hv-section-title">执行真实度(真实成交 vs backtest 假设)</div>
       {fidelity.length === 0 ? (
-        <EmptyState
-          text="尚无真实成交 — 无执行真实度可算"
-          sub="backtest 假设(scalp ~2bps / 其余 ~10bps)需首笔真实 fill 才能校验。绝不用假数据冒充。"
-        />
+        <EmptyState text="尚无真实成交 — 无执行真实度可算" sub="backtest 假设需首笔真实 fill 才能校验。绝不用假数据冒充。" />
       ) : (
         <table className="hv-table">
-          <thead><tr>
-            <th>策略</th><th>signals</th><th>fills</th><th>fill rate</th>
-            <th>平均滑点</th><th>p95 滑点</th><th>平均延迟</th>
-          </tr></thead>
+          <thead><tr><th>策略</th><th>signals</th><th>fills</th><th>fill rate</th><th>平均滑点</th><th>p95 滑点</th><th>平均延迟</th></tr></thead>
           <tbody>
             {fidelity.map(f => (
               <tr key={f.strategy_id}>
@@ -140,16 +119,12 @@ export function ExecutionsTab() {
           </tbody>
         </table>
       )}
-
       <div className="hv-section-title">Fill 列表(真实成交)</div>
       {fills.length === 0 ? (
         <EmptyState text="尚无真实 fill" sub="四策略下单后等市场成交;首笔 fill 出现即记录真实滑点 / maker-taker / 延迟。" />
       ) : (
         <table className="hv-table">
-          <thead><tr>
-            <th>时间</th><th>策略</th><th>品种</th><th>方向</th><th>数量</th>
-            <th>信号价</th><th>真实价</th><th>滑点</th><th>类型</th><th>延迟</th>
-          </tr></thead>
+          <thead><tr><th>时间</th><th>策略</th><th>品种</th><th>方向</th><th>数量</th><th>信号价</th><th>真实价</th><th>滑点</th><th>类型</th><th>延迟</th></tr></thead>
           <tbody>
             {fills.map(f => (
               <tr key={f.id}>
@@ -172,57 +147,67 @@ export function ExecutionsTab() {
   );
 }
 
-// ── P&L Tab ─────────────────────────────────────
+// ── P&L Tab (真实合并资金曲线 /portfolio/equity) ────────────────────
 export function PnLTab() {
-  const data = MOCK_BACKTEST.equity_curve.map(p => ({ date: p.t, equity: p.net }));
+  const { data, loading, error } = useApi<PortfolioEquity>(() => portfolioApi.equity(), [], 30000);
+  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
+  const pts = data?.combined ?? [];
   return (
     <div className="hv-tab">
-      <div className="hv-section-title">累计 P&L(gross vs net)</div>
-      <div className="hv-chart-box">
-        <OEquityCurveChart points={data} />
-      </div>
-      <div className="hv-honest-note">⚠️ Paper 短期 P&L ≠ 策略有效。当前 gate FAIL,这段曲线含运气成分,不代表策略可上 live。</div>
-
-      <div className="hv-section-title">分 regime 分解</div>
-      <div className="hv-grid-3">
-        {MOCK_BACKTEST.regime_breakdown.map(r => (
-          <div key={r.regime} className="hv-metric-card">
-            <SafeRegimeBadge regime={r.regime} />
-            <span className="hv-metric-val" style={{ color: r.sharpe >= 0 ? 'var(--success,#3fb950)' : 'var(--destructive)' }}>{r.sharpe}</span>
-          </div>
-        ))}
-      </div>
+      <div className="hv-section-title">累计 P&L(真实成交派生)</div>
+      {pts.length < 2 ? <EmptyState text="数据不足" sub="需 ≥2 个成交点才能画曲线" /> : (
+        <div className="hv-chart-box">
+          <OEquityCurveChart points={pts.map(p => ({ date: p.date, equity: p.equity, drawdown: p.drawdown }))} showDrawdown />
+        </div>
+      )}
+      <div className="hv-honest-note">⚠️ Paper 短期 P&L ≠ 策略有效。当前 gate 全 FAIL/NO-GO,此曲线含运气成分,不代表可上 live。</div>
     </div>
   );
 }
 
-// ── Audit Tab ───────────────────────────────────
+// ── Audit Tab (真实 GOLD 链 /audit/decisions) ───────────────────────
+interface Decision {
+  id: number; ts: string; strategy_id: string; instrument: string; action: string;
+  signal_price: number; audit_record_id: string; fingerprint_hex: string;
+  has_signature: boolean; tier: string;
+}
 export function AuditTab() {
-  const [selected, setSelected] = useState(MOCK_DECISIONS[0]!);
+  const { data, loading, error } = useApi<Decision[]>(() => helivexApi.decisions() as unknown as Promise<Decision[]>, [], 15000);
+  const [sel, setSel] = useState<number | null>(null);
+  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
+  const decisions = data ?? [];
+  if (decisions.length === 0) return <div className="hv-tab"><EmptyState text="暂无审计记录" /></div>;
+  const selected = decisions.find(d => d.id === sel) ?? decisions[0]!;
   return (
     <div className="hv-tab">
-      <div className="hv-section-title">决策链(GOLD Ed25519 签名)</div>
+      <div className="hv-section-title">决策链(GOLD Ed25519 签名,真实)</div>
       <div className="hv-audit-layout">
         <div className="hv-audit-list">
-          {MOCK_DECISIONS.map(d => (
-            <button key={d.event_id} className="hv-audit-item"
-              data-active={selected.event_id === d.event_id ? 'true' : undefined}
-              onClick={() => setSelected(d)}>
-              <span className="hv-audit-time">{d.time}</span>
-              <span className="hv-audit-type">{d.event_type}</span>
-              <span className="hv-tier-badge" data-tier={d.conformance_tier}>{d.conformance_tier}</span>
-              <span className="hv-sig" style={{ color: d.signature_valid ? 'var(--success,#3fb950)' : 'var(--destructive)' }}>
-                {d.signature_valid ? '✓' : '✕'}
+          {decisions.map(d => (
+            <button key={d.id} className="hv-audit-item"
+              data-active={selected.id === d.id ? 'true' : undefined}
+              onClick={() => setSel(d.id)}>
+              <span className="hv-audit-time">{new Date(d.ts).toLocaleString()}</span>
+              <span className="hv-audit-type">{d.action}</span>
+              <span className="hv-tier-badge" data-tier={d.tier}>{d.tier}</span>
+              <span className="hv-sig" style={{ color: d.has_signature ? 'var(--success,#3fb950)' : 'var(--destructive)' }}>
+                {d.has_signature ? '✓' : '✕'}
               </span>
             </button>
           ))}
         </div>
         <div className="hv-audit-detail">
           <div className="hv-audit-detail__head">
-            <span>{selected.event_id}</span>
-            <button className="hv-verify-btn">Verify 签名</button>
+            <span>{selected.strategy_id}</span>
+            <span className="hv-tier-badge" data-tier={selected.tier}>{selected.tier} {selected.has_signature ? '✓ 已签名' : '✕ 无签名'}</span>
           </div>
-          <pre className="hv-json">{JSON.stringify(selected.decision_payload, null, 2)}</pre>
+          <pre className="hv-json">{JSON.stringify({
+            id: selected.id, ts: selected.ts, instrument: selected.instrument,
+            action: selected.action, signal_price: selected.signal_price,
+            audit_record_id: selected.audit_record_id, fingerprint: selected.fingerprint_hex,
+          }, null, 2)}</pre>
         </div>
       </div>
     </div>

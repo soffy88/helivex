@@ -31,7 +31,8 @@ export function SafeGateBadge({
   verdict: GateVerdict | string | undefined | null;
   dsr?: number; pbo?: number; reason?: string; compact?: boolean;
 }) {
-  const v = (verdict ?? 'unknown') as string;
+  // normalize: real gate data is UPPERCASE (FAIL/PASS); blocks expects lowercase
+  const v = String(verdict ?? 'unknown').toLowerCase();
 
   // blocks 认识 → 透传
   if (BLOCKS_KNOWN_VERDICT.has(v)) {
@@ -64,7 +65,7 @@ export function SafeRegimeBadge({
   regime: Regime | string | undefined | null;
   compact?: boolean;
 }) {
-  const r = (regime ?? 'unknown') as string;
+  const r = String(regime ?? 'unknown').toLowerCase();
   if (BLOCKS_KNOWN_REGIME.has(r)) {
     return <ORegimeBadge regime={r as 'trend'} compact={compact} />;
   }

@@ -1,93 +1,86 @@
 /**
- * ConfigureTab — 配置编辑器(Wiki 核心诉求,P1)
- * 6 指标卡 + signal_logic + 实时 gate 反馈 + mode 切换(带 gate 保护)
+ * ConfigureTab — 策略配置查看 + 实时 gate(真实数据,无 mock)
+ * 注:配置「编辑→PUT」是后续轮次(后端 /config 是嵌套对象,编辑器需单独做);
+ *     本轮去 mock:展示真实配置 + 真实 Run Gate。
  */
 'use client';
 
 import { useState } from 'react';
-import { OIndicatorCard } from '@helios/blocks';
 import { SafeGateBadge } from '../SafeBadges';
-import { MOCK_STRATEGIES, MOCK_GATE_RESULT } from '@/lib/mock-data';
-import type { GateResult } from '@/types/api';
-import { helivexApi, USE_MOCK } from '@/lib/api-client';
+import { EmptyState } from '../EmptyState';
+import { helivexApi } from '@/lib/api-client';
+import { useApi } from '@/lib/use-api';
+import type { StrategyState, GateResult } from '@/types/api';
+
+interface RawConfig {
+  description?: string; timeframe?: string; instruments?: string[];
+  indicators?: Record<string, Record<string, unknown>>;
+  signal_logic?: Record<string, unknown>; risk?: Record<string, unknown>;
+  gate?: Record<string, unknown>; gate_status?: string; gate_reason?: string;
+}
 
 export function ConfigureTab() {
-  const [stratIdx, setStratIdx] = useState(0);
-  const [strategy, setStrategy] = useState(MOCK_STRATEGIES[0]!);
+  const { data: strategies, loading, error } = useApi<StrategyState[]>(() => helivexApi.strategies(), []);
+  const [sel, setSel] = useState<string | null>(null);
+  const id = sel ?? strategies?.[0]?.strategy_id ?? null;
+  const cfg = useApi<RawConfig>(() => helivexApi.getConfig(id!) as unknown as Promise<RawConfig>, [id]);
   const [gateResult, setGateResult] = useState<GateResult | null>(null);
   const [running, setRunning] = useState(false);
+  const [gateErr, setGateErr] = useState<string | null>(null);
 
-  const switchStrat = (i: number) => {
-    setStratIdx(i);
-    setStrategy(MOCK_STRATEGIES[i]!);
-    setGateResult(null);
-  };
-
-  const toggleIndicator = (name: string, enabled: boolean) => {
-    setStrategy(s => ({ ...s, indicators: s.indicators.map(ind => ind.name === name ? { ...ind, enabled } : ind) }));
-  };
-  const changeParam = (name: string, key: string, value: number) => {
-    setStrategy(s => ({ ...s, indicators: s.indicators.map(ind =>
-      ind.name === name ? { ...ind, params: ind.params.map(p => p.key === key ? { ...p, value } : p) } : ind) }));
-  };
+  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
+  const list = strategies ?? [];
+  if (list.length === 0) return <div className="hv-tab"><EmptyState text="暂无策略" /></div>;
+  const c = cfg.data;
 
   const runGate = async () => {
-    setRunning(true);
-    if (USE_MOCK) { setTimeout(() => { setGateResult(MOCK_GATE_RESULT); setRunning(false); }, 1200); return; }
-    try { const r = await helivexApi.runGate(strategy.strategy_id, strategy.indicators); setGateResult(r); }
+    if (!id) return;
+    setRunning(true); setGateErr(null);
+    try { setGateResult(await helivexApi.runGate(id)); }
+    catch (e) { setGateErr(String((e as Error)?.message ?? e)); }
     finally { setRunning(false); }
   };
 
   return (
     <div className="hv-tab">
-      {/* 策略选择 */}
       <div className="hv-strat-tabs">
-        {MOCK_STRATEGIES.map((s, i) => (
+        {list.map(s => (
           <button key={s.strategy_id} className="hv-strat-tab"
-            data-active={stratIdx === i ? 'true' : undefined}
-            onClick={() => switchStrat(i)}>{s.name}</button>
+            data-active={(id === s.strategy_id) ? 'true' : undefined}
+            onClick={() => { setSel(s.strategy_id); setGateResult(null); setGateErr(null); }}>{s.name}</button>
         ))}
       </div>
 
-      {/* signal_logic */}
-      <div className="hv-signal-logic">
-        <div className="hv-section-title">Signal Logic</div>
-        <div className="hv-logic-row"><span className="hv-logic-label">entry</span><code>{strategy.signal_logic.entry}</code></div>
-        <div className="hv-logic-row"><span className="hv-logic-label">exit</span><code>{strategy.signal_logic.exit}</code></div>
-        <div className="hv-logic-controls">
-          <label className="hv-logic-ctrl">
-            min_confluence
-            <input type="number" min={1} max={6} value={strategy.signal_logic.min_confluence}
-              onChange={e => setStrategy(s => ({ ...s, signal_logic: { ...s.signal_logic, min_confluence: Number(e.target.value) } }))} />
-          </label>
-          <label className="hv-logic-ctrl">
-            direction_mode
-            <select value={strategy.signal_logic.direction_mode}
-              onChange={e => setStrategy(s => ({ ...s, signal_logic: { ...s.signal_logic, direction_mode: e.target.value as 'dual' } }))}>
-              <option value="dual">dual</option><option value="long_only">long_only</option><option value="short_only">short_only</option>
-            </select>
-          </label>
-        </div>
-      </div>
+      {cfg.loading ? <EmptyState text="加载配置…" /> : cfg.error ? <EmptyState text="配置加载失败" sub={cfg.error} /> : c && (
+        <>
+          <div className="hv-honest-note">{c.description ?? ''}（{c.timeframe ?? ''} · {(c.instruments ?? []).join(', ')}）</div>
 
-      {/* 6 指标卡 */}
-      <div className="hv-section-title">指标配置(6)</div>
-      <div className="hv-grid-indicators">
-        {strategy.indicators.map(ind => (
-          <OIndicatorCard
-            key={ind.name}
-            name={ind.name} enabled={ind.enabled} role={ind.role} params={ind.params}
-            onToggle={(e) => toggleIndicator(ind.name, e)}
-            onParamChange={(k, v) => changeParam(ind.name, k, v)}
-          />
-        ))}
-      </div>
+          <div className="hv-section-title">Signal Logic</div>
+          <pre className="hv-json">{JSON.stringify(c.signal_logic ?? {}, null, 2)}</pre>
 
-      {/* 实时 gate */}
+          <div className="hv-section-title">指标配置(真实)</div>
+          {!c.indicators || Object.keys(c.indicators).length === 0 ? (
+            <EmptyState text="该策略无可调指标" />
+          ) : (
+            <div className="hv-grid-indicators">
+              {Object.entries(c.indicators).map(([name, params]) => (
+                <div key={name} className="hv-metric-card" style={{ alignItems: 'flex-start' }}>
+                  <span className="hv-strat-name">{name} {(params as { enabled?: boolean }).enabled ? '✓' : '✕'}</span>
+                  <div className="hv-detail-row" style={{ fontSize: 'var(--text-sm)' }}>
+                    {Object.entries(params).filter(([k]) => k !== 'enabled').map(([k, v]) => `${k}=${v}`).join('  ')}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="hv-honest-note">⚠️ 配置编辑/保存为后续轮次;当前为只读真实配置。</div>
+        </>
+      )}
+
       <div className="hv-gate-section">
-        <button className="hv-run-gate" onClick={runGate} disabled={running}>
-          {running ? '运行 gate 中…' : 'Run Gate'}
-        </button>
+        <button className="hv-run-gate" onClick={runGate} disabled={running}>{running ? '运行 gate 中…' : 'Run Gate'}</button>
+        {gateErr && <div className="hv-gate-reason" style={{ color: 'var(--destructive)' }}>gate 运行失败:{gateErr}</div>}
         {gateResult && (
           <div className="hv-gate-result">
             <SafeGateBadge verdict={gateResult.verdict} dsr={gateResult.dsr} pbo={gateResult.pbo} reason={gateResult.reason} />
@@ -98,11 +91,9 @@ export function ConfigureTab() {
               <span>PBO <strong>{(gateResult.pbo * 100).toFixed(0)}%</strong></span>
             </div>
             {gateResult.reason && <div className="hv-gate-reason">{gateResult.reason}</div>}
-            {/* 防 p-hacking 提醒 */}
-            <div className="hv-trial-warn">
-              ⚠️ 已试 {gateResult.global_trial_count} 个配置,DSR 阈值 = {gateResult.dsr_threshold}。
-              试太多配置挑最好 = p-hacking,全局 N 校正已提高门槛。
-            </div>
+            {gateResult.global_trial_count != null && (
+              <div className="hv-trial-warn">⚠️ 已试 {gateResult.global_trial_count} 个配置,DSR 阈值 = {gateResult.dsr_threshold}。多试挑最好 = p-hacking,全局 N 校正已提高门槛。</div>
+            )}
           </div>
         )}
       </div>
