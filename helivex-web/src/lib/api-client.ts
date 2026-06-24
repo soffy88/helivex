@@ -3,8 +3,8 @@
  * 文档 §7 endpoint。
  */
 import type {
-  StrategyState, GateResult, BacktestResult, ExecutionsResponse,
-  AuditDecision, ChainHealth, PaperAccount, IndicatorConfig,
+  StrategyState, BacktestResult, ExecutionsResponse,
+  AuditDecision, ChainHealth, PaperAccount,
 } from '@/types/api';
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8765';
@@ -20,10 +20,9 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const helivexApi = {
   strategies:    () => req<StrategyState[]>('/strategies'),
-  getConfig:     (id: string) => req<unknown>(`/strategies/${id}/config`),
-  putConfig:     (id: string, config: IndicatorConfig[]) => req<void>(`/strategies/${id}/config`, { method: 'PUT', body: JSON.stringify(config) }),
-  runGate:       (id: string, config?: IndicatorConfig[]) => req<GateResult>('/gate/run', { method: 'POST', body: JSON.stringify({ strategy_id: id, config }) }),
-  gateTrials:    () => req<GateResult[]>('/gate/trials'),
+  getConfig:     (id: string) => req<Record<string, unknown>>(`/strategies/${id}/config`),
+  putConfig:     (id: string, config: Record<string, unknown>) => req<{ ok: boolean; path: string }>(`/strategies/${id}/config`, { method: 'PUT', body: JSON.stringify(config) }),
+  gateTrials:    () => req<unknown>('/gate/trials'),
   runBacktest:   (body: unknown) => req<BacktestResult>('/backtest/run', { method: 'POST', body: JSON.stringify(body) }),
   executions:    () => req<ExecutionsResponse>('/executions'),
   decisions:     () => req<AuditDecision[]>('/audit/decisions'),
