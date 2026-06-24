@@ -8,7 +8,7 @@
 import { useState } from 'react';
 import { OEquityCurveChart } from '@helios/blocks';
 import { SafeGateBadge } from './SafeBadges';
-import { EmptyState } from './EmptyState';
+import { EmptyState, Skeleton } from './EmptyState';
 import { detailApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import type {
@@ -22,7 +22,7 @@ const SUBVIEWS: { id: SubView; label: string }[] = [
   { id: 'stats', label: '统计' }, { id: 'execution', label: '执行质量' },
 ];
 
-function Loading() { return <EmptyState text="加载中…" />; }
+function Loading() { return <Skeleton />; }
 function ErrBox({ e }: { e: string }) { return <EmptyState text="加载失败" sub={e} />; }
 
 export function StrategyDetail({ strategy, onBack }: { strategy: StrategyState; onBack: () => void }) {

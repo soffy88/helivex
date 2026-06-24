@@ -5,7 +5,7 @@
 'use client';
 
 import { SafeGateBadge, SafeRegimeBadge } from '../SafeBadges';
-import { EmptyState } from '../EmptyState';
+import { EmptyState, Skeleton } from '../EmptyState';
 import { helivexApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import type { StrategyState, PaperAccount } from '@/types/api';
@@ -23,7 +23,7 @@ export function OverviewTab() {
     () => Promise.all([helivexApi.strategies(), helivexApi.account(), helivexApi.chainHealth() as unknown as Promise<ChainHealthReal>]),
     [], 15000,
   );
-  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (loading) return <div className="hv-tab"><Skeleton /></div>;
   if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const [strategies, account, chain] = data as [StrategyState[], PaperAccount, ChainHealthReal];
 

@@ -154,6 +154,35 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 .hv-kill-cancel { padding: 8px 16px; border-radius: 7px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); cursor: pointer; }
 .hv-kill-confirm-btn { padding: 8px 16px; border-radius: 7px; border: none; background: var(--destructive); color: #fff; font-weight: 600; cursor: pointer; }
 
+/* ── 加载骨架屏(替代空白闪烁)── */
+@keyframes hv-shimmer { 0% { background-position: -400px 0; } 100% { background-position: 400px 0; } }
+.hv-skel { display: flex; flex-direction: column; gap: 12px; }
+.hv-skel-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.hv-skel-block { height: 72px; border-radius: 10px; }
+.hv-skel-bar { height: 14px; border-radius: 6px; }
+.hv-skel-block, .hv-skel-bar {
+  background: linear-gradient(90deg, var(--card) 0%, var(--muted) 45%, var(--card) 90%);
+  background-size: 800px 100%; animation: hv-shimmer 1.3s infinite linear;
+  border: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+}
+.hv-skel-bar.w60 { width: 60%; } .hv-skel-bar.w40 { width: 40%; }
+
+/* ── 响应式 ── */
+@media (max-width: 900px) {
+  .hv-grid-4 { grid-template-columns: repeat(2, 1fr); }
+  .hv-audit-layout { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+  .hv-grid-3, .hv-grid-4, .hv-skel-row { grid-template-columns: 1fr; }
+  .hv-header { gap: 12px; padding: 0 12px; }
+  .hv-nav { overflow-x: auto; }
+  .hv-nav-item { white-space: nowrap; }
+  .hv-main { padding: 14px; }
+  .hv-gate-metrics { flex-direction: column; gap: 6px; }
+  .hv-detail-header { flex-wrap: wrap; }
+  .hv-signal-time { width: auto; }
+}
+
 /* ── 健壮性:Tab 错误边界 ── */
 .hv-tab-error { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 16px; gap: 8px; }
 .hv-tab-error__text { font-size: var(--text-base); font-weight: 600; color: var(--foreground); }

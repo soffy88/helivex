@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { OEquityCurveChart } from '@helios/blocks';
-import { EmptyState } from '../EmptyState';
+import { EmptyState, Skeleton } from '../EmptyState';
 import { portfolioApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import type { PortfolioSummary, CorrelationMatrix, PortfolioEquity } from '@/types/api';
@@ -27,7 +27,7 @@ export function PortfolioTab() {
       : 'color-mix(in oklch, var(--destructive) 30%, transparent)';
   };
 
-  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (loading) return <div className="hv-tab"><Skeleton /></div>;
   if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const [sum, corr, eq] = data as [PortfolioSummary, CorrelationMatrix, PortfolioEquity];
   const pts = eq?.combined ?? [];

@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { OEquityCurveChart } from '@helios/blocks';
 import { SafeGateBadge, SafeRegimeBadge } from '../SafeBadges';
-import { EmptyState } from '../EmptyState';
+import { EmptyState, Skeleton } from '../EmptyState';
 import { helivexApi, portfolioApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import type { ExecutionsResponse, StrategyState, PortfolioEquity } from '@/types/api';
@@ -19,7 +19,7 @@ const fmt = (v: number | null | undefined, d = 1, suffix = '') =>
 export function StrategiesTab({ onDrill }: { onDrill?: (s: StrategyState) => void }) {
   const { data, loading, error } = useApi(() => helivexApi.strategies(), [], 15000);
   const [expanded, setExpanded] = useState<string | null>(null);
-  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (loading) return <div className="hv-tab"><Skeleton /></div>;
   if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const strategies = data ?? [];
   if (strategies.length === 0) return <div className="hv-tab"><EmptyState text="暂无策略" /></div>;
@@ -56,7 +56,7 @@ interface GateLedger { total_trials: number; history: Trial[]; }
 
 export function BacktestTab() {
   const { data, loading, error } = useApi(() => helivexApi.gateTrials() as unknown as Promise<GateLedger>, []);
-  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (loading) return <div className="hv-tab"><Skeleton /></div>;
   if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const hist = data?.history ?? [];
   const passes = hist.filter(t => t.verdict?.toUpperCase() === 'PASS').length;
@@ -91,7 +91,7 @@ export function BacktestTab() {
 // ── Executions Tab (真实 /executions,无 mock,无成交即诚实空状态)──────────
 export function ExecutionsTab() {
   const { data, loading, error } = useApi<ExecutionsResponse>(() => helivexApi.executions(), [], 15000);
-  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (loading) return <div className="hv-tab"><Skeleton /></div>;
   if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={`/executions: ${error}`} /></div>;
   const fidelity = data?.fidelity ?? [];
   const fills = data?.fills ?? [];
@@ -150,7 +150,7 @@ export function ExecutionsTab() {
 // ── P&L Tab (真实合并资金曲线 /portfolio/equity) ────────────────────
 export function PnLTab() {
   const { data, loading, error } = useApi<PortfolioEquity>(() => portfolioApi.equity(), [], 30000);
-  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (loading) return <div className="hv-tab"><Skeleton /></div>;
   if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const pts = data?.combined ?? [];
   return (
@@ -175,7 +175,7 @@ interface Decision {
 export function AuditTab() {
   const { data, loading, error } = useApi<Decision[]>(() => helivexApi.decisions() as unknown as Promise<Decision[]>, [], 15000);
   const [sel, setSel] = useState<number | null>(null);
-  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (loading) return <div className="hv-tab"><Skeleton /></div>;
   if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const decisions = data ?? [];
   if (decisions.length === 0) return <div className="hv-tab"><EmptyState text="暂无审计记录" /></div>;

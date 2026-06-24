@@ -10,3 +10,17 @@ export function EmptyState({ text, sub }: { text: string; sub?: string }) {
     </div>
   );
 }
+
+/** Loading skeleton — shimmer placeholder instead of a blank/text flash. */
+export function Skeleton() {
+  return (
+    <div className="hv-skel" aria-busy="true">
+      <div className="hv-skel-bar w40" />
+      <div className="hv-skel-row">
+        <div className="hv-skel-block" /><div className="hv-skel-block" /><div className="hv-skel-block" />
+      </div>
+      <div className="hv-skel-bar w60" />
+      <div className="hv-skel-bar" />
+    </div>
+  );
+}

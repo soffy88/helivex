@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { SafeGateBadge } from '../SafeBadges';
-import { EmptyState } from '../EmptyState';
+import { EmptyState, Skeleton } from '../EmptyState';
 import { helivexApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import type { StrategyState, GateResult } from '@/types/api';
@@ -28,7 +28,7 @@ export function ConfigureTab() {
   const [running, setRunning] = useState(false);
   const [gateErr, setGateErr] = useState<string | null>(null);
 
-  if (loading) return <div className="hv-tab"><EmptyState text="加载中…" /></div>;
+  if (loading) return <div className="hv-tab"><Skeleton /></div>;
   if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const list = strategies ?? [];
   if (list.length === 0) return <div className="hv-tab"><EmptyState text="暂无策略" /></div>;
@@ -52,7 +52,7 @@ export function ConfigureTab() {
         ))}
       </div>
 
-      {cfg.loading ? <EmptyState text="加载配置…" /> : cfg.error ? <EmptyState text="配置加载失败" sub={cfg.error} /> : c && (
+      {cfg.loading ? <Skeleton /> : cfg.error ? <EmptyState text="配置加载失败" sub={cfg.error} /> : c && (
         <>
           <div className="hv-honest-note">{c.description ?? ''}（{c.timeframe ?? ''} · {(c.instruments ?? []).join(', ')}）</div>
 
