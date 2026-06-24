@@ -1,62 +1,30 @@
 /**
- * StrategyDetail — 策略详情页(点策略钻取)
- * 6 子视图:持仓 / 交易历史 / 资金曲线 / 信号历史 / 统计 / 执行质量
- * 全部真实数据(detailApi)。无数据 → 诚实空状态,绝不填假数据。
+ * StrategyViews — 单策略的 6 块数据视图(真实 detailApi,无 mock)。
+ * 复用于新版平铺主页(OverviewTab)。每块各自拉取、各自 loading/empty。
  */
 'use client';
 
 import { useState } from 'react';
 import { OEquityCurveChart } from '@helios/blocks';
-import { SafeGateBadge } from './SafeBadges';
 import { EmptyState, Skeleton } from './EmptyState';
 import { detailApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
-import type {
-  StrategyState, Position, Trade, StrategyEquity, SignalLog, StrategyStats,
-} from '@/types/api';
+import type { Position, Trade, StrategyEquity, SignalLog, StrategyStats } from '@/types/api';
 
-type SubView = 'positions' | 'trades' | 'equity' | 'signals' | 'stats' | 'execution';
-const SUBVIEWS: { id: SubView; label: string }[] = [
-  { id: 'positions', label: '持仓' }, { id: 'trades', label: '交易历史' },
-  { id: 'equity', label: '资金曲线' }, { id: 'signals', label: '信号历史' },
-  { id: 'stats', label: '统计' }, { id: 'execution', label: '执行质量' },
-];
-
+const num = (v: number | null | undefined, d = 4) => v === null || v === undefined ? '—' : v.toFixed(d);
 function Loading() { return <Skeleton />; }
 function ErrBox({ e }: { e: string }) { return <EmptyState text="加载失败" sub={e} />; }
 
-export function StrategyDetail({ strategy, onBack }: { strategy: StrategyState; onBack: () => void }) {
-  const [view, setView] = useState<SubView>('signals');
-  const id = strategy.strategy_id;
+export function Metric({ label, val }: { label: string; val: string | number }) {
   return (
-    <div className="hv-detail-page">
-      <div className="hv-detail-header">
-        <button className="hv-back-btn" onClick={onBack}>← 返回</button>
-        <h2 className="hv-detail-title">{strategy.name}</h2>
-        <span className="hv-mode-badge">{strategy.mode}</span>
-        <SafeGateBadge verdict={strategy.gate?.verdict} dsr={strategy.gate?.dsr} pbo={strategy.gate?.pbo} compact />
-      </div>
-      <div className="hv-subview-tabs">
-        {SUBVIEWS.map(s => (
-          <button key={s.id} className="hv-subview-tab" data-active={view === s.id ? 'true' : undefined}
-            onClick={() => setView(s.id)}>{s.label}</button>
-        ))}
-      </div>
-      <div className="hv-subview-body">
-        {view === 'positions' && <PositionsView id={id} />}
-        {view === 'trades' && <TradesView id={id} />}
-        {view === 'equity' && <EquityView id={id} />}
-        {view === 'signals' && <SignalsView id={id} />}
-        {view === 'stats' && <StatsView id={id} />}
-        {view === 'execution' && <ExecutionView id={id} />}
-      </div>
+    <div className="hv-metric-card">
+      <span className="hv-metric-label">{label}</span>
+      <span className="hv-metric-val">{val}</span>
     </div>
   );
 }
 
-const num = (v: number | null | undefined, d = 4) => v === null || v === undefined ? '—' : v.toFixed(d);
-
-function PositionsView({ id }: { id: string }) {
+export function PositionsView({ id }: { id: string }) {
   const { data, loading, error } = useApi<Position[]>(() => detailApi.positions(id), [id], 15000);
   if (loading) return <Loading />; if (error) return <ErrBox e={error} />;
   const rows = data ?? [];
@@ -80,7 +48,7 @@ function PositionsView({ id }: { id: string }) {
   );
 }
 
-function TradesView({ id }: { id: string }) {
+export function TradesView({ id }: { id: string }) {
   const { data, loading, error } = useApi<Trade[]>(() => detailApi.trades(id), [id]);
   if (loading) return <Loading />; if (error) return <ErrBox e={error} />;
   const rows = data ?? [];
@@ -99,7 +67,7 @@ function TradesView({ id }: { id: string }) {
   );
 }
 
-function EquityView({ id }: { id: string }) {
+export function EquityView({ id }: { id: string }) {
   const { data, loading, error } = useApi<StrategyEquity>(() => detailApi.equity(id), [id], 30000);
   if (loading) return <Loading />; if (error) return <ErrBox e={error} />;
   const pts = data?.points ?? [];
@@ -111,7 +79,7 @@ function EquityView({ id }: { id: string }) {
   );
 }
 
-function SignalsView({ id }: { id: string }) {
+export function SignalsView({ id }: { id: string }) {
   const { data, loading, error } = useApi<SignalLog[]>(() => detailApi.signals(id), [id], 15000);
   const [expanded, setExpanded] = useState<number | null>(null);
   if (loading) return <Loading />; if (error) return <ErrBox e={error} />;
@@ -144,7 +112,7 @@ function SignalsView({ id }: { id: string }) {
   );
 }
 
-function StatsView({ id }: { id: string }) {
+export function StatsView({ id }: { id: string }) {
   const { data, loading, error } = useApi<StrategyStats>(() => detailApi.stats(id), [id], 30000);
   if (loading) return <Loading />; if (error) return <ErrBox e={error} />;
   const s = data;
@@ -157,17 +125,17 @@ function StatsView({ id }: { id: string }) {
         <Metric label="胜率" val={`${(s.win_rate * 100).toFixed(0)}%`} />
         <Metric label="盈亏比" val={s.profit_factor.toFixed(2)} />
         <Metric label="Forward Sharpe" val={s.forward_sharpe.toFixed(2)} />
-      </div>
-      <div className="hv-honest-note" style={{ marginTop: 12 }}>
-        实盘 forward Sharpe {s.forward_sharpe.toFixed(2)} vs backtest OOS {s.backtest_oos_sharpe?.toFixed(2) ?? '—'} — forward 是终极裁决。
+        <Metric label="最大回撤" val={`${(s.max_drawdown * 100).toFixed(0)}%`} />
+        <Metric label="累计盈亏" val={`$${s.total_pnl?.toFixed?.(4) ?? s.total_pnl}`} />
       </div>
     </div>
   );
 }
 
-function ExecutionView({ id }: { id: string }) {
-  const { data, loading, error } = useApi<{ fills: { fill_id: string; time: string; instrument: string; expected_price: number; actual_price: number; liquidity: string }[] }>(
-    () => detailApi.execution(id) as unknown as Promise<{ fills: { fill_id: string; time: string; instrument: string; expected_price: number; actual_price: number; liquidity: string }[] }>, [id], 15000);
+interface ExecFill { fill_id: string; time: string; instrument: string; expected_price: number; actual_price: number; liquidity: string }
+export function ExecutionView({ id }: { id: string }) {
+  const { data, loading, error } = useApi<{ fills: ExecFill[] }>(
+    () => detailApi.execution(id) as unknown as Promise<{ fills: ExecFill[] }>, [id], 15000);
   if (loading) return <Loading />; if (error) return <ErrBox e={error} />;
   const fills = data?.fills ?? [];
   if (fills.length === 0) return <EmptyState text="暂无成交" sub="等首笔 fill" />;
@@ -183,27 +151,7 @@ function ExecutionView({ id }: { id: string }) {
         <Metric label="最大滑点" val={`${mx.toFixed(1)} bps`} />
         <Metric label="taker 占比" val={`${(takers / fills.length * 100).toFixed(0)}%`} />
       </div>
-      <div className="hv-honest-note" style={{ marginTop: 12 }}>backtest 假设 ~2bps maker;真实成交以上为准(maker/taker 来自交易所成交回报)。</div>
-      <table className="hv-table" style={{ marginTop: 12 }}>
-        <thead><tr><th>时间</th><th>品种</th><th>信号价</th><th>真实价</th><th>滑点</th><th>类型</th></tr></thead>
-        <tbody>{fills.slice(0, 50).map(f => (
-          <tr key={f.fill_id}>
-            <td>{new Date(f.time).toLocaleString()}</td><td>{f.instrument}</td>
-            <td className="hv-num">{f.expected_price}</td><td className="hv-num">{f.actual_price}</td>
-            <td className="hv-num">{Math.abs((f.actual_price - f.expected_price) / f.expected_price * 1e4).toFixed(1)} bps</td>
-            <td>{f.liquidity}</td>
-          </tr>
-        ))}</tbody>
-      </table>
-    </div>
-  );
-}
-
-function Metric({ label, val }: { label: string; val: string | number }) {
-  return (
-    <div className="hv-metric-card">
-      <span className="hv-metric-label">{label}</span>
-      <span className="hv-metric-val">{val}</span>
+      <div className="hv-honest-note" style={{ marginTop: 12 }}>backtest 假设 ~2bps maker;真实成交以上为准(maker/taker 来自交易所回报)。</div>
     </div>
   );
 }

@@ -183,6 +183,28 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
   .hv-signal-time { width: auto; }
 }
 
+/* ── 平铺主页:概览条 ── */
+.hv-bar { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; padding: 10px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); }
+.hv-bar-item { display: flex; flex-direction: column; gap: 1px; }
+.hv-bar-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); }
+.hv-bar-val { font-size: var(--text-base); font-weight: 700; font-variant-numeric: tabular-nums; }
+.hv-bar-note { margin-left: auto; font-size: var(--text-xs); color: color-mix(in oklch, oklch(0.70 0.15 80) 80%, var(--foreground)); }
+
+/* ── 策略选择器 ── */
+.hv-sel-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.hv-sel-chip { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; text-align: left; padding: 12px 14px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); cursor: pointer; min-width: 0; }
+.hv-sel-chip:hover { background: var(--muted); }
+.hv-sel-chip[data-active="true"] { border-color: var(--primary); background: color-mix(in oklch, var(--primary) 10%, transparent); }
+.hv-sel-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.hv-sel-pos { font-size: var(--text-xs); color: var(--muted-foreground); }
+
+/* ── 平铺数据区 ── */
+.hv-flat { display: flex; flex-direction: column; gap: 16px; }
+.hv-flat-col { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.hv-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 900px) { .hv-grid-2 { grid-template-columns: 1fr; } .hv-sel-row { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 640px) { .hv-sel-row { grid-template-columns: 1fr; } .hv-bar { gap: 12px; } .hv-bar-note { margin-left: 0; } }
+
 /* ── 健壮性:Tab 错误边界 ── */
 .hv-tab-error { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 16px; gap: 8px; }
 .hv-tab-error__text { font-size: var(--text-base); font-weight: 600; color: var(--foreground); }

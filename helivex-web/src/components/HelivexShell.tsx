@@ -3,15 +3,12 @@
 import { useState } from 'react';
 import { OverviewTab } from './tabs/OverviewTab';
 import { ConfigureTab } from './tabs/ConfigureTab';
-import { StrategiesTab, BacktestTab, ExecutionsTab, PnLTab, AuditTab } from './tabs/OtherTabs';
+import { BacktestTab, ExecutionsTab, PnLTab, AuditTab } from './tabs/OtherTabs';
 import { PortfolioTab } from './tabs/PortfolioTab';
-import { StrategyDetail } from './StrategyDetail';
 import { TabErrorBoundary } from './TabErrorBoundary';
-import type { StrategyState } from '@/types/api';
 
 const TABS = [
   { id: 'overview',   label: 'Overview' },
-  { id: 'strategies', label: 'Strategies' },
   { id: 'portfolio',  label: 'Portfolio' },
   { id: 'configure',  label: 'Configure' },
   { id: 'backtest',   label: 'Backtest' },
@@ -22,15 +19,10 @@ const TABS = [
 
 export function HelivexShell() {
   const [tab, setTab] = useState('overview');
-  const [drilled, setDrilled] = useState<StrategyState | null>(null);
 
   const renderTab = () => {
-    if (tab === 'strategies' && drilled) {
-      return <StrategyDetail strategy={drilled} onBack={() => setDrilled(null)} />;
-    }
     switch (tab) {
       case 'overview':   return <OverviewTab />;
-      case 'strategies': return <StrategiesTab onDrill={setDrilled} />;
       case 'portfolio':  return <PortfolioTab />;
       case 'configure':  return <ConfigureTab />;
       case 'backtest':   return <BacktestTab />;
@@ -49,13 +41,13 @@ export function HelivexShell() {
           {TABS.map(t => (
             <button key={t.id} className="hv-nav-item"
               data-active={tab === t.id ? 'true' : undefined}
-              onClick={() => { setTab(t.id); if (t.id !== 'strategies') setDrilled(null); }}>{t.label}</button>
+              onClick={() => setTab(t.id)}>{t.label}</button>
           ))}
         </nav>
         <span className="hv-mode-global">paper mode</span>
       </header>
       <main className="hv-main">
-        <TabErrorBoundary tabName={tab} key={tab + (drilled?.strategy_id ?? '')}>
+        <TabErrorBoundary tabName={tab} key={tab}>
           {renderTab()}
         </TabErrorBoundary>
       </main>

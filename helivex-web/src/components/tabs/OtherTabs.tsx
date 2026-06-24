@@ -1,53 +1,20 @@
 /**
- * 其余 Tab:Strategies / Backtest / Executions / P&L / Audit
+ * 其余 Tab:Backtest / Executions / P&L / Audit
  * 全部真实数据(无 mock)。无数据 → 诚实空状态。
+ * (Strategies tab 已废弃 — 平铺主页 OverviewTab 的策略选择器取代了它)
  */
 'use client';
 
 import { useState } from 'react';
 import { OEquityCurveChart } from '@helios/blocks';
-import { SafeGateBadge, SafeRegimeBadge } from '../SafeBadges';
+import { SafeGateBadge } from '../SafeBadges';
 import { EmptyState, Skeleton } from '../EmptyState';
 import { helivexApi, portfolioApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
-import type { ExecutionsResponse, StrategyState, PortfolioEquity } from '@/types/api';
+import type { ExecutionsResponse, PortfolioEquity } from '@/types/api';
 
 const fmt = (v: number | null | undefined, d = 1, suffix = '') =>
   v === null || v === undefined ? '—' : `${v.toFixed(d)}${suffix}`;
-
-// ── Strategies Tab (真实 /strategies) ──────────────────────────────
-export function StrategiesTab({ onDrill }: { onDrill?: (s: StrategyState) => void }) {
-  const { data, loading, error } = useApi(() => helivexApi.strategies(), [], 15000);
-  const [expanded, setExpanded] = useState<string | null>(null);
-  if (loading) return <div className="hv-tab"><Skeleton /></div>;
-  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
-  const strategies = data ?? [];
-  if (strategies.length === 0) return <div className="hv-tab"><EmptyState text="暂无策略" /></div>;
-  return (
-    <div className="hv-tab">
-      {strategies.map(s => (
-        <div key={s.strategy_id} className="hv-strat-detail">
-          <button className="hv-strat-detail__head" onClick={() => setExpanded(e => e === s.strategy_id ? null : s.strategy_id)}>
-            <span className="hv-strat-name">{s.name}</span>
-            <SafeRegimeBadge regime={s.regime} compact />
-            <SafeGateBadge verdict={s.gate?.verdict} dsr={s.gate?.dsr} pbo={s.gate?.pbo} compact />
-            <span className="hv-mode-badge">{s.mode}</span>
-            <span className="hv-expand-icon">{expanded === s.strategy_id ? '▾' : '▸'}</span>
-          </button>
-          {expanded === s.strategy_id && (
-            <div className="hv-strat-detail__body">
-              <div className="hv-detail-row"><span>生效配置:</span> {(s.indicators ?? []).filter(i => i.enabled).map(i => i.name).join(', ') || '—'}</div>
-              <div className="hv-detail-row"><span>signal:</span> <code>{s.signal_logic?.entry || '—'}</code></div>
-              <div className="hv-detail-row"><span>持仓:</span> {s.position}</div>
-              <div className="hv-detail-row"><span>gate:</span> <SafeGateBadge verdict={s.gate?.verdict} dsr={s.gate?.dsr} pbo={s.gate?.pbo} reason={s.gate?.reason} /></div>
-              <button className="hv-drill-btn" onClick={() => onDrill?.(s)}>查看详情(持仓/交易/资金/信号/统计/执行)→</button>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ── Backtest Tab (真实 gate 账本 /gate/trials) ──────────────────────
 interface TrialInst { status: string; dsr: number; pbo: number; mean_oos: number; gross_sharpe: number; }
