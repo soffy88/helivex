@@ -1,5 +1,5 @@
 {
-  "total_trials": 10,
+  "total_trials": 11,
   "history": [
     {
       "trial_n": 1,
@@ -292,6 +292,38 @@
         },
         "overall": "FAIL",
         "note": "price-action S/R reversal ETH 4h, daily multi-touch zones + pin/engulf, 1R/3R, maker"
+      }
+    },
+    {
+      "trial_n": 11,
+      "config": "ops/scripts/regime_window_probe.py (R11 combo @180d)",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -2.180431901161062,
+            "pbo": 0.6666666666666666,
+            "mean_oos": -0.03286246758091741,
+            "gross_sharpe": 0.42463035414960104
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -0.8760185150421989,
+            "pbo": 0.5,
+            "mean_oos": 0.11648919496329159,
+            "gross_sharpe": 0.2758681124209485
+          },
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.832949981353586,
+            "pbo": 0.3333333333333333,
+            "mean_oos": 0.06105507730621287,
+            "gross_sharpe": 0.1728258529380385
+          }
+        },
+        "overall": "FAIL",
+        "note": "R11 soft-router combo @ 180d short window (returns+vol regime)"
       }
     }
   ]
