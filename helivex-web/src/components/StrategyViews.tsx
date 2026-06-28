@@ -25,8 +25,8 @@ export function Metric({ label, val }: { label: string; val: string | number }) 
 }
 
 export function PositionsView({ id }: { id: string }) {
-  const { data, loading, error } = useApi<Position[]>(() => detailApi.positions(id), [id], 15000);
-  if (loading) return <Loading />; if (error) return <ErrBox e={error} />;
+  const { data, loading, error } = useApi<Position[]>(() => detailApi.positions(id), [id], 15000, `pos:${id}`);
+  if (loading && !data) return <Loading />; if (error && !data) return <ErrBox e={error} />;
   const rows = data ?? [];
   if (rows.length === 0) return <EmptyState text="当前无持仓" />;
   return (
@@ -49,8 +49,8 @@ export function PositionsView({ id }: { id: string }) {
 }
 
 export function TradesView({ id }: { id: string }) {
-  const { data, loading, error } = useApi<Trade[]>(() => detailApi.trades(id), [id]);
-  if (loading) return <Loading />; if (error) return <ErrBox e={error} />;
+  const { data, loading, error } = useApi<Trade[]>(() => detailApi.trades(id), [id], undefined, `trades:${id}`);
+  if (loading && !data) return <Loading />; if (error && !data) return <ErrBox e={error} />;
   const rows = data ?? [];
   if (rows.length === 0) return <EmptyState text="暂无已平仓交易" sub="持仓平仓后形成完整 round-trip 才计入" />;
   return (
@@ -68,8 +68,8 @@ export function TradesView({ id }: { id: string }) {
 }
 
 export function EquityView({ id }: { id: string }) {
-  const { data, loading, error } = useApi<StrategyEquity>(() => detailApi.equity(id), [id], 30000);
-  if (loading) return <Loading />; if (error) return <ErrBox e={error} />;
+  const { data, loading, error } = useApi<StrategyEquity>(() => detailApi.equity(id), [id], 30000, `eq:${id}`);
+  if (loading && !data) return <Loading />; if (error && !data) return <ErrBox e={error} />;
   const pts = data?.points ?? [];
   if (pts.length < 2) return <EmptyState text="数据不足" sub="需 ≥2 个成交点" />;
   return (
@@ -80,9 +80,9 @@ export function EquityView({ id }: { id: string }) {
 }
 
 export function SignalsView({ id }: { id: string }) {
-  const { data, loading, error } = useApi<SignalLog[]>(() => detailApi.signals(id), [id], 15000);
+  const { data, loading, error } = useApi<SignalLog[]>(() => detailApi.signals(id), [id], 15000, `sig:${id}`);
   const [expanded, setExpanded] = useState<number | null>(null);
-  if (loading) return <Loading />; if (error) return <ErrBox e={error} />;
+  if (loading && !data) return <Loading />; if (error && !data) return <ErrBox e={error} />;
   const rows = data ?? [];
   if (rows.length === 0) return <EmptyState text="暂无信号" />;
   const DIR_COLOR: Record<string, string> = { long: 'var(--success,#3fb950)', short: 'var(--destructive)', neutral: 'var(--muted-foreground)' };
@@ -113,8 +113,8 @@ export function SignalsView({ id }: { id: string }) {
 }
 
 export function StatsView({ id }: { id: string }) {
-  const { data, loading, error } = useApi<StrategyStats>(() => detailApi.stats(id), [id], 30000);
-  if (loading) return <Loading />; if (error) return <ErrBox e={error} />;
+  const { data, loading, error } = useApi<StrategyStats>(() => detailApi.stats(id), [id], 30000, `stats:${id}`);
+  if (loading && !data) return <Loading />; if (error && !data) return <ErrBox e={error} />;
   const s = data;
   if (!s || s.total_trades === 0) return <EmptyState text="暂无交易统计" sub="等样本积累" />;
   return (
@@ -135,8 +135,8 @@ export function StatsView({ id }: { id: string }) {
 interface ExecFill { fill_id: string; time: string; instrument: string; expected_price: number; actual_price: number; liquidity: string }
 export function ExecutionView({ id }: { id: string }) {
   const { data, loading, error } = useApi<{ fills: ExecFill[] }>(
-    () => detailApi.execution(id) as unknown as Promise<{ fills: ExecFill[] }>, [id], 15000);
-  if (loading) return <Loading />; if (error) return <ErrBox e={error} />;
+    () => detailApi.execution(id) as unknown as Promise<{ fills: ExecFill[] }>, [id], 15000, `exec:${id}`);
+  if (loading && !data) return <Loading />; if (error && !data) return <ErrBox e={error} />;
   const fills = data?.fills ?? [];
   if (fills.length === 0) return <EmptyState text="暂无成交" sub="等首笔 fill" />;
   const slips = fills.map(f => Math.abs((f.actual_price - f.expected_price) / f.expected_price * 1e4));

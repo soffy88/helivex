@@ -124,6 +124,12 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 .hv-empty__text { font-size: var(--text-base); color: var(--muted-foreground); font-weight: 500; }
 .hv-empty__sub { font-size: var(--text-sm); color: var(--muted-foreground); opacity: 0.7; }
 
+/* stale / reconnecting banner — keeps last-good data visible on a poll blip */
+.hv-stale { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 8px; font-size: var(--text-xs); color: color-mix(in oklch, oklch(0.70 0.15 80) 85%, var(--foreground)); background: color-mix(in oklch, oklch(0.70 0.15 80) 10%, transparent); border: 1px solid color-mix(in oklch, oklch(0.70 0.15 80) 28%, transparent); }
+.hv-stale-dot { width: 7px; height: 7px; border-radius: 99px; background: oklch(0.70 0.15 80); animation: hv-pulse 1.4s ease-in-out infinite; }
+.hv-stale-err { color: var(--muted-foreground); opacity: 0.7; }
+@keyframes hv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
 /* 信号历史 */
 .hv-signal-list { display: flex; flex-direction: column; gap: 4px; }
 .hv-signal-item { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }

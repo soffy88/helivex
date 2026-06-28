@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { SafeGateBadge } from '../SafeBadges';
-import { EmptyState, Skeleton } from '../EmptyState';
+import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
 import { helivexApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import type { StrategyState, PaperAccount } from '@/types/api';
@@ -26,19 +26,19 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
 }
 
 export function OverviewTab() {
-  const { data, loading, error } = useApi(
+  const { data, loading, error, stale } = useApi(
     () => Promise.all([
       helivexApi.strategies(),
       helivexApi.account(),
       helivexApi.chainHealth() as unknown as Promise<ChainHealthReal>,
       helivexApi.gateTrials() as unknown as Promise<Ledger>,
     ]),
-    [], 15000,
+    [], 15000, 'overview',
   );
   const [sel, setSel] = useState<string | null>(null);
 
-  if (loading) return <div className="hv-tab"><Skeleton /></div>;
-  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
+  if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
+  if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const [strategies, account, chain, ledger] = data as [StrategyState[], PaperAccount, ChainHealthReal, Ledger];
 
   const id = sel ?? strategies?.[0]?.strategy_id ?? null;
@@ -48,6 +48,7 @@ export function OverviewTab() {
 
   return (
     <div className="hv-tab">
+      {stale && <StaleBanner error={error!} />}
       {/* ── 顶部:全局概览条(收窄) ── */}
       <div className="hv-bar">
         <div className="hv-bar-item"><span className="hv-bar-label">余额</span><span className="hv-bar-val">${account?.balance?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—'}</span></div>

@@ -6,15 +6,15 @@
 
 import { useState } from 'react';
 import { OEquityCurveChart } from '@helios/blocks';
-import { EmptyState, Skeleton } from '../EmptyState';
+import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
 import { portfolioApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import type { PortfolioSummary, CorrelationMatrix, PortfolioEquity } from '@/types/api';
 
 export function PortfolioTab() {
-  const { data, loading, error } = useApi(
+  const { data, loading, error, stale } = useApi(
     () => Promise.all([portfolioApi.summary(), portfolioApi.correlation(), portfolioApi.equity()]),
-    [], 15000,
+    [], 15000, 'portfolio',
   );
   const [killConfirm, setKillConfirm] = useState(false);
   const [killed, setKilled] = useState(false);
@@ -27,8 +27,8 @@ export function PortfolioTab() {
       : 'color-mix(in oklch, var(--destructive) 30%, transparent)';
   };
 
-  if (loading) return <div className="hv-tab"><Skeleton /></div>;
-  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
+  if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
+  if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const [sum, corr, eq] = data as [PortfolioSummary, CorrelationMatrix, PortfolioEquity];
   const pts = eq?.combined ?? [];
 
@@ -39,6 +39,7 @@ export function PortfolioTab() {
 
   return (
     <div className="hv-tab">
+      {stale && <StaleBanner error={error!} />}
       <div className="hv-section-title">组合总览</div>
       <div className="hv-grid-4">
         <div className="hv-metric-card"><span className="hv-metric-label">总持仓</span><span className="hv-metric-val">{sum?.total_positions ?? '—'}</span></div>

@@ -11,6 +11,16 @@ export function EmptyState({ text, sub }: { text: string; sub?: string }) {
   );
 }
 
+/** Stale banner — shown when data is retained but the latest refresh failed.
+ * Keeps the populated view alive instead of blanking it on a transient blip. */
+export function StaleBanner({ error }: { error: string }) {
+  return (
+    <div className="hv-stale" role="status">
+      <span className="hv-stale-dot" /> 重连中 — 显示最后已知数据 <span className="hv-stale-err">({error})</span>
+    </div>
+  );
+}
+
 /** Loading skeleton — shimmer placeholder instead of a blank/text flash. */
 export function Skeleton() {
   return (
