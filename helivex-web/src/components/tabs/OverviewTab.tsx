@@ -8,9 +8,10 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { SafeGateBadge } from '../SafeBadges';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
-import { helivexApi } from '@/lib/api-client';
+import { helivexApi, detailApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
-import type { StrategyState, PaperAccount } from '@/types/api';
+import { Sparkline } from '../charts';
+import type { StrategyState, PaperAccount, StrategyEquity } from '@/types/api';
 import {
   EquityView, StatsView, ExecutionView, PositionsView, TradesView, SignalsView,
 } from '../StrategyViews';
@@ -23,6 +24,15 @@ const usd = (v: number) => (v >= 0 ? '+' : '−') + '$' + Math.abs(v).toLocaleSt
 
 function Block({ title, children }: { title: string; children: React.ReactNode }) {
   return (<><div className="hv-section-title">{title}</div>{children}</>);
+}
+
+/** at-a-glance equity sparkline in the selector chip (shares eq:${id} cache) */
+function StratSparkline({ id }: { id: string }) {
+  const { data } = useApi<StrategyEquity>(() => detailApi.equity(id), [id], 30000, `eq:${id}`);
+  const pts = (data?.points ?? []).map(p => p.equity);
+  if (pts.length < 2) return <span className="hv-spark-empty">—</span>;
+  const up = pts[pts.length - 1]! >= pts[0]!;
+  return <Sparkline pts={pts} color={up ? 'var(--success, oklch(0.62 0.18 145))' : 'var(--destructive)'} w={100} h={22} />;
 }
 
 export function OverviewTab() {
@@ -78,6 +88,7 @@ export function OverviewTab() {
               <SafeGateBadge verdict={s.gate?.verdict} dsr={s.gate?.dsr} pbo={s.gate?.pbo} compact />
               <span className="hv-sel-pos">{s.position} · 今日 {s.signals_today}</span>
             </span>
+            <span className="hv-sel-spark"><StratSparkline id={s.strategy_id} /></span>
           </button>
         ))}
       </div>

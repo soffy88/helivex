@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { OEquityCurveChart } from '@helios/blocks';
 import { SafeGateBadge } from '../SafeBadges';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
+import { DivergingBars } from '../charts';
 import { helivexApi, portfolioApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import type { ExecutionsResponse, PortfolioEquity } from '@/types/api';
@@ -34,6 +35,16 @@ export function BacktestTab() {
       {hist.length === 0 ? <EmptyState text="暂无 gate 记录" /> : (
         <>
           <div className="hv-honest-note">{passes}/{hist.length} 个配置过 gate。所有 DSR/PBO 经 walk-forward + 全局 N 多重检验校正。</div>
+          <div className="hv-section-title" style={{ marginTop: 4 }}>各 trial 平均 DSR(去通胀夏普,&gt;0 才可能过)</div>
+          <DivergingBars
+            items={hist.slice().reverse().map(t => {
+              const insts = Object.values(t.metrics?.instruments ?? {});
+              const dsrs = insts.map(m => m.dsr).filter((d): d is number => typeof d === 'number');
+              const mean = dsrs.length ? dsrs.reduce((a, b) => a + b, 0) / dsrs.length : null;
+              return { label: `#${t.trial_n} ${t.config?.split('/').pop()?.replace(/\.(yaml|py).*/, '').slice(0, 16) ?? ''}`,
+                       value: mean, ok: t.verdict?.toUpperCase() === 'PASS' };
+            })}
+          />
           <table className="hv-table">
             <thead><tr><th>#</th><th>配置</th><th>裁决</th><th>每标的 DSR / PBO</th></tr></thead>
             <tbody>

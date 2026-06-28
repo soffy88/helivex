@@ -243,6 +243,18 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 .hv-imb { position: relative; height: 14px; border-radius: 4px; background: var(--muted); overflow: hidden; }
 .hv-imb-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }
 .hv-imb-fill { position: absolute; top: 0; bottom: 0; transition: all 0.4s; }
-.hv-micro-spark { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 10px; color: var(--muted-foreground); }
+.hv-micro-spark { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 10px; color: var(--muted-foreground); }
 .hv-spark { flex-shrink: 0; }
-.hv-spark-empty { color: var(--muted-foreground); }
+.hv-spark-empty { color: var(--muted-foreground); opacity: 0.5; }
+
+/* ── charts: underwater / diverging bars / selector spark ── */
+.hv-uw { position: relative; border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 8px; }
+.hv-uw-label { position: absolute; right: 12px; top: 8px; font-size: 10px; color: var(--destructive); font-variant-numeric: tabular-nums; }
+.hv-dbars { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 12px; }
+.hv-dbar-row { display: grid; grid-template-columns: 160px 1fr 64px; align-items: center; gap: 10px; font-size: var(--text-xs); }
+.hv-dbar-label { color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hv-dbar-track { position: relative; height: 12px; border-radius: 4px; background: var(--muted); overflow: hidden; }
+.hv-dbar-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.hv-dbar-fill { position: absolute; top: 0; bottom: 0; transition: all 0.4s; }
+.hv-dbar-val { text-align: right; color: var(--foreground); }
+.hv-sel-spark { display: block; margin-top: 6px; height: 22px; }

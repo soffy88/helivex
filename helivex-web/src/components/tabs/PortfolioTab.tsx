@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { OEquityCurveChart } from '@helios/blocks';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
+import { Underwater } from '../charts';
 import { portfolioApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import type { PortfolioSummary, CorrelationMatrix, PortfolioEquity } from '@/types/api';
@@ -52,7 +53,11 @@ export function PortfolioTab() {
 
       <div className="hv-section-title">合并资金曲线</div>
       {pts.length < 2 ? <EmptyState text="数据不足" sub="需 ≥2 个成交点" /> : (
-        <div className="hv-chart-box"><OEquityCurveChart points={pts.map(p => ({ date: p.date, equity: p.equity, drawdown: p.drawdown }))} showDrawdown /></div>
+        <>
+          <div className="hv-chart-box"><OEquityCurveChart points={pts.map(p => ({ date: p.date, equity: p.equity, drawdown: p.drawdown }))} showDrawdown /></div>
+          <div className="hv-section-title">回撤水下图</div>
+          <div className="hv-chart-box"><Underwater pts={pts.map(p => p.drawdown ?? 0)} /></div>
+        </>
       )}
 
       <div className="hv-section-title">策略相关性(低相关 = 分散好)</div>

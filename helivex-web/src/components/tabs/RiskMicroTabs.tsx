@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
 import { riskApi, microApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
+import { Sparkline } from '../charts';
 import type { RiskStatus, RiskEvent, MicroLatest, MicroSeriesPoint } from '@/types/api';
 
 const usd = (v: number) => (v >= 0 ? '+' : '−') + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -38,19 +39,6 @@ function ImbalanceBar({ v }: { v: number }) {
         background: pos ? 'var(--success, oklch(0.62 0.18 145))' : 'var(--destructive)',
       }} />
     </div>
-  );
-}
-
-/** tiny inline SVG sparkline (no chart dep) */
-function Sparkline({ pts, color }: { pts: number[]; color: string }) {
-  if (pts.length < 2) return <span className="hv-spark-empty">—</span>;
-  const min = Math.min(...pts), max = Math.max(...pts), rng = max - min || 1;
-  const W = 120, H = 28;
-  const d = pts.map((p, i) => `${(i / (pts.length - 1)) * W},${H - ((p - min) / rng) * H}`).join(' ');
-  return (
-    <svg className="hv-spark" viewBox={`0 0 ${W} ${H}`} width={W} height={H} preserveAspectRatio="none">
-      <polyline points={d} fill="none" stroke={color} strokeWidth="1.5" />
-    </svg>
   );
 }
 
@@ -164,7 +152,10 @@ export function MicrostructureTab() {
       <div className="hv-section-title">L2 盘口微观结构(R16,实时 · OKX books via 代理)</div>
       <div className="hv-grid-3">
         {latest.map(m => {
-          const imbSeries = (series[m.instrument] ?? []).map((p: MicroSeriesPoint) => p.imbalance1);
+          const s = series[m.instrument] ?? [];
+          const imbSeries = s.map((p: MicroSeriesPoint) => p.imbalance1);
+          const midSeries = s.map((p: MicroSeriesPoint) => p.mid);
+          const sprSeries = s.map((p: MicroSeriesPoint) => p.spread_bps);
           return (
             <div key={m.instrument} className="hv-micro-card">
               <div className="hv-micro-head">
@@ -180,7 +171,9 @@ export function MicrostructureTab() {
               <ImbalanceBar v={m.imbalance1} />
               <div className="hv-micro-imb-label">L5 盘口不平衡 <strong style={{ color: m.imbalance5 >= 0 ? 'var(--success,#3fb950)' : 'var(--destructive)' }}>{m.imbalance5.toFixed(3)}</strong></div>
               <ImbalanceBar v={m.imbalance5} />
-              <div className="hv-micro-spark"><span>L1 imbalance 走势</span><Sparkline pts={imbSeries} color="var(--primary)" /></div>
+              <div className="hv-micro-spark"><span>mid 走势</span><Sparkline pts={midSeries} color="var(--foreground)" /></div>
+              <div className="hv-micro-spark"><span>spread bps</span><Sparkline pts={sprSeries} color="oklch(0.70 0.15 80)" /></div>
+              <div className="hv-micro-spark"><span>L1 imbalance</span><Sparkline pts={imbSeries} color="var(--primary)" /></div>
             </div>
           );
         })}
