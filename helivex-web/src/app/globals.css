@@ -258,3 +258,81 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 .hv-dbar-fill { position: absolute; top: 0; bottom: 0; transition: all 0.4s; }
 .hv-dbar-val { text-align: right; color: var(--foreground); }
 .hv-sel-spark { display: block; margin-top: 6px; height: 22px; }
+
+/* ════════════════════ 视觉美化层 (polish) ════════════════════ */
+
+/* faint top glow for depth (very subtle, theme-aware) */
+body { background-image: radial-gradient(120% 60% at 50% -10%, color-mix(in oklch, var(--primary) 5%, transparent), transparent 60%); background-attachment: fixed; }
+
+/* smooth micro-interactions across interactive + surface elements */
+.hv-nav-item, .hv-sel-chip, .hv-metric-card, .hv-strat-card, .hv-micro-card,
+.hv-audit-item, .hv-signal-head, .hv-chart-box, .hv-bar, .hv-btn-soft,
+.hv-btn-recover, .hv-kill-btn, .hv-run-gate, .hv-back-btn, .hv-export-btn,
+.hv-kill-cancel, .hv-kill-confirm-btn, .hv-table tbody tr {
+  transition: background .15s ease, border-color .15s ease, box-shadow .18s ease,
+              transform .12s ease, color .15s ease;
+}
+
+/* card depth: hairline shadow + inset top sheen (premium dark-surface look) */
+.hv-metric-card, .hv-micro-card, .hv-chart-box, .hv-gate-result, .hv-audit-detail,
+.hv-dbars, .hv-uw, .hv-signal-logic, .hv-bar, .hv-ks-banner {
+  box-shadow: 0 1px 2px color-mix(in oklch, black 22%, transparent),
+              inset 0 1px 0 color-mix(in oklch, white 4%, transparent);
+}
+
+/* static data cards: brighten border on hover (no jump) */
+.hv-metric-card:hover, .hv-micro-card:hover {
+  border-color: color-mix(in oklch, var(--primary) 32%, var(--border));
+  box-shadow: 0 4px 16px color-mix(in oklch, black 26%, transparent),
+              inset 0 1px 0 color-mix(in oklch, white 5%, transparent);
+}
+
+/* clickable surfaces: gentle lift */
+.hv-sel-chip:hover, .hv-audit-item:hover { transform: translateY(-1px); }
+.hv-sel-chip[data-active="true"] {
+  box-shadow: 0 0 0 1px var(--primary),
+              0 6px 18px color-mix(in oklch, var(--primary) 16%, transparent);
+}
+
+/* sticky, blurred header (stays on top while content scrolls under) */
+.hv-header {
+  position: sticky; top: 0; z-index: 20;
+  background: color-mix(in oklch, var(--card) 78%, transparent);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+}
+.hv-logo {
+  background: linear-gradient(100deg, var(--primary), color-mix(in oklch, var(--primary) 30%, var(--foreground)));
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.hv-nav-item[data-active="true"] { box-shadow: inset 0 -2px 0 var(--primary); }
+
+/* table rows come alive on hover */
+.hv-table tbody tr:hover { background: color-mix(in oklch, var(--primary) 6%, transparent); }
+
+/* keyboard focus rings (a11y + polish; not shown on mouse click) */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, [role="tab"]:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--primary) 65%, transparent);
+  outline-offset: 2px; border-radius: 7px;
+}
+:where(button, [role="tab"]) { outline: none; }
+
+/* thin, unobtrusive scrollbars (terminal feel) */
+.hv-main, .hv-corr-matrix, .hv-json, .hv-audit-list, .hv-nav { scrollbar-width: thin; scrollbar-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent) transparent; }
+.hv-main::-webkit-scrollbar, .hv-corr-matrix::-webkit-scrollbar, .hv-json::-webkit-scrollbar, .hv-nav::-webkit-scrollbar { width: 8px; height: 8px; }
+.hv-main::-webkit-scrollbar-thumb, .hv-corr-matrix::-webkit-scrollbar-thumb, .hv-json::-webkit-scrollbar-thumb, .hv-nav::-webkit-scrollbar-thumb { background: color-mix(in oklch, var(--muted-foreground) 28%, transparent); border-radius: 8px; }
+.hv-main::-webkit-scrollbar-thumb:hover { background: color-mix(in oklch, var(--muted-foreground) 45%, transparent); }
+.hv-main::-webkit-scrollbar-track { background: transparent; }
+
+/* gentle entrance for tab content (works with key={tab} remount) */
+.hv-tab { animation: hv-fade-in .26s cubic-bezier(.22,.61,.36,1); }
+@keyframes hv-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* metric values: tighter, more confident numerals */
+.hv-metric-val, .hv-micro-mid { line-height: 1.1; }
+
+/* respect reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .hv-tab, .hv-stale-dot { animation: none; }
+  .hv-nav-item, .hv-sel-chip, .hv-metric-card, .hv-micro-card, .hv-audit-item, .hv-table tbody tr { transition: none; }
+}
