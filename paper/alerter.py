@@ -30,6 +30,7 @@ from paper.evaluators import (
     eval_web_alive,
     eval_ws_tick_flow,
 )
+from paper.risk import eval_daily_loss, eval_portfolio_drawdown
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +81,8 @@ def build_alerter() -> AlerterEngine:
             eval_on_bar_trigger,
             eval_gateway_alive,
             eval_web_alive,
+            eval_portfolio_drawdown,
+            eval_daily_loss,
         ],
         channels=channels,
         trigger={"on_interval": 120},  # check every 2 minutes
@@ -112,6 +115,12 @@ def build_alerter() -> AlerterEngine:
                 "eval_web_alive": {
                     "port": 3400,
                     "timeout": 5.0,
+                },
+                "eval_portfolio_drawdown": {
+                    "max_drawdown_pct": 15.0,
+                },
+                "eval_daily_loss": {
+                    "daily_loss_limit_usd": 250.0,
                 },
             },
         },

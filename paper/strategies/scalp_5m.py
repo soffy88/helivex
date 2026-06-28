@@ -35,6 +35,7 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
 from paper.audit import sign_signal
+from paper.risk import RISK
 from paper.db import DB_DSN, ensure_schema, log_signal, log_fill
 from paper.order_ids import next_client_order_id
 
@@ -182,6 +183,16 @@ class Scalp5M(Strategy):
 
         if action == "NEUTRAL":
             return
+
+        # ── portfolio risk gate (pre-trade) — see paper/risk.py ──
+        if action.startswith("enter"):
+            _dec = RISK.gate_entry(strat, inst, self.config.qty_usd)
+            if not _dec.allowed:
+                self.log.warning(f"[{strat}] ENTRY BLOCKED by risk: {_dec.reason}")
+                return
+            RISK.open_position(strat, inst, self.config.qty_usd)
+        else:
+            RISK.close_position(strat, inst)
 
         instrument = self.cache.instrument(InstrumentId.from_str(self.config.instrument_id))
         if instrument is None:
