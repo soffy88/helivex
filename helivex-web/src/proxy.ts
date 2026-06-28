@@ -14,6 +14,12 @@ export function proxy(req: NextRequest) {
   const pass = process.env.DASH_PASS;
   if (!user || !pass) return NextResponse.next(); // auth disabled when unset
 
+  // Gate ONLY public traffic. Tailscale adds this header to Funnel requests, so
+  // local/LAN access (localhost:3400) stays open while the internet needs the
+  // password. Set DASH_FORCE_AUTH=1 to require it everywhere.
+  const viaFunnel = req.headers.has('tailscale-funnel-request');
+  if (!viaFunnel && process.env.DASH_FORCE_AUTH !== '1') return NextResponse.next();
+
   const header = req.headers.get('authorization') ?? '';
   const expected = 'Basic ' + btoa(`${user}:${pass}`);
   if (header !== expected) {
