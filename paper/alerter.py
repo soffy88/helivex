@@ -43,10 +43,17 @@ def log_channel(*, text: str, **_: object) -> None:
 
 
 def tg_channel(*, text: str, bot_token: str = "", chat_id: str = "", **_: object) -> None:
-    """Telegram channel — active only when bot_token + chat_id are provided."""
+    """Telegram channel — active only when bot_token + chat_id are provided.
+
+    The AlerterEngine invokes channels from within its running event loop, so
+    asyncio.run() here raised "cannot be called from a running event loop" and
+    every alert silently failed to send. Run the send in a dedicated thread with
+    its own loop — works whether or not the caller has a running loop.
+    """
     if not bot_token or not chat_id:
         return
     import asyncio
+    import threading
     from obase.notify.telegram import TelegramRequest, telegram_send
 
     async def _send():
@@ -55,7 +62,15 @@ def tg_channel(*, text: str, bot_token: str = "", chat_id: str = "", **_: object
         if not result.ok:
             log.warning("TG send failed: %s", result.error)
 
-    asyncio.run(_send())
+    def _runner():
+        try:
+            asyncio.run(_send())
+        except Exception as e:  # never let a channel error break the alerter loop
+            log.warning("TG send error: %s", e)
+
+    t = threading.Thread(target=_runner, daemon=True, name="tg-send")
+    t.start()
+    t.join(timeout=10)
 
 
 # ── factory ───────────────────────────────────────────────────────────────────
