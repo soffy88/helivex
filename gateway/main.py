@@ -1083,6 +1083,113 @@ async def post_portfolio_kill() -> dict:
         return {"ok": False, "reason": f"permission denied sending SIGTERM to PID {pid}"}
 
 
+# ─── /risk (R14 portfolio risk layer) ─────────────────────────────────────────
+
+@app.get("/risk/status")
+async def get_risk_status() -> dict:
+    """Risk layer state: kill-switch, NAV/drawdown vs cap, daily P&L vs limit, caps."""
+    from paper.risk import (
+        DAILY_LOSS_LIMIT_USD, MAX_CONCURRENT_POS, MAX_DRAWDOWN_PCT,
+        PER_INSTRUMENT_CAP, PER_STRATEGY_CAP, PORTFOLIO_GROSS_CAP,
+        RISK_DDL, is_tripped, kill_switch_reason, nav_and_drawdown,
+    )
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(RISK_DDL)
+        st = await nav_and_drawdown(conn)
+    return {
+        "kill_switch": {"tripped": is_tripped(), "reason": kill_switch_reason()},
+        "nav": round(st["nav"], 2),
+        "peak": round(st["peak"], 2),
+        "drawdown_pct": round(st["dd_pct"], 3),
+        "realized_all": round(st["realized_all"], 2),
+        "realized_today": round(st["realized_today"], 2),
+        "caps": {
+            "portfolio_gross_usd": PORTFOLIO_GROSS_CAP,
+            "per_strategy_usd": PER_STRATEGY_CAP,
+            "per_instrument_usd": PER_INSTRUMENT_CAP,
+            "max_positions": MAX_CONCURRENT_POS,
+            "max_drawdown_pct": MAX_DRAWDOWN_PCT,
+            "daily_loss_limit_usd": DAILY_LOSS_LIMIT_USD,
+        },
+    }
+
+
+@app.get("/risk/events")
+async def get_risk_events(limit: int = Query(30)) -> list[dict]:
+    """Recent risk events (breach / trip / reset) from paper.risk_events."""
+    from paper.risk import RISK_DDL
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(RISK_DDL)
+        rows = await conn.fetch(
+            """SELECT ts, kind, entity_id, severity, message
+               FROM paper.risk_events ORDER BY id DESC LIMIT $1""", limit)
+    return [{
+        "ts": r["ts"].isoformat(), "kind": r["kind"], "entity_id": r["entity_id"],
+        "severity": r["severity"], "message": r["message"],
+    } for r in rows]
+
+
+@app.post("/risk/kill")
+async def post_risk_kill(body: dict = Body(default={})) -> dict:
+    """Trip the soft kill-switch — halts NEW entries (exits still allowed); the node
+    keeps running. Distinct from /portfolio/kill which stops the whole node."""
+    from paper.risk import is_tripped, kill_switch_reason, trip
+    trip(body.get("reason") or "manual trip via dashboard")
+    return {"ok": True, "tripped": is_tripped(), "reason": kill_switch_reason()}
+
+
+@app.post("/risk/reset")
+async def post_risk_reset() -> dict:
+    """Clear the soft kill-switch — re-enables new entries."""
+    from paper.risk import is_tripped, reset
+    reset()
+    return {"ok": True, "tripped": is_tripped()}
+
+
+# ─── /microstructure (R16 L2 order-book recorder) ─────────────────────────────
+
+@app.get("/microstructure/latest")
+async def get_microstructure_latest(series: int = Query(60)) -> dict:
+    """Latest order-book features per instrument + a short imbalance/spread series
+    for sparklines. Empty if the recorder has never written (table absent)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval(
+            "SELECT to_regclass('market_data.orderbook_features')")
+        if not exists:
+            return {"latest": [], "series": {}}
+        latest = await conn.fetch(
+            """SELECT DISTINCT ON (instrument)
+                   instrument, ts, best_bid, best_ask, mid, microprice, spread_bps,
+                   bid_sz1, ask_sz1, bid_depth5, ask_depth5, imbalance1, imbalance5
+               FROM market_data.orderbook_features
+               ORDER BY instrument, ts DESC""")
+        instruments = [r["instrument"] for r in latest]
+        series_map: dict[str, list] = {}
+        for inst in instruments:
+            pts = await conn.fetch(
+                """SELECT ts, mid, spread_bps, imbalance1, imbalance5
+                   FROM market_data.orderbook_features
+                   WHERE instrument = $1 ORDER BY ts DESC LIMIT $2""", inst, series)
+            series_map[inst] = [{
+                "ts": p["ts"].isoformat(), "mid": p["mid"], "spread_bps": p["spread_bps"],
+                "imbalance1": p["imbalance1"], "imbalance5": p["imbalance5"],
+            } for p in reversed(pts)]
+    return {
+        "latest": [{
+            "instrument": r["instrument"], "ts": r["ts"].isoformat(),
+            "best_bid": r["best_bid"], "best_ask": r["best_ask"], "mid": r["mid"],
+            "microprice": r["microprice"], "spread_bps": r["spread_bps"],
+            "bid_sz1": r["bid_sz1"], "ask_sz1": r["ask_sz1"],
+            "bid_depth5": r["bid_depth5"], "ask_depth5": r["ask_depth5"],
+            "imbalance1": r["imbalance1"], "imbalance5": r["imbalance5"],
+        } for r in latest],
+        "series": series_map,
+    }
+
+
 # ─── Health ───────────────────────────────────────────────────────────────────
 
 @app.get("/health")

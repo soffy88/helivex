@@ -53,3 +53,17 @@ export const portfolioApi = {
   summary:     () => req<PortfolioSummary>('/portfolio/summary'),
   kill:        () => req<void>('/portfolio/kill', { method: 'POST' }),
 };
+
+// ── R14 risk layer + R16 L2 microstructure ──────────────
+import type { RiskStatus, RiskEvent, MicroLatest } from '@/types/api';
+
+export const riskApi = {
+  status: () => req<RiskStatus>('/risk/status'),
+  events: () => req<RiskEvent[]>('/risk/events?limit=30'),
+  kill:   (reason?: string) => req<{ ok: boolean; tripped: boolean }>('/risk/kill', { method: 'POST', body: JSON.stringify({ reason }) }),
+  reset:  () => req<{ ok: boolean; tripped: boolean }>('/risk/reset', { method: 'POST' }),
+};
+
+export const microApi = {
+  latest: () => req<MicroLatest>('/microstructure/latest?series=60'),
+};

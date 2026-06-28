@@ -216,3 +216,33 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 .hv-tab-error__text { font-size: var(--text-base); font-weight: 600; color: var(--foreground); }
 .hv-tab-error__sub { font-size: var(--text-sm); color: var(--muted-foreground); }
 .hv-tab-error__retry { margin-top: 8px; padding: 8px 20px; border-radius: 8px; border: 1px solid var(--primary); background: color-mix(in oklch, var(--primary) 10%, transparent); color: var(--primary); font-size: var(--text-sm); cursor: pointer; }
+
+/* ── R14 risk panel ── */
+.hv-ks-banner { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-radius: 10px; border: 1px solid color-mix(in oklch, var(--success, oklch(0.62 0.18 145)) 30%, var(--border)); background: color-mix(in oklch, var(--success, oklch(0.62 0.18 145)) 8%, var(--card)); }
+.hv-ks-banner[data-tripped="true"] { border-color: color-mix(in oklch, var(--destructive) 40%, var(--border)); background: color-mix(in oklch, var(--destructive) 10%, var(--card)); }
+.hv-ks-icon { font-size: 18px; color: var(--success, oklch(0.62 0.18 145)); }
+.hv-ks-banner[data-tripped="true"] .hv-ks-icon { color: var(--destructive); }
+.hv-ks-text { display: flex; flex-direction: column; gap: 2px; flex: 1; font-size: var(--text-sm); }
+.hv-ks-text span { color: var(--muted-foreground); font-size: var(--text-xs); }
+.hv-btn-soft, .hv-btn-recover { padding: 7px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--background); color: var(--foreground); font-size: var(--text-sm); cursor: pointer; }
+.hv-btn-recover { border-color: var(--primary); color: var(--primary); background: color-mix(in oklch, var(--primary) 10%, transparent); }
+.hv-btn-soft:hover, .hv-btn-recover:hover { background: var(--muted); }
+
+.hv-util { position: relative; height: 18px; border-radius: 6px; background: var(--muted); overflow: hidden; }
+.hv-util-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; transition: width 0.4s; }
+.hv-util-label { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 10px; color: var(--foreground); font-variant-numeric: tabular-nums; }
+
+/* ── R16 microstructure ── */
+.hv-micro-card { border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+.hv-micro-head { display: flex; align-items: baseline; justify-content: space-between; }
+.hv-micro-time { font-size: 10px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.hv-micro-mid { font-size: var(--text-2xl); font-weight: 780; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.hv-micro-row { display: flex; justify-content: space-between; font-size: var(--text-xs); color: var(--muted-foreground); }
+.hv-micro-row .hv-num { color: var(--foreground); }
+.hv-micro-imb-label { font-size: var(--text-xs); color: var(--muted-foreground); margin-top: 6px; }
+.hv-imb { position: relative; height: 14px; border-radius: 4px; background: var(--muted); overflow: hidden; }
+.hv-imb-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.hv-imb-fill { position: absolute; top: 0; bottom: 0; transition: all 0.4s; }
+.hv-micro-spark { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; font-size: 10px; color: var(--muted-foreground); }
+.hv-spark { flex-shrink: 0; }
+.hv-spark-empty { color: var(--muted-foreground); }
