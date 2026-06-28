@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "next dev -p 3400",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "shots": "node scripts/screenshot.mjs"
   },
   "dependencies": {
     "@helios/blocks": "file:vendor/helios-blocks-2.8.0.tgz",
@@ -19,6 +20,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "playwright": "^1.61.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
