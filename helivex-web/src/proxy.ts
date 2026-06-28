@@ -14,11 +14,13 @@ export function proxy(req: NextRequest) {
   const pass = process.env.DASH_PASS;
   if (!user || !pass) return NextResponse.next(); // auth disabled when unset
 
-  // Gate ONLY public traffic. Tailscale adds this header to Funnel requests, so
-  // local/LAN access (localhost:3400) stays open while the internet needs the
-  // password. Set DASH_FORCE_AUTH=1 to require it everywhere.
-  const viaFunnel = req.headers.has('tailscale-funnel-request');
-  if (!viaFunnel && process.env.DASH_FORCE_AUTH !== '1') return NextResponse.next();
+  // Gate ALL non-local traffic — covers any public exposure (Cloudflare tunnel
+  // btc.uex.hk, Tailscale Funnel, WSL/LAN IP). Direct localhost stays open. A
+  // public client's Host is the public domain (it can't forge localhost through
+  // the tunnel). Set DASH_FORCE_AUTH=1 to require auth everywhere.
+  const host = (req.headers.get('host') ?? '').toLowerCase();
+  const isLocal = host.startsWith('localhost') || host.startsWith('127.0.0.1') || host.startsWith('[::1]');
+  if (isLocal && process.env.DASH_FORCE_AUTH !== '1') return NextResponse.next();
 
   const header = req.headers.get('authorization') ?? '';
   const expected = 'Basic ' + btoa(`${user}:${pass}`);
