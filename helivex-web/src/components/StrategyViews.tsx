@@ -82,12 +82,30 @@ export function EquityView({ id }: { id: string }) {
 export function SignalsView({ id }: { id: string }) {
   const { data, loading, error } = useApi<SignalLog[]>(() => detailApi.signals(id), [id], 15000, `sig:${id}`);
   const [expanded, setExpanded] = useState<number | null>(null);
+  const [showNeutral, setShowNeutral] = useState(false);
   if (loading && !data) return <Loading />; if (error && !data) return <ErrBox e={error} />;
-  const rows = data ?? [];
-  if (rows.length === 0) return <EmptyState text="暂无信号" />;
+  const all = data ?? [];
+  if (all.length === 0) return <EmptyState text="暂无信号" />;
+  // strategies log NEUTRAL every bar — collapse them by default so actionable
+  // signals don't drown in noise (and the page isn't 100 NEUTRAL rows tall)
+  const actionable = all.filter(s => s.direction !== 'neutral');
+  const neutralN = all.length - actionable.length;
+  const rows = (showNeutral ? all : actionable).slice(0, 60);
   const DIR_COLOR: Record<string, string> = { long: 'var(--success,#3fb950)', short: 'var(--destructive)', neutral: 'var(--muted-foreground)' };
   return (
     <div className="hv-signal-list">
+      <div className="hv-signal-summary">
+        <span>可执行 <strong>{actionable.length}</strong></span>
+        {neutralN > 0 && <span className="hv-signal-neutral-n">· NEUTRAL {neutralN}（无突破/未触发）</span>}
+        {neutralN > 0 && (
+          <button className="hv-signal-toggle" onClick={() => setShowNeutral(v => !v)}>
+            {showNeutral ? '隐藏 NEUTRAL' : '显示全部'}
+          </button>
+        )}
+      </div>
+      {rows.length === 0 && (
+        <div className="hv-signal-empty-inline">最近 {all.length} 条均为 NEUTRAL —— 当前无突破/未触发的可执行信号</div>
+      )}
       {rows.map((s, i) => (
         <div key={i} className="hv-signal-item">
           <button className="hv-signal-head" onClick={() => setExpanded(e => e === i ? null : i)}>
