@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { OverviewTab } from './tabs/OverviewTab';
 import { ConfigureTab } from './tabs/ConfigureTab';
 import { BacktestTab, ExecutionsTab, PnLTab, AuditTab } from './tabs/OtherTabs';
@@ -20,8 +20,21 @@ const TABS = [
   { id: 'audit',      label: 'Audit' },
 ] as const;
 
+const TAB_IDS = TABS.map(t => t.id) as readonly string[];
+
 export function HelivexShell() {
-  const [tab, setTab] = useState('overview');
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const raw = params.get('tab');
+  const tab = raw && TAB_IDS.includes(raw) ? raw : 'overview';
+
+  // tab change → push (back/forward navigates view history); preserves other params
+  const setTab = (id: string) => {
+    const p = new URLSearchParams(params.toString());
+    p.set('tab', id);
+    router.push(`${pathname}?${p.toString()}`, { scroll: false });
+  };
 
   const renderTab = () => {
     switch (tab) {
@@ -42,9 +55,10 @@ export function HelivexShell() {
     <div className="hv-shell">
       <header className="hv-header">
         <span className="hv-logo">helivex</span>
-        <nav className="hv-nav">
+        <nav className="hv-nav" role="tablist" aria-label="视图">
           {TABS.map(t => (
-            <button key={t.id} className="hv-nav-item"
+            <button key={t.id} className="hv-nav-item" role="tab"
+              aria-selected={tab === t.id}
               data-active={tab === t.id ? 'true' : undefined}
               onClick={() => setTab(t.id)}>{t.label}</button>
           ))}

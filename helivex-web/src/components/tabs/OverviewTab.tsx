@@ -5,7 +5,7 @@
  */
 'use client';
 
-import { useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { SafeGateBadge } from '../SafeBadges';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
 import { helivexApi } from '@/lib/api-client';
@@ -35,7 +35,16 @@ export function OverviewTab() {
     ]),
     [], 15000, 'overview',
   );
-  const [sel, setSel] = useState<string | null>(null);
+  // selected strategy lives in the URL (?sel=) so it deep-links / survives refresh
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const sel = params.get('sel');
+  const setSel = (sid: string) => {
+    const p = new URLSearchParams(params.toString());
+    p.set('sel', sid);
+    router.replace(`${pathname}?${p.toString()}`, { scroll: false });
+  };
 
   if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
   if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
