@@ -29,4 +29,10 @@ risk:
   cost_bps: 10.0    # backtest assumed; real taker likely higher
   hold_bars: 6
   qty_usd: 50       # intentionally small — known loser, limit paper burn
+# live paper params (read by paper/node.py → Scalp5M; edit via Configure tab)
+live:
+  vwap_n: 12
+  z_thr: 2.0
+  hold: 6
+  qty_usd: 50
 mode: paper

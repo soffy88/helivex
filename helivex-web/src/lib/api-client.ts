@@ -24,6 +24,7 @@ export const helivexApi = {
   strategies:    () => req<StrategyState[]>('/strategies'),
   getConfig:     (id: string) => req<Record<string, unknown>>(`/strategies/${id}/config`),
   putConfig:     (id: string, config: Record<string, unknown>) => req<{ ok: boolean; path: string }>(`/strategies/${id}/config`, { method: 'PUT', body: JSON.stringify(config) }),
+  restartPaper:  () => req<{ ok: boolean; message?: string; reason?: string }>('/paper/restart', { method: 'POST' }),
   gateTrials:    () => req<unknown>('/gate/trials'),
   runBacktest:   (body: unknown) => req<BacktestResult>('/backtest/run', { method: 'POST', body: JSON.stringify(body) }),
   executions:    () => req<ExecutionsResponse>('/executions'),

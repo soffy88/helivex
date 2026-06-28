@@ -13,6 +13,9 @@ All use OKXEnvironment.DEMO. Real OKX keys are only read from env; never hardcod
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+import yaml
 
 from nautilus_trader.adapters.okx.config import (
     OKXDataClientConfig,
@@ -50,6 +53,19 @@ def _okx_instrument_type_spot():
     return OKXInstrumentType.SPOT
 
 
+_STRAT_DIR = Path(__file__).parent.parent / "strategies"
+
+
+def _live(yaml_name: str) -> dict:
+    """Read the `live` param block from a strategy YAML (editable via the Configure
+    tab). Returns {} on any error so the hardcoded defaults below still apply."""
+    try:
+        cfg = yaml.safe_load((_STRAT_DIR / yaml_name).read_text()) or {}
+        return cfg.get("live") or {}
+    except Exception:
+        return {}
+
+
 def build_node() -> TradingNode:
     api_key     = os.environ["OKX_API_KEY"]
     api_secret  = os.environ["OKX_API_SECRET"]
@@ -79,41 +95,49 @@ def build_node() -> TradingNode:
         instrument_provider=InstrumentProviderConfig(load_all=True),
     )
 
+    # live params from YAML (editable via Configure tab) — defaults = prior hardcoded
+    td = _live("trend_dual.yaml")
+    vw = _live("vwap_mr_1h.yaml")
+    sp = _live("spot_trend_1d.yaml")
+
     # Strategy 1 — Donchian 4H SWAP (BTC, ETH, SOL)
     # LAST-INTERNAL: NT aggregates from trade ticks — no dependency on business WS candle push
     donchian_btc = Donchian4HConfig(
         instrument_id="BTC-USDT-SWAP.OKX",
         bar_type="BTC-USDT-SWAP.OKX-4-HOUR-LAST-INTERNAL",
-        n_enter=20, n_exit=10, qty_usd=200.0,
+        n_enter=int(td.get("n_enter", 20)), n_exit=int(td.get("n_exit", 10)), qty_usd=float(td.get("qty_usd", 200.0)),
     )
     donchian_eth = Donchian4HConfig(
         instrument_id="ETH-USDT-SWAP.OKX",
         bar_type="ETH-USDT-SWAP.OKX-4-HOUR-LAST-INTERNAL",
-        n_enter=20, n_exit=10, qty_usd=200.0,
+        n_enter=int(td.get("n_enter", 20)), n_exit=int(td.get("n_exit", 10)), qty_usd=float(td.get("qty_usd", 200.0)),
     )
     donchian_sol = Donchian4HConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
         bar_type="SOL-USDT-SWAP.OKX-4-HOUR-LAST-INTERNAL",
-        n_enter=20, n_exit=10, qty_usd=200.0,
+        n_enter=int(td.get("n_enter", 20)), n_exit=int(td.get("n_exit", 10)), qty_usd=float(td.get("qty_usd", 200.0)),
     )
 
     # Strategy 2 — VWAP-MR 1H SWAP (SOL)
     vwap_sol = VwapMR1HConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
         bar_type="SOL-USDT-SWAP.OKX-1-HOUR-LAST-INTERNAL",
-        vwap_n=4, z_thr=2.0, hold=6, qty_usd=200.0,
+        vwap_n=int(vw.get("vwap_n", 4)), z_thr=float(vw.get("z_thr", 2.0)),
+        hold=int(vw.get("hold", 6)), qty_usd=float(vw.get("qty_usd", 200.0)),
     )
 
     # Strategy 3 — Daily Donchian Spot (BTC, ETH)
     spot_btc = SpotTrend1DConfig(
         instrument_id="BTC-USDT.OKX",
         bar_type="BTC-USDT.OKX-1-DAY-LAST-INTERNAL",
-        n_enter=20, n_exit=10, bear_ma=200, qty_usd=200.0,
+        n_enter=int(sp.get("n_enter", 20)), n_exit=int(sp.get("n_exit", 10)),
+        bear_ma=int(sp.get("bear_ma", 200)), qty_usd=float(sp.get("qty_usd", 200.0)),
     )
     spot_eth = SpotTrend1DConfig(
         instrument_id="ETH-USDT.OKX",
         bar_type="ETH-USDT.OKX-1-DAY-LAST-INTERNAL",
-        n_enter=20, n_exit=10, bear_ma=200, qty_usd=200.0,
+        n_enter=int(sp.get("n_enter", 20)), n_exit=int(sp.get("n_exit", 10)),
+        bear_ma=int(sp.get("bear_ma", 200)), qty_usd=float(sp.get("qty_usd", 200.0)),
     )
 
     node_config = TradingNodeConfig(
@@ -136,20 +160,24 @@ def build_node() -> TradingNode:
     # Strategy 4 — Scalp 5M VWAP-MR SWAP (BTC, ETH, SOL) ⚠ NO-GO observation
     # R5: gross +1.33 Sharpe but taker costs 307%/yr kill net return.
     # Paper purpose: measure real fill rate/slippage vs R5 backtest assumptions.
+    sc = _live("scalp_5m.yaml")
     scalp_btc = Scalp5MConfig(
         instrument_id="BTC-USDT-SWAP.OKX",
         bar_type="BTC-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
-        vwap_n=12, z_thr=2.0, hold=6, qty_usd=50.0,
+        vwap_n=int(sc.get("vwap_n", 12)), z_thr=float(sc.get("z_thr", 2.0)),
+        hold=int(sc.get("hold", 6)), qty_usd=float(sc.get("qty_usd", 50.0)),
     )
     scalp_eth = Scalp5MConfig(
         instrument_id="ETH-USDT-SWAP.OKX",
         bar_type="ETH-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
-        vwap_n=12, z_thr=2.0, hold=6, qty_usd=50.0,
+        vwap_n=int(sc.get("vwap_n", 12)), z_thr=float(sc.get("z_thr", 2.0)),
+        hold=int(sc.get("hold", 6)), qty_usd=float(sc.get("qty_usd", 50.0)),
     )
     scalp_sol = Scalp5MConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
         bar_type="SOL-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
-        vwap_n=12, z_thr=2.0, hold=6, qty_usd=50.0,
+        vwap_n=int(sc.get("vwap_n", 12)), z_thr=float(sc.get("z_thr", 2.0)),
+        hold=int(sc.get("hold", 6)), qty_usd=float(sc.get("qty_usd", 50.0)),
     )
 
     node.trader.add_strategy(Donchian4H(donchian_btc))

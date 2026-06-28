@@ -1148,6 +1148,23 @@ async def post_risk_reset() -> dict:
     return {"ok": True, "tripped": is_tripped()}
 
 
+@app.post("/paper/restart")
+async def post_paper_restart() -> dict:
+    """Restart the paper node so edited live params (Configure tab) take effect.
+    The node re-reads each strategy YAML's `live` block on build."""
+    import subprocess as _sub
+    try:
+        r = _sub.run(
+            ["systemctl", "--user", "restart", "helivex-paper.service"],
+            capture_output=True, text=True, timeout=45,
+        )
+        if r.returncode == 0:
+            return {"ok": True, "message": "paper 节点已重启 — 新参数生效"}
+        return {"ok": False, "reason": (r.stderr or r.stdout or "restart failed").strip()}
+    except Exception as e:
+        return {"ok": False, "reason": str(e)}
+
+
 # ─── /microstructure (R16 L2 order-book recorder) ─────────────────────────────
 
 @app.get("/microstructure/latest")
