@@ -7,7 +7,9 @@ import type {
   AuditDecision, ChainHealth, PaperAccount,
 } from '@/types/api';
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8765';
+// Same-origin by default — the browser hits /gw/* on this server, which Next
+// rewrites to the gateway (see next.config.ts). Override with NEXT_PUBLIC_API_BASE.
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '/gw';
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
