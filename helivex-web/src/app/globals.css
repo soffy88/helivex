@@ -336,3 +336,24 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
   .hv-tab, .hv-stale-dot { animation: none; }
   .hv-nav-item, .hv-sel-chip, .hv-metric-card, .hv-micro-card, .hv-audit-item, .hv-table tbody tr { transition: none; }
 }
+
+/* ── second pass: section titles, empty states, button feedback ── */
+
+/* scannable section titles: a small primary tick */
+.hv-section-title { display: flex; align-items: center; gap: 7px; }
+.hv-section-title::before { content: ""; width: 3px; height: 11px; border-radius: 2px; background: color-mix(in oklch, var(--primary) 70%, transparent); flex-shrink: 0; }
+
+/* empty states read as intentional surfaces, not broken/blank */
+.hv-empty { border: 1px dashed color-mix(in oklch, var(--border) 80%, transparent); border-radius: 10px; background: color-mix(in oklch, var(--card) 40%, transparent); }
+.hv-empty__text::before { content: "○ "; opacity: 0.5; }
+
+/* tactile button press + primary-button hover brighten */
+.hv-run-gate:active, .hv-kill-btn:active, .hv-btn-soft:active, .hv-btn-recover:active,
+.hv-kill-confirm-btn:active, .hv-kill-cancel:active, .hv-back-btn:active, .hv-export-btn:active,
+.hv-verify-btn:active, .hv-drill-btn:active { transform: translateY(1px); }
+.hv-run-gate:hover:not(:disabled), .hv-kill-confirm-btn:hover { filter: brightness(1.08); }
+.hv-kill-btn:hover { background: color-mix(in oklch, var(--destructive) 16%, transparent); }
+
+/* gate/tier/acted badges: a touch more presence */
+.hv-tier-badge, .hv-signal-acted { letter-spacing: 0.02em; }
+.hv-bar-val { letter-spacing: -0.01em; }
