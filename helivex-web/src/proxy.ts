@@ -31,7 +31,9 @@ export function proxy(req: NextRequest) {
   return NextResponse.next();
 }
 
-// Protect everything except Next's static asset bundles (no data there).
+// Protect everything except Next internals/assets (no data there; the sensitive
+// data path is /gw, which IS gated). Excluding all of /_next avoids auth breaking
+// asset/HMR loads over the funnel.
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
+  matcher: ['/((?!_next/|favicon.ico).*)'],
 };
