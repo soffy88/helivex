@@ -25,6 +25,7 @@ from oservi.engines.alerter import AlerterEngine
 from paper.evaluators import (
     eval_audit_chain,
     eval_gateway_alive,
+    eval_l2_recorder_flow,
     eval_node_alive,
     eval_on_bar_trigger,
     eval_web_alive,
@@ -98,6 +99,7 @@ def build_alerter() -> AlerterEngine:
             eval_web_alive,
             eval_portfolio_drawdown,
             eval_daily_loss,
+            eval_l2_recorder_flow,
         ],
         channels=channels,
         trigger={"on_interval": 120},  # check every 2 minutes
@@ -136,6 +138,9 @@ def build_alerter() -> AlerterEngine:
                 },
                 "eval_daily_loss": {
                     "daily_loss_limit_usd": 250.0,
+                },
+                "eval_l2_recorder_flow": {
+                    "stale_seconds": 5 * 60,
                 },
             },
         },

@@ -234,3 +234,34 @@ async def eval_web_alive(*, config: dict | None = None) -> list[dict]:
             "web_alive", "high",
             f"Frontend unreachable at :{port} — {e}. systemd will restart (Restart=on-failure).",
         )]
+
+
+# ── 7. L2 recorder data flow ──────────────────────────────────────────────────
+
+async def eval_l2_recorder_flow(*, config: dict | None = None) -> list[dict]:
+    """L2 recorder liveness via row recency — catches a SILENT WS stall (process
+    stays up, data stops), which Restart=always cannot detect.
+
+    Recorder persists every ~10s × 3 instruments; stale > stale_seconds → WS dead.
+    """
+    cfg = config or {}
+    stale_s: float = cfg.get("stale_seconds", 5 * 60)  # 5 min (30× the 10s cadence)
+
+    try:
+        conn = await asyncpg.connect(DB_DSN)
+        row = await conn.fetchrow(
+            "SELECT MAX(ts) AS last_ts FROM market_data.orderbook_features")
+        await conn.close()
+    except Exception as e:
+        return [_alert("l2_recorder", "high", f"DB error checking L2 flow: {e}")]
+
+    if row is None or row["last_ts"] is None:
+        return [_alert("l2_recorder", "high",
+                       "market_data.orderbook_features empty — recorder never wrote a row")]
+
+    age = (datetime.now(timezone.utc) - row["last_ts"]).total_seconds()
+    if age > stale_s:
+        return [_alert("l2_recorder", "critical",
+                       f"No L2 row in {age / 60:.1f}min (threshold {stale_s / 60:.0f}min) "
+                       f"— recorder WS stalled?")]
+    return []

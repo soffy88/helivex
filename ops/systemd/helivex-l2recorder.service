@@ -1,0 +1,25 @@
+[Unit]
+Description=Helivex L2 Order-Book Recorder (NautilusTrader, OKX Demo)
+After=network.target
+Documentation=https://github.com/soffy88/helivex
+
+[Service]
+Type=simple
+WorkingDirectory=/home/soffy/projects/helivex
+EnvironmentFile=/home/soffy/projects/helivex/.env
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/paper/run_recorder.py
+
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Pure data collector — always keep it up.
+Restart=always
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+StandardOutput=append:/home/soffy/helivex_l2recorder.log
+StandardError=append:/home/soffy/helivex_l2recorder.log
+
+[Install]
+WantedBy=helivex.target
