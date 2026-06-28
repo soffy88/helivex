@@ -1,5 +1,5 @@
 {
-  "total_trials": 11,
+  "total_trials": 13,
   "history": [
     {
       "trial_n": 1,
@@ -324,6 +324,56 @@
         },
         "overall": "FAIL",
         "note": "R11 soft-router combo @ 180d short window (returns+vol regime)"
+      }
+    },
+    {
+      "trial_n": 12,
+      "config": "ops/scripts/gbm_compound_gate.py (GBM compound BTC)",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -7.843687465665299,
+            "pbo": 0.5,
+            "mean_oos": -1.4175847735485474,
+            "gross_sharpe": -0.7701753380211844
+          }
+        },
+        "overall": "FAIL",
+        "note": "GBM compound nonlinear, BTC 4h, 10 feats, OOS IC -0.111"
+      }
+    },
+    {
+      "trial_n": 13,
+      "config": "ops/scripts/vol_straddle_real.py (short-vol VRP harvest, real Deribit costs)",
+      "verdict": "FAIL",
+      "metrics": {
+        "method": "real-cost short-straddle model (NOT CPCV/DSR): BS premiums from historical DVOL, real BTC/ETH price tails, live-measured Deribit skew/spread/fees. Decision metric = ruin-safe HEDGED Sharpe.",
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": null,
+            "pbo": null,
+            "naked_sharpe_weekly": 1.3,
+            "hedged_sharpe_weekly": -0.41,
+            "naked_sharpe_monthly": 0.3,
+            "hedged_sharpe_monthly": 0.01,
+            "note": "VRP real (impl>real 73-76%) but real put-skew (1.2-1.6x ATM) eats 25% of premium; ruin-safe hedged Sharpe <=0. Naked +1.30 carries uncapped tail risk + survivorship-flattered (no black-swan in window)."
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": null,
+            "pbo": null,
+            "naked_sharpe_weekly": 0.17,
+            "hedged_sharpe_weekly": -1.64,
+            "naked_sharpe_monthly": -0.19,
+            "hedged_sharpe_monthly": -0.25,
+            "note": "No premium to begin with (DVOL ~= RV) + fatter tails; negative throughout."
+          }
+        },
+        "overall": "FAIL",
+        "note": "R13: volatility/VRP direction CLOSED. Decision rule (pre-registered): BTC weekly hedged Sharpe >0.3 -> viable; -0.41 -> exhausted. Efficient-market: retail vol-seller can't harvest VRP risk-managed after real Deribit skew. See docs/R13_VOL_STRADDLE_GATE.md."
       }
     }
   ]
