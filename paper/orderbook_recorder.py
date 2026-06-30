@@ -21,8 +21,6 @@ from __future__ import annotations
 import asyncio
 import os
 
-import asyncpg
-
 from nautilus_trader.common.actor import Actor
 from nautilus_trader.common.config import ActorConfig
 from nautilus_trader.model.book import OrderBook
@@ -30,6 +28,7 @@ from nautilus_trader.model.enums import BookType
 from nautilus_trader.model.identifiers import InstrumentId
 
 from paper.db import DB_DSN
+from paper.db_pool import ResilientPool
 
 OBF_DDL = """
 CREATE SCHEMA IF NOT EXISTS market_data;
@@ -82,15 +81,16 @@ class OrderBookRecorder(Actor):
     def __init__(self, config: OrderBookRecorderConfig) -> None:
         super().__init__(config)
         self._ids = [InstrumentId.from_str(s) for s in config.instrument_ids]
-        self._db_pool: asyncpg.Pool | None = None
+        self._db: ResilientPool | None = None
         self._loop = None
         self._last_persist_ns: dict[str, int] = {}
         self._n_persisted = 0
 
     async def _init_db(self) -> None:
-        self._db_pool = await asyncpg.create_pool(DB_DSN, min_size=1, max_size=2)
-        async with self._db_pool.acquire() as conn:
-            await conn.execute(OBF_DDL)
+        # Resilient pool: retries the boot race + self-heals on container restart
+        # (the prior one-shot create_pool silently died on a postgres bounce).
+        self._db = ResilientPool(DB_DSN, OBF_DDL, name="l2rec", logger=self.log)
+        await self._db.ensure()
         # the interval-snapshot callback fires on a Rust timer thread (no asyncio
         # loop there); capture the main loop now to schedule DB writes thread-safely.
         self._loop = asyncio.get_running_loop()
@@ -112,7 +112,7 @@ class OrderBookRecorder(Actor):
         last = self._last_persist_ns.get(instr, 0)
         if now - last < self.config.persist_interval_s * 1e9:
             return
-        if self._db_pool is None or self._loop is None:
+        if self._db is None or self._loop is None:
             return
 
         feat = self._features(book)
@@ -122,18 +122,17 @@ class OrderBookRecorder(Actor):
 
         async def _store() -> None:
             try:
-                async with self._db_pool.acquire() as conn:
-                    await conn.execute(
-                        """INSERT INTO market_data.orderbook_features
-                           (book_ts_ns, instrument, best_bid, best_ask, mid, microprice,
-                            spread, spread_bps, bid_sz1, ask_sz1, bid_depth5, ask_depth5,
-                            imbalance1, imbalance5)
-                           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)""",
-                        book.ts_last, instr, feat["best_bid"], feat["best_ask"],
-                        feat["mid"], feat["microprice"], feat["spread"], feat["spread_bps"],
-                        feat["bid_sz1"], feat["ask_sz1"], feat["bid_depth5"],
-                        feat["ask_depth5"], feat["imbalance1"], feat["imbalance5"],
-                    )
+                await self._db.execute(lambda conn: conn.execute(
+                    """INSERT INTO market_data.orderbook_features
+                       (book_ts_ns, instrument, best_bid, best_ask, mid, microprice,
+                        spread, spread_bps, bid_sz1, ask_sz1, bid_depth5, ask_depth5,
+                        imbalance1, imbalance5)
+                       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)""",
+                    book.ts_last, instr, feat["best_bid"], feat["best_ask"],
+                    feat["mid"], feat["microprice"], feat["spread"], feat["spread_bps"],
+                    feat["bid_sz1"], feat["ask_sz1"], feat["bid_depth5"],
+                    feat["ask_depth5"], feat["imbalance1"], feat["imbalance5"],
+                ))
                 self._n_persisted += 1
                 if self._n_persisted <= 3 or self._n_persisted % 100 == 0:
                     self.log.info(f"[l2rec] persisted n={self._n_persisted} "

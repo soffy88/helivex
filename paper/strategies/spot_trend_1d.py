@@ -10,8 +10,6 @@ from __future__ import annotations
 from collections import deque
 from typing import Any
 
-import asyncpg
-
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType
 from nautilus_trader.model.enums import LiquiditySide, OrderSide, TimeInForce
@@ -20,7 +18,8 @@ from nautilus_trader.trading.strategy import Strategy
 
 from paper.audit import sign_signal
 from paper.risk import RISK
-from paper.db import DB_DSN, ensure_schema, log_signal, log_fill
+from paper.db import DB_DSN, DDL, log_signal, log_fill
+from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
 
 
@@ -46,22 +45,38 @@ class SpotTrend1D(Strategy):
         self._signal_price: float | None = None
         self._pending_signal_id: int | None = None
         self._order_submit_ns: int | None = None
-        self._db_pool: asyncpg.Pool | None = None
+        self._db: ResilientPool | None = None
 
     def _strategy_id(self) -> str:
         inst = self.config.instrument_id.replace(".", "_").replace("-", "_").lower()
         return f"{self.STRATEGY_BASE}_{inst}"
 
-    async def _init_db(self) -> None:
-        self._db_pool = await asyncpg.create_pool(DB_DSN, min_size=1, max_size=2)
-        async with self._db_pool.acquire() as conn:
-            await ensure_schema(conn)
-
     def on_start(self) -> None:
         import asyncio
         self._bar_type = BarType.from_str(self.config.bar_type)
         self.subscribe_bars(self._bar_type)
-        asyncio.ensure_future(self._init_db())
+        self._db = ResilientPool(DB_DSN, DDL, name=self._strategy_id(), logger=self.log)
+        asyncio.ensure_future(self._db.ensure())
+        asyncio.ensure_future(self._rehydrate_position())
+
+    async def _rehydrate_position(self) -> None:
+        # After a restart the venue may hold a position this strategy opened before
+        # the crash; NT reconciles it into the cache at startup. Recover direction
+        # so logic state matches reality. Deferred (reconciliation settles) and
+        # guarded (only when still flat) so it never overrides a live signal.
+        # Spot is long-only, so only a long (net > 0) is expected.
+        import asyncio
+        await asyncio.sleep(10)
+        if self._position != 0:
+            return
+        try:
+            net = float(self.portfolio.net_position(InstrumentId.from_str(self.config.instrument_id)))
+        except Exception as exc:
+            self.log.warning(f"[{self._strategy_id()}] position rehydrate skipped: {exc}")
+            return
+        self._position = 1 if net > 0 else 0
+        if self._position != 0:
+            self.log.info(f"[{self._strategy_id()}] rehydrated _position={self._position} from venue net={net}")
 
     def on_bar(self, bar: Bar) -> None:
         close = float(bar.close)
@@ -119,18 +134,20 @@ class SpotTrend1D(Strategy):
         }
         rec = sign_signal(audit_body)
 
-        if self._db_pool:
+        if self._db is not None:
             _indicators = indicators
             async def _store():
-                async with self._db_pool.acquire() as conn:
-                    sid = await log_signal(
+                try:
+                    sid = await self._db.execute(lambda conn: log_signal(
                         conn, strat, inst, action, price,
                         audit_record_id=rec["record_id"],
                         fingerprint_hex=rec["fingerprint_hex"],
                         sig_b64=rec.get("sig_b64", ""),
                         indicators=_indicators,
-                    )
+                    ))
                     self._pending_signal_id = sid
+                except Exception as exc:
+                    self.log.error(f"[{strat}] SIGNAL PERSIST FAILED ({action}): {exc}")
             asyncio.ensure_future(_store())
 
         self._signal_price = price
@@ -177,29 +194,40 @@ class SpotTrend1D(Strategy):
 
     def on_order_filled(self, event: Any) -> None:
         import asyncio
-        if self._db_pool and self._signal_price is not None:
+        if self._db is not None and self._signal_price is not None:
             fill_price = float(str(event.last_px))
             side       = "BUY" if event.order_side == OrderSide.BUY else "SELL"
             qty        = float(str(event.last_qty))
             strat      = self._strategy_id()
             inst       = self.config.instrument_id
+            # Reconcile risk exposure to the ACTUAL executed notional (price×qty),
+            # replacing the nominal qty_usd estimate from _fire_signal. _position is
+            # already updated by _fire_signal: non-zero = entry fill, 0 = exit fill.
+            if self._position != 0:
+                RISK.open_position(strat, inst, fill_price * qty)
+            else:
+                RISK.close_position(strat, inst)
             fill_type  = "maker" if getattr(event, "liquidity_side", None) == LiquiditySide.MAKER else "taker"
             latency_ms = None
             if self._order_submit_ns is not None:
                 latency_ms = max(0, int((self.clock.timestamp_ns() - self._order_submit_ns) / 1_000_000))
 
+            sig_price = self._signal_price
+            sig_id = self._pending_signal_id
             async def _store():
-                async with self._db_pool.acquire() as conn:
-                    await log_fill(
+                try:
+                    await self._db.execute(lambda conn: log_fill(
                         conn, strat, inst, side, qty,
-                        signal_price=self._signal_price,
+                        signal_price=sig_price,
                         actual_fill_price=fill_price,
                         order_id=str(event.client_order_id),
                         venue_order_id=str(getattr(event, "venue_order_id", "")),
                         latency_ms=latency_ms,
                         fill_type=fill_type,
-                        signal_id=self._pending_signal_id,
-                    )
+                        signal_id=sig_id,
+                    ))
+                except Exception as exc:
+                    self.log.error(f"[{strat}] FILL PERSIST FAILED: {exc}")
             asyncio.ensure_future(_store())
             self._pending_signal_id = None
             self._order_submit_ns = None
@@ -207,7 +235,7 @@ class SpotTrend1D(Strategy):
     def on_stop(self) -> None:
         inst_id = InstrumentId.from_str(self.config.instrument_id)
         self.close_all_positions(inst_id)
-        if self._db_pool:
+        if self._db is not None:
             import asyncio
-            asyncio.ensure_future(self._db_pool.close())
-            self._db_pool = None
+            asyncio.ensure_future(self._db.close())
+            self._db = None
