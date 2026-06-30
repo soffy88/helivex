@@ -8,12 +8,18 @@ What it does:
     1. Load YAML strategy config
     2. Fetch OHLCV from TimescaleDB; resample as needed
     3. Run the matching omodul strategy to get per-bar signals
-    4. Sequential blocked walk-forward CV (embargo gap): split → OOS Sharpe per fold
-    5. Two GATING heuristics + one reported diagnostic:
+    4. Blocked walk-forward CV, now PURGED + embargoed: drop IS observations
+       whose multi-bar label window overlaps the OOS window (López de Prado
+       purge), in addition to the between-fold embargo gap → OOS Sharpe per fold
+    5. Legacy heuristics + real overfitting statistics:
          - "deflated_sharpe" key  = mean_oos − std_oos  (a mean-minus-dispersion
            heuristic; NOT the skew/kurtosis-adjusted Deflated Sharpe)
          - "pbo" key              = freq(IS_sharpe > OOS_sharpe)  (an IS>OOS
-           frequency; NOT the CSCV logit-rank Probability of Backtest Overfitting)
+           frequency; kept for consumers — NOT the CSCV PBO)
+         - "pbo_cscv" key         = the REAL CSCV logit-rank Probability of
+           Backtest Overfitting (López de Prado 2014); GATES the verdict. See
+           _cscv_pbo for the surrogate-family ranking and its honest limitation
+           for a single-config gate.
          - "deflated_sharpe_real" = the REAL Bailey & López de Prado (2016)
            Deflated Sharpe Ratio (reported only, NON-gating)
     6. The mean−std heuristic is compared against an expected-max-of-N-Sharpes
@@ -386,35 +392,176 @@ def _sharpe(pnl: np.ndarray, periods_per_year: int) -> float:
     return float(np.mean(pnl)) / float(np.std(pnl)) * math.sqrt(periods_per_year)
 
 
+# ──────────────────── Real CSCV Probability of Backtest Overfitting ──────────
+#
+# Combinatorially-Symmetric Cross-Validation (López de Prado, "The Probability
+# of Backtest Overfitting", J. Computational Finance 2014). The textbook PBO is
+# a property of a *selection procedure over a grid of N≥2 candidate trials*: it
+# is the probability that the in-sample-best candidate underperforms the median
+# of the others out-of-sample.
+#
+# This gate, however, scores ONE strategy configuration — there is no parameter
+# grid to select from, so a literal model-selection PBO is undefined. Rather
+# than fabricate a grid (which would require re-running the strategy, owned
+# elsewhere), we build an honest surrogate family from the single P&L series and
+# run the *real* CSCV machinery on it. See `_cscv_pbo` for the exact ranking and
+# its documented limitation.
+
+
+def _block_bootstrap_surrogates(
+    r: np.ndarray, n_surrogates: int, block_len: int, seed: int
+) -> list[np.ndarray]:
+    """Stationary circular block-bootstrap resamples of a return series.
+
+    Each surrogate is built by concatenating randomly-placed contiguous blocks
+    of length ``block_len`` (wrapping around the end) until it reaches len(r),
+    then truncating. This preserves the marginal distribution and short-range
+    (within-block) autocorrelation of ``r`` while scrambling the longer-horizon
+    ordering, so the surrogates have the SAME return alphabet but no persistent
+    IS→OOS edge. RNG is seeded so the gate stays deterministic/reproducible.
+    """
+    rng = np.random.default_rng(seed)
+    T = len(r)
+    block_len = max(1, min(block_len, T))
+    cols: list[np.ndarray] = []
+    for _ in range(n_surrogates):
+        idx: list[int] = []
+        while len(idx) < T:
+            start = int(rng.integers(0, T))
+            idx.extend((start + j) % T for j in range(block_len))
+        cols.append(r[np.array(idx[:T], dtype=int)])
+    return cols
+
+
+def _cscv_pbo(
+    pnl: np.ndarray,
+    n_blocks: int = 8,
+    n_surrogates: int = 7,
+    block_len: int | None = None,
+    seed: int = 7,
+) -> float:
+    """REAL CSCV Probability of Backtest Overfitting (López de Prado 2014).
+
+    Algorithm (exactly the paper, on a T×N performance matrix M):
+      1. Partition the T rows into ``n_blocks`` (=S) disjoint, contiguous
+         sub-blocks.
+      2. Enumerate all C(S, S/2) ways to choose S/2 blocks as the in-sample (IS)
+         set; the complementary S/2 blocks are out-of-sample (OOS).
+      3. For each combination: compute each candidate column's IS Sharpe and OOS
+         Sharpe. Let n* = argmax(IS Sharpe). Take the OOS rank r* of n* among the
+         N columns (1=worst … N=best), relative rank ω = r*/(N+1) ∈ (0,1), logit
+         λ = ln(ω/(1−ω)).
+      4. PBO = fraction of combinations with λ ≤ 0  (i.e. the IS-best column
+         landed in the bottom OOS half → its in-sample edge did not persist).
+
+    WHAT IS RANKED HERE (honest limitation): the gate evaluates a single config,
+    so there is no real grid. The N candidate columns are: column 0 = the
+    strategy's actual per-bar returns, columns 1..N−1 = stationary block-
+    bootstrap surrogates of those same returns (`_block_bootstrap_surrogates`,
+    fixed seed). The reported value is therefore the probability that a selector
+    choosing the IS-best member of {real strategy, reshuffled versions of
+    itself} would pick one whose OOS Sharpe falls below the family median. It
+    measures the strategy's IS→OOS rank persistence against reorderings of its
+    own P&L — NOT overfitting of a parameter choice across a genuine grid. A
+    strategy whose edge is evenly distributed in time stays IS-best AND OOS-top
+    (low PBO); one whose ``win'' is luck concentrated in a few blocks gets beaten
+    OOS by a lucky surrogate (PBO → 0.5). With a true multi-config matrix this
+    same function computes the canonical PBO unchanged.
+
+    Returns a probability in [0,1]; NaN when the series is too short for
+    ``n_blocks`` blocks of ≥10 observations each.
+    """
+    from itertools import combinations
+
+    from scipy.stats import rankdata
+
+    r = np.asarray(pnl, dtype=float)
+    T = len(r)
+    if n_blocks < 2 or n_blocks % 2 != 0:
+        return float("nan")
+    blk = T // n_blocks
+    if blk < 10:
+        return float("nan")
+
+    if block_len is None or block_len <= 0:
+        block_len = max(5, T // (n_blocks * 4))
+
+    cols = [r] + _block_bootstrap_surrogates(r, n_surrogates, block_len, seed)
+    N = len(cols)
+    Tt = blk * n_blocks
+    M = np.column_stack([c[:Tt] for c in cols])          # Tt × N
+
+    block_rows = [np.arange(b * blk, (b + 1) * blk) for b in range(n_blocks)]
+    half = n_blocks // 2
+
+    def _col_sharpe(sub: np.ndarray) -> np.ndarray:
+        mu = sub.mean(axis=0)
+        sd = sub.std(axis=0)
+        return np.where(sd < 1e-12, 0.0, mu / np.maximum(sd, 1e-12))
+
+    n_le0 = 0
+    n_comb = 0
+    for is_blocks in combinations(range(n_blocks), half):
+        oos_blocks = [b for b in range(n_blocks) if b not in is_blocks]
+        is_rows  = np.concatenate([block_rows[b] for b in is_blocks])
+        oos_rows = np.concatenate([block_rows[b] for b in oos_blocks])
+        is_sr  = _col_sharpe(M[is_rows, :])
+        oos_sr = _col_sharpe(M[oos_rows, :])
+        n_star = int(np.argmax(is_sr))
+        r_star = float(rankdata(oos_sr)[n_star])         # 1=worst OOS … N=best
+        omega  = r_star / (N + 1.0)
+        lam    = math.log(omega / (1.0 - omega))
+        if lam <= 0:
+            n_le0 += 1
+        n_comb += 1
+
+    return n_le0 / n_comb if n_comb else float("nan")
+
+
 def _walk_forward_gate(
     pnl: np.ndarray,
     n_splits: int,
     embargo_bars: int,
     periods_per_year: int,
     pbo_threshold: float = 0.5,
+    purge_bars: int = 0,
 ) -> dict:
-    """Sequential blocked walk-forward gate with an embargo gap.
+    """Blocked walk-forward gate with an embargo gap AND label purging.
 
-    NOTE ON LABELS: this is plain blocked CV, NOT Combinatorial Purged CV (folds
-    are sequential, non-overlapping, separated by an embargo; there is no
-    combinatorial recombination and no per-label purging). The two gating numbers
-    are heuristics, not their textbook namesakes — the dict keys are kept for
-    backward compatibility but the values are:
+    NOTE ON LABELS: the fold layout is still sequential blocked CV (folds are
+    contiguous, non-overlapping, separated by ``embargo_bars``) — NOT the full
+    combinatorial recombination of CPCV. What IS now textbook-correct:
+      - PURGING (López de Prado): per-bar P&L labels are multi-bar (a position
+        opened in the IS segment can still be open when the OOS segment starts),
+        so the last ``purge_bars`` observations of each fold's IS segment — whose
+        label window [t, t+purge_bars] overlaps the OOS window — are DROPPED to
+        remove train/test leakage. This is in addition to the between-fold
+        embargo gap.
+      - "pbo_cscv" (NEW key): the real CSCV logit-rank Probability of Backtest
+        Overfitting (see `_cscv_pbo`), computed on the full per-bar P&L.
+
+    The two LEGACY gating numbers remain heuristics, kept for backward
+    compatibility with .gate_trials.json / the gateway / the web UI:
       - "deflated_sharpe" = mean_oos − std_oos  (mean-minus-dispersion heuristic;
-        NOT the skew/kurtosis-adjusted Deflated Sharpe — that is reported
-        separately as "deflated_sharpe_real").
+        NOT the skew/kurtosis-adjusted Deflated Sharpe — reported separately as
+        "deflated_sharpe_real").
       - "pbo"             = freq(IS_sharpe > OOS_sharpe) across folds (an IS>OOS
-        frequency; NOT the CSCV logit-rank Probability of Backtest Overfitting).
+        frequency; NOT the CSCV PBO — that is the new "pbo_cscv" key).
 
-    Per fold: split into first 2/3 (IS) + last 1/3 (OOS); collect IS/OOS Sharpe.
+    Per fold: split into first 2/3 (IS) + last 1/3 (OOS); purge the IS tail by
+    ``purge_bars``; collect IS/OOS Sharpe.
     """
     n = len(pnl)
+    pbo_cscv = _cscv_pbo(pnl, block_len=purge_bars or None)
     fold_size = (n - embargo_bars * (n_splits - 1)) // n_splits
     if fold_size < 50:
         return {
             "oos_sharpes": [], "is_sharpes": [],
             "mean_oos_sharpe": float("nan"),
             "pbo": float("nan"),
+            "pbo_cscv": pbo_cscv,
+            "purge_bars": purge_bars,
+            "purged_cv": True,
             "deflated_sharpe": float("nan"),
             "fail_reasons": ["insufficient data for gate"],
             "status": "FAIL",
@@ -432,7 +579,12 @@ def _walk_forward_gate(
 
         fold_pnl = pnl[start:end]
         split    = max(1, int(len(fold_pnl) * 2 / 3))
-        is_pnl   = fold_pnl[:split]
+        # PURGE: drop IS observations whose label window overlaps the OOS window.
+        # A label at fold-local index j spans [j, j+purge_bars]; it leaks into the
+        # OOS segment (which starts at `split`) iff j + purge_bars >= split. So we
+        # keep only IS indices < split - purge_bars.
+        is_end   = max(1, split - max(0, purge_bars))
+        is_pnl   = fold_pnl[:is_end]
         oos_pnl  = fold_pnl[split:]
 
         is_sr  = _sharpe(is_pnl,  periods_per_year)
@@ -447,6 +599,9 @@ def _walk_forward_gate(
             "oos_sharpes": [], "is_sharpes": [],
             "mean_oos_sharpe": float("nan"),
             "pbo": float("nan"),
+            "pbo_cscv": pbo_cscv,
+            "purge_bars": purge_bars,
+            "purged_cv": True,
             "deflated_sharpe": float("nan"),
             "fail_reasons": ["no valid folds"],
             "status": "FAIL",
@@ -469,6 +624,11 @@ def _walk_forward_gate(
         fail_reasons.append(f"mean_oos−std_oos={dsr:.3f} ≤ 0")
     if pbo >= pbo_threshold:
         fail_reasons.append(f"IS>OOS freq={pbo:.2f} ≥ {pbo_threshold}")
+    # Real CSCV PBO also gates: if the IS-best member of the surrogate family
+    # fails to persist OOS at least half the time, the edge is overfit. This can
+    # only ADD fail reasons (never turn a FAIL into a PASS).
+    if not math.isnan(pbo_cscv) and pbo_cscv >= pbo_threshold:
+        fail_reasons.append(f"CSCV PBO={pbo_cscv:.2f} ≥ {pbo_threshold}")
 
     status = "PASS" if not fail_reasons else "FAIL"
 
@@ -478,6 +638,9 @@ def _walk_forward_gate(
         "mean_oos_sharpe":  mean_oos,
         "pbo":              pbo,              # = is_gt_oos_freq (kept for consumers)
         "is_gt_oos_freq":   pbo,             # honest alias
+        "pbo_cscv":         pbo_cscv,         # REAL CSCV logit-rank PBO (new key)
+        "purge_bars":       purge_bars,       # label-purge horizon (bars)
+        "purged_cv":        True,             # folds are purged + embargoed
         "deflated_sharpe":  dsr,              # = mean_minus_std_oos (kept for consumers)
         "mean_minus_std_oos": dsr,           # honest alias
         "fail_reasons":     fail_reasons,
@@ -513,6 +676,19 @@ async def run_gate(config_path: str, instrument: str | None = None, verbose: boo
     embargo_bars   = int(gate_cfg.get("embargo_bars", 50))
     pbo_threshold  = float(gate_cfg.get("pbo_threshold", 0.5))
     ppy            = _periods_per_year(timeframe)
+
+    # Label-purge horizon (bars): the max number of bars a position/label can
+    # stay open before being re-evaluated. Used to purge IS observations that
+    # leak into OOS, and as the block length for the CSCV surrogate bootstrap.
+    # Order of preference: explicit gate.purge_bars → the strategy's Donchian
+    # enter/exit lookbacks (live.n_enter / live.n_exit) → DEFAULT_PURGE_BARS.
+    live_cfg       = cfg.get("live", {})
+    DEFAULT_PURGE_BARS = 24
+    purge_bars     = int(gate_cfg.get(
+        "purge_bars",
+        max(int(live_cfg.get("n_enter", 0)), int(live_cfg.get("n_exit", 0)))
+        or DEFAULT_PURGE_BARS,
+    ))
 
     # Load strategy function
     if strategy_name not in STRATEGY_MAP:
@@ -604,8 +780,9 @@ async def run_gate(config_path: str, instrument: str | None = None, verbose: boo
         if verbose:
             print(f"  Gross Sharpe (net of cost{' + funding' if funding_into is not None else ''}): {gross_sr:.3f}")
 
-        # Blocked walk-forward gate (sequential, embargoed)
-        gate = _walk_forward_gate(pnl, n_splits, embargo_bars, ppy, pbo_threshold)
+        # Blocked walk-forward gate (sequential, purged + embargoed)
+        gate = _walk_forward_gate(pnl, n_splits, embargo_bars, ppy, pbo_threshold,
+                                  purge_bars=purge_bars)
         gate["gross_sharpe"] = gross_sr
 
         # REAL Deflated Sharpe (Bailey & López de Prado) — reported, NON-gating.
@@ -632,6 +809,9 @@ async def run_gate(config_path: str, instrument: str | None = None, verbose: boo
                   f"mean−std_oos(='dsr'): {gate['deflated_sharpe']:.3f}  "
                   f"adj: {adjusted_dsr:.3f}  "
                   f"IS>OOS freq(='pbo'): {gate['pbo']:.2f}")
+            pbo_cscv = gate.get("pbo_cscv", float("nan"))
+            print(f"  CSCV PBO (real, purge={gate.get('purge_bars')} bars): "
+                  + (f"{pbo_cscv:.2f}" if not math.isnan(pbo_cscv) else "n/a"))
             print(f"  Real Deflated Sharpe (diagnostic, non-gating): "
                   f"{real_dsr:.3f}" if not math.isnan(real_dsr) else
                   "  Real Deflated Sharpe (diagnostic, non-gating): n/a")
@@ -657,6 +837,7 @@ async def run_gate(config_path: str, instrument: str | None = None, verbose: boo
                 "status":       v.get("status"),
                 "dsr":          v.get("deflated_sharpe"),        # mean_oos − std_oos heuristic
                 "pbo":          v.get("pbo"),                    # IS>OOS frequency heuristic
+                "pbo_cscv":     v.get("pbo_cscv"),               # real CSCV PBO (new)
                 "mean_oos":     v.get("mean_oos_sharpe"),
                 "gross_sharpe": v.get("gross_sharpe"),
                 "deflated_sharpe_real": v.get("deflated_sharpe_real"),  # real DSR, non-gating
