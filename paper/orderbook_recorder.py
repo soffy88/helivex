@@ -207,4 +207,8 @@ def build_recorder_node():
         depth=0, interval_ms=1000, persist_interval_s=10.0,
     ))
     node.trader.add_actor(recorder)
+
+    from paper.sdwatchdog import attach_watchdog
+    attach_watchdog(node)   # systemd WatchdogSec keep-alive (no-op outside systemd)
+
     return node

@@ -2,6 +2,8 @@
 Description=Helivex Paper Trading Node (NautilusTrader)
 After=network.target postgresql.service
 Documentation=https://github.com/soffy88/helivex
+StartLimitBurst=3
+StartLimitIntervalSec=120
 
 [Service]
 Type=simple
@@ -14,12 +16,16 @@ ExecStartPost=/bin/bash -c 'sleep 2 && echo $MAINPID > /tmp/helivex_paper_node.p
 KillSignal=SIGTERM
 TimeoutStopSec=30
 
+# Watchdog: the in-process sd_notify actor (paper/sdwatchdog.py) pings every 30s;
+# a wedged engine loop stops pinging and systemd restarts after 120s (generous
+# margin over the node's connect/boot before the first ping). A watchdog kill is
+# a failure → Restart=on-failure restarts; the kill-switch's clean SIGTERM does not.
+WatchdogSec=120
+
 # Restart only on crash (exit != 0). Intentional SIGTERM/SIGINT won't trigger restart.
 # This lets the portfolio kill switch stop the node without it bouncing back.
 Restart=on-failure
 RestartSec=10
-StartLimitBurst=3
-StartLimitIntervalSec=120
 
 StandardOutput=append:/home/soffy/helivex_paper.log
 StandardError=append:/home/soffy/helivex_paper.log

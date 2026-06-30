@@ -190,4 +190,7 @@ def build_node() -> TradingNode:
     node.trader.add_strategy(Scalp5M(scalp_eth))
     node.trader.add_strategy(Scalp5M(scalp_sol))
 
+    from paper.sdwatchdog import attach_watchdog
+    attach_watchdog(node)   # systemd WatchdogSec keep-alive (no-op outside systemd)
+
     return node
