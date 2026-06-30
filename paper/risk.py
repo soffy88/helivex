@@ -247,12 +247,67 @@ async def realized_pnl(conn: asyncpg.Connection, since: _dt.datetime | None = No
     return pnl
 
 
+async def open_positions(conn: asyncpg.Connection) -> dict[tuple[str, str], list[float]]:
+    """Current open book per (strategy_id, instrument) as [signed_qty, avg_cost],
+    from the same avg-cost walk as realized_pnl. Flat keys omitted."""
+    rows = await conn.fetch(
+        """SELECT strategy_id, instrument, side, quantity, actual_fill_price
+           FROM paper.fills ORDER BY ts ASC""")
+    pos: dict[tuple[str, str], list[float]] = {}
+    for r in rows:
+        key = (r["strategy_id"], r["instrument"])
+        q, cost = pos.get(key, [0.0, 0.0])
+        fill_q = float(r["quantity"]) * (1.0 if r["side"] == "BUY" else -1.0)
+        px = float(r["actual_fill_price"])
+        if q == 0 or (q > 0) == (fill_q > 0):
+            new_q = q + fill_q
+            cost = (cost * abs(q) + px * abs(fill_q)) / abs(new_q) if new_q != 0 else 0.0
+            q = new_q
+        else:
+            q += fill_q
+            if q == 0:
+                cost = 0.0
+            elif (q > 0) != (q - fill_q > 0):
+                cost = px
+        pos[key] = [q, cost]
+    return {k: v for k, v in pos.items() if abs(v[0]) > 1e-12}
+
+
+async def _latest_marks(conn: asyncpg.Connection, fresh_seconds: int = 600) -> dict[str, float]:
+    """Latest fresh mid price per instrument from the L2 recorder feed."""
+    rows = await conn.fetch(
+        f"""SELECT DISTINCT ON (instrument) instrument, mid
+            FROM market_data.orderbook_features
+            WHERE ts > now() - interval '{int(fresh_seconds)} seconds' AND mid IS NOT NULL
+            ORDER BY instrument, ts DESC""")
+    return {r["instrument"]: float(r["mid"]) for r in rows}
+
+
+async def unrealized_pnl(conn: asyncpg.Connection) -> dict:
+    """Mark-to-market P&L of the open book using fresh L2 mids. Positions without a
+    fresh mark (e.g. spot instruments) contribute 0 and are counted (conservative)."""
+    positions = await open_positions(conn)
+    marks = await _latest_marks(conn)
+    upnl = 0.0
+    marked = unmarked = 0
+    for (_strat, inst), (qty, cost) in positions.items():
+        mark = marks.get(inst)
+        if mark is None:
+            unmarked += 1
+            continue
+        upnl += (mark - cost) * qty   # qty is signed: short positions profit as mark falls
+        marked += 1
+    return {"unrealized": upnl, "n_marked": marked, "n_unmarked": unmarked}
+
+
 async def nav_and_drawdown(conn: asyncpg.Connection) -> dict:
-    """NAV = base + all-time realized P&L. Returns nav, peak proxy, dd_pct, today_pnl."""
+    """Mark-to-market NAV = base + realized + unrealized. Returns nav, HWM peak,
+    dd_pct (now sees OPEN-position losses), realized today/all, unrealized."""
     all_time = await realized_pnl(conn)
     midnight = _dt.datetime.now(_dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     today = await realized_pnl(conn, since=midnight)
-    nav = BASE_EQUITY_USD + all_time
+    u = await unrealized_pnl(conn)
+    nav = BASE_EQUITY_USD + all_time + u["unrealized"]
     # Ratcheting high-water-mark: peak = max(ever-seen NAV, current NAV). Persisted
     # so drawdown is measured from the true equity high, not reset each call.
     peak = _read_hwm(BASE_EQUITY_USD)
@@ -261,7 +316,8 @@ async def nav_and_drawdown(conn: asyncpg.Connection) -> dict:
         _write_hwm(peak)
     dd_pct = (peak - nav) / peak * 100.0 if peak > 0 else 0.0
     return {"nav": nav, "peak": peak, "dd_pct": dd_pct,
-            "realized_all": all_time, "realized_today": today}
+            "realized_all": all_time, "realized_today": today,
+            "unrealized": u["unrealized"], "n_unmarked": u["n_unmarked"]}
 
 
 # ── DB audit of risk events ─────────────────────────────────────────────────────
@@ -354,7 +410,8 @@ async def _cli_status() -> None:
         await conn.close()
     print("── helivex paper risk ──────────────────────────────────────────")
     print(f"kill-switch : {'TRIPPED — ' + kill_switch_reason() if is_tripped() else 'clear'}")
-    print(f"NAV         : {st['nav']:.2f}  (base {BASE_EQUITY_USD:.0f} + realized {st['realized_all']:+.2f})")
+    print(f"NAV         : {st['nav']:.2f}  (base {BASE_EQUITY_USD:.0f} + realized {st['realized_all']:+.2f} "
+          f"+ unrealized {st['unrealized']:+.2f}; {st['n_unmarked']} unmarked)")
     print(f"drawdown    : {st['dd_pct']:.2f}%  (peak {st['peak']:.0f})   cap {MAX_DRAWDOWN_PCT:.0f}%")
     print(f"today P&L   : {st['realized_today']:+.2f}   daily limit -{DAILY_LOSS_LIMIT_USD:.0f}")
     print("caps        : "
