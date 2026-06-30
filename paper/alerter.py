@@ -24,11 +24,14 @@ from oservi.engines.alerter import AlerterEngine
 
 from paper.evaluators import (
     eval_audit_chain,
+    eval_backup_freshness,
+    eval_deadman_heartbeat,
     eval_gateway_alive,
     eval_l2_recorder_flow,
     eval_node_alive,
     eval_on_bar_trigger,
     eval_web_alive,
+    eval_write_freshness,
     eval_ws_tick_flow,
 )
 from paper.risk import eval_daily_loss, eval_portfolio_drawdown
@@ -100,6 +103,9 @@ def build_alerter() -> AlerterEngine:
             eval_portfolio_drawdown,
             eval_daily_loss,
             eval_l2_recorder_flow,
+            eval_write_freshness,
+            eval_backup_freshness,
+            eval_deadman_heartbeat,
         ],
         channels=channels,
         trigger={"on_interval": 120},  # check every 2 minutes
@@ -141,6 +147,13 @@ def build_alerter() -> AlerterEngine:
                 },
                 "eval_l2_recorder_flow": {
                     "stale_seconds": 5 * 60,
+                },
+                "eval_write_freshness": {
+                    "stale_seconds": 15 * 60,  # 3× the 5-min scalp signal cadence
+                    "pid_file": "/tmp/helivex_paper_node.pid",
+                },
+                "eval_backup_freshness": {
+                    "max_age_hours": 26,
                 },
             },
         },

@@ -59,6 +59,25 @@ MAX_DRAWDOWN_PCT      = float(os.environ.get("HELIVEX_MAX_DRAWDOWN_PCT", "15")) 
 DAILY_LOSS_LIMIT_USD  = float(os.environ.get("HELIVEX_DAILY_LOSS_LIMIT_USD", "250"))
 
 KILL_SWITCH_FILE = Path(os.environ.get("HELIVEX_KILL_SWITCH_FILE", "/tmp/helivex_paper_killswitch"))
+# Persistent high-water-mark for drawdown. The old peak proxy `max(base, nav)`
+# recomputed from current realized P&L every call, so it could NEVER show a
+# drawdown from a prior equity high (a +500 peak that fell to +300 reported dd=0).
+# A ratcheting HWM on disk fixes that and survives restarts.
+HWM_FILE = Path(os.environ.get("HELIVEX_HWM_FILE", "/tmp/helivex_paper_hwm"))
+
+
+def _read_hwm(default: float) -> float:
+    try:
+        return max(default, float(HWM_FILE.read_text().strip()))
+    except (OSError, ValueError):
+        return default
+
+
+def _write_hwm(value: float) -> None:
+    try:
+        HWM_FILE.write_text(f"{value:.6f}\n")
+    except OSError:
+        pass
 
 
 @dataclass(frozen=True)
@@ -234,8 +253,12 @@ async def nav_and_drawdown(conn: asyncpg.Connection) -> dict:
     midnight = _dt.datetime.now(_dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     today = await realized_pnl(conn, since=midnight)
     nav = BASE_EQUITY_USD + all_time
-    # peak proxy: max(base, nav) — realized P&L only ratchets a peak when positive.
-    peak = max(BASE_EQUITY_USD, nav)
+    # Ratcheting high-water-mark: peak = max(ever-seen NAV, current NAV). Persisted
+    # so drawdown is measured from the true equity high, not reset each call.
+    peak = _read_hwm(BASE_EQUITY_USD)
+    if nav > peak:
+        peak = nav
+        _write_hwm(peak)
     dd_pct = (peak - nav) / peak * 100.0 if peak > 0 else 0.0
     return {"nav": nav, "peak": peak, "dd_pct": dd_pct,
             "realized_all": all_time, "realized_today": today}
