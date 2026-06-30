@@ -9,3 +9,6 @@ __pycache__/
 *.dump
 venv/
 .pytest_cache/
+
+# generated backtest/smoke artifacts
+data/
