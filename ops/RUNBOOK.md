@@ -13,7 +13,7 @@ controlled; install with `bash ops/systemd/install.sh`.
 | helivex-l2recorder | L2 order-book recorder | always |
 | helivex-monitor | health/circuit-breaker alerter (Telegram) | always |
 | helivex-cf | Cloudflare tunnel → btc.uex.hk | always |
-| helivex-backup.timer | nightly pg_dump 02:00 (Persistent) | timer |
+| helivex-backup.timer | pg_dump every 6h (Persistent) | timer |
 | helivex-logrotate.timer | log rotation 03:30 | timer |
 
 ## Secrets
@@ -24,8 +24,9 @@ controlled; install with `bash ops/systemd/install.sh`.
 - Rotate the gateway token: edit `HELIVEX_GW_TOKEN` in `.env`, restart `helivex-gw` + `helivex-web`.
 
 ## Backups & restore
-- Nightly `ops/backup/pg_dump_daily.sh`: pg_dump → integrity check (`pg_restore --list`)
+- Every 6h `ops/backup/pg_dump_daily.sh`: pg_dump → integrity check (`pg_restore --list`)
   → off-host copy to `/mnt/c/helivex_backups` (Windows volume, survives WSL reset) → prune 7d.
+  6h cadence bounds data-loss of the irreplaceable forward-collected tables to ≤6h.
 - **Restore drill** (run periodically): `bash ops/backup/restore_drill.sh` — restores
   the latest dump into a scratch DB using the TimescaleDB pre/post-restore procedure
   and compares row counts. A dump that hasn't been restore-tested is not a backup.
@@ -41,10 +42,17 @@ controlled; install with `bash ops/systemd/install.sh`.
     (e.g. a healthchecks.io URL) so monitor death / host-off / network-down is caught
     externally — the one failure the in-process alerter cannot self-report.
 
-## Known single points of failure (accepted / TODO)
-- **Whole stack + Postgres + primary backups live on one WSL2 host.** Off-host dump
-  copy to `/mnt/c` mitigates data loss, but host loss = full outage. Moving Postgres
-  off-box (or a replica) is the next DR step and is **not yet done**.
-- The gateway/paper/L2 nodes do not yet emit `sd_notify`, so `WatchdogSec` liveness
-  is not wired; supervision is exit-code + monitor-driven. (Hung-but-alive on the L2
-  recorder is covered by the staleness auto-restart; the trading node is alert-only.)
+## Watchdog (wedge detection)
+- The paper node (WatchdogSec=120) and L2 recorder (WatchdogSec=90) run an in-process
+  sd_notify actor (`paper/sdwatchdog.py`) that pings `WATCHDOG=1` every 30s **on the NT
+  engine's clock timer** — so a wedged/deadlocked event loop stops pinging and systemd
+  restarts it. Works with `Type=simple` (no READY handshake), no-op outside systemd.
+  Complements the monitor's data-staleness checks (which catch "alive but no data").
+
+## Known single point of failure (residual — needs hardware)
+- **The whole stack + Postgres still live on one WSL2 host.** Mitigated: data-loss is
+  bounded to ≤6h by the backup cadence + the off-host `/mnt/c` copy, and a full host
+  rebuild is a guided ~30-min procedure (`ops/bootstrap_new_host.sh` + `install.sh` +
+  `restore_drill.sh`). **Not eliminable in software** — true HA needs Postgres + a node
+  on a second machine (a provisioning decision). `platform-postgres` is shared with
+  helios, so WAL archiving / replication must be coordinated at that container, not here.
