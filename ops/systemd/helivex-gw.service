@@ -1,0 +1,26 @@
+[Unit]
+Description=Helivex Gateway (FastAPI :8765)
+After=network.target
+Documentation=https://github.com/soffy88/helivex
+# StartLimit* belong in [Unit], not [Service] (systemd ignored them there).
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+Type=simple
+WorkingDirectory=/home/soffy/projects/helivex
+EnvironmentFile=/home/soffy/projects/helivex/.env
+# Bound to 127.0.0.1: reachable only via the same-origin Next /gw proxy, never
+# the LAN/Tailscale surface. Mutating routes additionally require HELIVEX_GW_TOKEN.
+ExecStart=/home/soffy/projects/helivex/venv/bin/uvicorn gateway.main:app --host 127.0.0.1 --port 8765
+ExecStartPost=/bin/bash -c 'sleep 1 && echo $MAINPID > /tmp/helivex_gw.pid'
+
+# Stateless — always restart. Frontend and paper node depend on this.
+Restart=always
+RestartSec=5
+
+StandardOutput=append:/home/soffy/helivex_gw.log
+StandardError=append:/home/soffy/helivex_gw.log
+
+[Install]
+WantedBy=helivex.target

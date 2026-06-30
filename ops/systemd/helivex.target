@@ -1,0 +1,6 @@
+[Unit]
+Description=Helivex Paper Trading Stack
+Wants=helivex-paper.service helivex-gw.service helivex-monitor.service helivex-web.service
+
+[Install]
+WantedBy=default.target

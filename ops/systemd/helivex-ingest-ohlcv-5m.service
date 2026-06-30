@@ -1,0 +1,15 @@
+[Unit]
+Description=Helivex ingest — 5m OHLCV refresh into market_data.ohlcv_5m (OKX public API)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/soffy/projects/helivex
+EnvironmentFile=/home/soffy/projects/helivex/.env
+# OKX is only reachable from this host via the WSL-host proxy (Clash). systemd
+# sessions don't inherit the shell's http_proxy, so remap OKX_WS_PROXY (.env) →
+# HTTP(S)_PROXY for httpx. Robust to host-IP changes (value comes from .env).
+ExecStart=/bin/sh -c 'HTTPS_PROXY="$OKX_WS_PROXY" HTTP_PROXY="$OKX_WS_PROXY" exec /home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/backfill_5m.py'
+StandardOutput=append:/home/soffy/helivex_ingest_ohlcv_5m.log
+StandardError=append:/home/soffy/helivex_ingest_ohlcv_5m.log

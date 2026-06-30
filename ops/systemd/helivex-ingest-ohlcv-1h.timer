@@ -1,0 +1,11 @@
+[Unit]
+Description=Helivex 1H OHLCV refresh timer (hourly)
+
+[Timer]
+OnCalendar=*-*-* *:05:00
+# Persistent: catch up a missed refresh after the host was off (the staleness
+# failure mode the 2026-06-30 ingest audit caught).
+Persistent=true
+
+[Install]
+WantedBy=timers.target

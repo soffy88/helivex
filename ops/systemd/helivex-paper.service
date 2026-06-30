@@ -1,0 +1,28 @@
+[Unit]
+Description=Helivex Paper Trading Node (NautilusTrader)
+After=network.target postgresql.service
+Documentation=https://github.com/soffy88/helivex
+
+[Service]
+Type=simple
+WorkingDirectory=/home/soffy/projects/helivex
+EnvironmentFile=/home/soffy/projects/helivex/.env
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/paper/run.py
+ExecStartPost=/bin/bash -c 'sleep 2 && echo $MAINPID > /tmp/helivex_paper_node.pid'
+
+# SIGTERM triggers on_stop() → closes all positions gracefully
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Restart only on crash (exit != 0). Intentional SIGTERM/SIGINT won't trigger restart.
+# This lets the portfolio kill switch stop the node without it bouncing back.
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=3
+StartLimitIntervalSec=120
+
+StandardOutput=append:/home/soffy/helivex_paper.log
+StandardError=append:/home/soffy/helivex_paper.log
+
+[Install]
+WantedBy=helivex.target
