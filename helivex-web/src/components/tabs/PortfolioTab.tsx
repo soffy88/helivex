@@ -63,7 +63,7 @@ export function PortfolioTab() {
       <div className="hv-section-title">策略相关性(低相关 = 分散好)</div>
       {!corr?.matrix?.length ? <EmptyState text="暂无相关性数据" /> : (
         <div className="hv-corr-matrix">
-          <table className="hv-table">
+          <table className="hv-table" aria-label="策略相关性矩阵">
             <thead><tr><th></th>{corr.strategies.map(s => <th key={s} className="hv-num">{s.split('_')[0]}</th>)}</tr></thead>
             <tbody>
               {corr.matrix.map((row, i) => (

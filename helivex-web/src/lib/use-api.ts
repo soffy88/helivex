@@ -45,8 +45,27 @@ export function useApi<T>(
         .finally(() => { if (alive) setLoading(false); });
     load();
     if (pollMs) {
-      const t = setInterval(load, pollMs);
-      return () => { alive = false; clearInterval(t); };
+      // poll only while the tab is visible — pause when backgrounded (saves the
+      // funnel), and refetch immediately on re-show so a hidden gap can't leave
+      // an incident surface stale. document is undefined during SSR.
+      let t: ReturnType<typeof setInterval> | undefined;
+      const start = () => { if (t === undefined) t = setInterval(load, pollMs); };
+      const stop = () => { if (t !== undefined) { clearInterval(t); t = undefined; } };
+      const onVis = () => {
+        if (typeof document !== 'undefined' && document.hidden) { stop(); }
+        else { load(); start(); }
+      };
+      if (typeof document !== 'undefined') {
+        document.addEventListener('visibilitychange', onVis);
+        if (!document.hidden) start();
+      } else {
+        start();
+      }
+      return () => {
+        alive = false;
+        stop();
+        if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVis);
+      };
     }
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps

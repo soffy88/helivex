@@ -38,11 +38,13 @@ export function ConfigureTab() {
   const [draft, setDraft] = useState<Cfg | null>(null);
   const [saving, setSaving] = useState(false);
   const [restarting, setRestarting] = useState(false);
+  const [restartConfirm, setRestartConfirm] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     setDraft(cfg.data ? structuredClone(cfg.data) : null);
     setMsg(null);
+    setRestartConfirm(false);
   }, [cfg.data]);
 
   if (loading && !strategies) return <div className="hv-tab"><Skeleton /></div>;
@@ -69,6 +71,7 @@ export function ConfigureTab() {
   };
 
   const saveAndRestart = async () => {
+    setRestartConfirm(false);
     const ok = await save();
     if (!ok) return;
     setRestarting(true);
@@ -110,6 +113,7 @@ export function ConfigureTab() {
                   <div key={k} className="hv-metric-card" style={{ gap: 6 }}>
                     <span className="hv-metric-label">{m.label}</span>
                     <input className="hv-param-input" type="number" step={m.step} min={m.min}
+                      aria-label={m.label}
                       value={draft.live![k]}
                       onChange={e => setLive(k, Number(e.target.value))} />
                   </div>
@@ -122,9 +126,19 @@ export function ConfigureTab() {
             <button className="hv-run-gate" onClick={save} disabled={saving || restarting || !dirty}>
               {saving ? '保存中…' : dirty ? '仅保存 (写 YAML)' : '无改动'}
             </button>
-            <button className="hv-btn-recover" onClick={saveAndRestart} disabled={saving || restarting || !dirty}>
-              {restarting ? '重启节点中…' : '保存并重启节点生效'}
-            </button>
+            {!restartConfirm ? (
+              <button className="hv-btn-recover" onClick={() => setRestartConfirm(true)} disabled={saving || restarting || !dirty}>
+                {restarting ? '重启节点中…' : '保存并重启节点生效'}
+              </button>
+            ) : (
+              <span className="hv-kill-confirm">
+                <span>确定重启 paper 节点?短暂停机、重连 OKX、平掉未保护持仓。</span>
+                <span className="hv-kill-actions">
+                  <button className="hv-kill-cancel" onClick={() => setRestartConfirm(false)}>取消</button>
+                  <button className="hv-kill-confirm-btn" disabled={saving || restarting} onClick={saveAndRestart}>确认保存并重启</button>
+                </span>
+              </span>
+            )}
             {msg && <span className="hv-gate-reason" style={{ color: msg.ok ? 'var(--success,#3fb950)' : 'var(--destructive)' }}>{msg.text}</span>}
           </div>
           <div className="hv-honest-note">

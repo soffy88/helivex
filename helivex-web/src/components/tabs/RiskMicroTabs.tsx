@@ -47,7 +47,7 @@ function ImbalanceBar({ v }: { v: number }) {
 export function RiskTab() {
   const { data, loading, error, stale } = useApi(
     () => Promise.all([riskApi.status(), riskApi.events()]),
-    [], 10000, 'risk',
+    [], 2000, 'risk',
   );
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -114,7 +114,7 @@ export function RiskTab() {
       {/* events */}
       <div className="hv-section-title">风控事件(paper.risk_events)</div>
       {events.length === 0 ? <EmptyState text="暂无风控事件" sub="越界 / 触发 / 复位 都会记录于此" /> : (
-        <table className="hv-table">
+        <table className="hv-table" aria-label="风控事件">
           <thead><tr><th>时间</th><th>类型</th><th>实体</th><th>级别</th><th>消息</th></tr></thead>
           <tbody>
             {events.map((e, i) => (
@@ -136,7 +136,7 @@ export function RiskTab() {
 // ── Microstructure Tab ──────────────────────────────────────────────────────────
 
 export function MicrostructureTab() {
-  const { data, loading, error, stale } = useApi<MicroLatest>(() => microApi.latest(), [], 5000, 'micro');
+  const { data, loading, error, stale } = useApi<MicroLatest>(() => microApi.latest(), [], 2000, 'micro');
   if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
   if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const latest = data?.latest ?? [];

@@ -45,7 +45,7 @@ export function BacktestTab() {
                        value: mean, ok: t.verdict?.toUpperCase() === 'PASS' };
             })}
           />
-          <table className="hv-table">
+          <table className="hv-table" aria-label="历史回测试验">
             <thead><tr><th>#</th><th>配置</th><th>裁决</th><th>每标的 DSR / PBO</th></tr></thead>
             <tbody>
               {hist.slice().reverse().map(t => (
@@ -82,7 +82,7 @@ export function ExecutionsTab() {
       {fidelity.length === 0 ? (
         <EmptyState text="尚无真实成交 — 无执行真实度可算" sub="backtest 假设需首笔真实 fill 才能校验。绝不用假数据冒充。" />
       ) : (
-        <table className="hv-table">
+        <table className="hv-table" aria-label="执行真实度">
           <thead><tr><th>策略</th><th>signals</th><th>fills</th><th>fill rate</th><th>平均滑点</th><th>p95 滑点</th><th>平均延迟</th></tr></thead>
           <tbody>
             {fidelity.map(f => (
@@ -103,7 +103,7 @@ export function ExecutionsTab() {
       {fills.length === 0 ? (
         <EmptyState text="尚无真实 fill" sub="四策略下单后等市场成交;首笔 fill 出现即记录真实滑点 / maker-taker / 延迟。" />
       ) : (
-        <table className="hv-table">
+        <table className="hv-table" aria-label="成交列表">
           <thead><tr><th>时间</th><th>策略</th><th>品种</th><th>方向</th><th>数量</th><th>信号价</th><th>真实价</th><th>滑点</th><th>类型</th><th>延迟</th></tr></thead>
           <tbody>
             {fills.map(f => (

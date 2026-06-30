@@ -11,8 +11,10 @@ export function Sparkline({ pts, color = 'var(--primary)', w = 120, h = 28 }: {
   if (pts.length < 2) return <span className="hv-spark-empty">—</span>;
   const min = Math.min(...pts), max = Math.max(...pts), rng = max - min || 1;
   const d = pts.map((p, i) => `${(i / (pts.length - 1)) * w},${h - ((p - min) / rng) * h}`).join(' ');
+  const last = pts[pts.length - 1];
   return (
-    <svg className="hv-spark" viewBox={`0 0 ${w} ${h}`} width={w} height={h} preserveAspectRatio="none">
+    <svg className="hv-spark" viewBox={`0 0 ${w} ${h}`} width={w} height={h} preserveAspectRatio="none"
+      role="img" aria-label={`走势图,${pts.length} 个点,当前 ${last.toLocaleString(undefined, { maximumFractionDigits: 4 })},区间 ${min.toLocaleString(undefined, { maximumFractionDigits: 4 })}–${max.toLocaleString(undefined, { maximumFractionDigits: 4 })}`}>
       <polyline points={d} fill="none" stroke={color} strokeWidth="1.5" />
     </svg>
   );
@@ -32,7 +34,8 @@ export function Underwater({ pts, h = 80 }: { pts: number[]; h?: number }) {
   const worstPct = (worst * 100).toFixed(1);
   return (
     <div className="hv-uw">
-      <svg viewBox={`0 0 ${W} ${h}`} width="100%" height={h} preserveAspectRatio="none">
+      <svg viewBox={`0 0 ${W} ${h}`} width="100%" height={h} preserveAspectRatio="none"
+        role="img" aria-label={`回撤水下图,${pts.length} 个点,最深回撤 ${worstPct}%`}>
         <polygon points={area} fill="color-mix(in oklch, var(--destructive) 18%, transparent)" />
         <polyline points={line} fill="none" stroke="var(--destructive)" strokeWidth="1.5" />
       </svg>

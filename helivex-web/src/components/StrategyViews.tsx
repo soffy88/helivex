@@ -30,7 +30,7 @@ export function PositionsView({ id }: { id: string }) {
   const rows = data ?? [];
   if (rows.length === 0) return <EmptyState text="当前无持仓" />;
   return (
-    <table className="hv-table">
+    <table className="hv-table" aria-label="当前持仓">
       <thead><tr><th>品种</th><th>方向</th><th>数量</th><th>开仓价</th><th>现价</th><th>未实现盈亏</th><th>时长</th><th>杠杆</th><th>强平价</th></tr></thead>
       <tbody>{rows.map((p, i) => (
         <tr key={i}>
@@ -54,7 +54,7 @@ export function TradesView({ id }: { id: string }) {
   const rows = data ?? [];
   if (rows.length === 0) return <EmptyState text="暂无已平仓交易" sub="持仓平仓后形成完整 round-trip 才计入" />;
   return (
-    <table className="hv-table">
+    <table className="hv-table" aria-label="已平仓交易">
       <thead><tr><th>开仓</th><th>平仓</th><th>品种</th><th>方向</th><th>盈亏</th><th>手续费</th><th>触发信号</th><th>平仓原因</th></tr></thead>
       <tbody>{rows.map(t => (
         <tr key={t.trade_id}>
