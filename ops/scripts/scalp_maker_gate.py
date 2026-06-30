@@ -86,7 +86,7 @@ async def load_5m(inst: str) -> pd.DataFrame:
     conn = await asyncpg.connect(DB_DSN)
     rows = await conn.fetch(
         """SELECT bar_close_ts, close::float, volume::float
-           FROM market_data.ohlcv_1h WHERE instrument=$1 AND source=$2
+           FROM market_data.ohlcv_5m WHERE instrument=$1 AND source=$2
            ORDER BY bar_close_ts""", inst, SOURCE_5M)
     await conn.close()
     df = pd.DataFrame([dict(r) for r in rows])

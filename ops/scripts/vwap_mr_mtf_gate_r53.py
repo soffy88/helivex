@@ -72,7 +72,7 @@ async def load_5m_raw(inst: str) -> pd.DataFrame:
         """SELECT bar_close_ts,
                   open::float, high::float, low::float, close::float,
                   volume::float
-           FROM market_data.ohlcv_1h
+           FROM market_data.ohlcv_5m
            WHERE instrument=$1 AND source=$2
            ORDER BY bar_close_ts""",
         inst, SOURCE_5M,
