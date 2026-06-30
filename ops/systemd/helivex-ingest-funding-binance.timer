@@ -1,0 +1,10 @@
+[Unit]
+Description=Helivex Binance funding refresh timer (every 8h, post-settlement)
+
+[Timer]
+# Funding settles 00/08/16 UTC; refresh 15 min after each settlement.
+OnCalendar=*-*-* 00,08,16:15:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

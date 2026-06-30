@@ -8,7 +8,8 @@
 import { useState } from 'react';
 import { OEquityCurveChart } from '@helios/blocks';
 import { SafeGateBadge } from '../SafeBadges';
-import { EmptyState, Skeleton } from '../EmptyState';
+import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
+import { DivergingBars } from '../charts';
 import { helivexApi, portfolioApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import type { ExecutionsResponse, PortfolioEquity } from '@/types/api';
@@ -22,18 +23,29 @@ interface Trial { trial_n: number; config: string; verdict: string; metrics: { i
 interface GateLedger { total_trials: number; history: Trial[]; }
 
 export function BacktestTab() {
-  const { data, loading, error } = useApi(() => helivexApi.gateTrials() as unknown as Promise<GateLedger>, []);
-  if (loading) return <div className="hv-tab"><Skeleton /></div>;
-  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
+  const { data, loading, error, stale } = useApi(() => helivexApi.gateTrials() as unknown as Promise<GateLedger>, [], undefined, 'gate');
+  if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
+  if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const hist = data?.history ?? [];
   const passes = hist.filter(t => t.verdict?.toUpperCase() === 'PASS').length;
   return (
     <div className="hv-tab">
+      {stale && <StaleBanner error={error!} />}
       <div className="hv-section-title">Gate 账本(真实,全局 N = {data?.total_trials ?? 0})</div>
       {hist.length === 0 ? <EmptyState text="暂无 gate 记录" /> : (
         <>
           <div className="hv-honest-note">{passes}/{hist.length} 个配置过 gate。所有 DSR/PBO 经 walk-forward + 全局 N 多重检验校正。</div>
-          <table className="hv-table">
+          <div className="hv-section-title" style={{ marginTop: 4 }}>各 trial 平均 DSR(去通胀夏普,&gt;0 才可能过)</div>
+          <DivergingBars
+            items={hist.slice().reverse().map(t => {
+              const insts = Object.values(t.metrics?.instruments ?? {});
+              const dsrs = insts.map(m => m.dsr).filter((d): d is number => typeof d === 'number');
+              const mean = dsrs.length ? dsrs.reduce((a, b) => a + b, 0) / dsrs.length : null;
+              return { label: `#${t.trial_n} ${t.config?.split('/').pop()?.replace(/\.(yaml|py).*/, '').slice(0, 16) ?? ''}`,
+                       value: mean, ok: t.verdict?.toUpperCase() === 'PASS' };
+            })}
+          />
+          <table className="hv-table" aria-label="历史回测试验">
             <thead><tr><th>#</th><th>配置</th><th>裁决</th><th>每标的 DSR / PBO</th></tr></thead>
             <tbody>
               {hist.slice().reverse().map(t => (
@@ -57,19 +69,20 @@ export function BacktestTab() {
 
 // ── Executions Tab (真实 /executions,无 mock,无成交即诚实空状态)──────────
 export function ExecutionsTab() {
-  const { data, loading, error } = useApi<ExecutionsResponse>(() => helivexApi.executions(), [], 15000);
-  if (loading) return <div className="hv-tab"><Skeleton /></div>;
-  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={`/executions: ${error}`} /></div>;
+  const { data, loading, error, stale } = useApi<ExecutionsResponse>(() => helivexApi.executions(), [], 15000, 'executions');
+  if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
+  if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={`/executions: ${error}`} /></div>;
   const fidelity = data?.fidelity ?? [];
   const fills = data?.fills ?? [];
   const sideColor = (s: string) => s.toUpperCase() === 'BUY' ? 'var(--success,#3fb950)' : 'var(--destructive)';
   return (
     <div className="hv-tab">
+      {stale && <StaleBanner error={error!} />}
       <div className="hv-section-title">执行真实度(真实成交 vs backtest 假设)</div>
       {fidelity.length === 0 ? (
         <EmptyState text="尚无真实成交 — 无执行真实度可算" sub="backtest 假设需首笔真实 fill 才能校验。绝不用假数据冒充。" />
       ) : (
-        <table className="hv-table">
+        <table className="hv-table" aria-label="执行真实度">
           <thead><tr><th>策略</th><th>signals</th><th>fills</th><th>fill rate</th><th>平均滑点</th><th>p95 滑点</th><th>平均延迟</th></tr></thead>
           <tbody>
             {fidelity.map(f => (
@@ -90,7 +103,7 @@ export function ExecutionsTab() {
       {fills.length === 0 ? (
         <EmptyState text="尚无真实 fill" sub="四策略下单后等市场成交;首笔 fill 出现即记录真实滑点 / maker-taker / 延迟。" />
       ) : (
-        <table className="hv-table">
+        <table className="hv-table" aria-label="成交列表">
           <thead><tr><th>时间</th><th>策略</th><th>品种</th><th>方向</th><th>数量</th><th>信号价</th><th>真实价</th><th>滑点</th><th>类型</th><th>延迟</th></tr></thead>
           <tbody>
             {fills.map(f => (
@@ -116,12 +129,13 @@ export function ExecutionsTab() {
 
 // ── P&L Tab (真实合并资金曲线 /portfolio/equity) ────────────────────
 export function PnLTab() {
-  const { data, loading, error } = useApi<PortfolioEquity>(() => portfolioApi.equity(), [], 30000);
-  if (loading) return <div className="hv-tab"><Skeleton /></div>;
-  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
+  const { data, loading, error, stale } = useApi<PortfolioEquity>(() => portfolioApi.equity(), [], 30000, 'pnl');
+  if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
+  if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const pts = data?.combined ?? [];
   return (
     <div className="hv-tab">
+      {stale && <StaleBanner error={error!} />}
       <div className="hv-section-title">累计 P&L(真实成交派生)</div>
       {pts.length < 2 ? <EmptyState text="数据不足" sub="需 ≥2 个成交点才能画曲线" /> : (
         <div className="hv-chart-box">
@@ -140,15 +154,16 @@ interface Decision {
   has_signature: boolean; tier: string;
 }
 export function AuditTab() {
-  const { data, loading, error } = useApi<Decision[]>(() => helivexApi.decisions() as unknown as Promise<Decision[]>, [], 15000);
+  const { data, loading, error, stale } = useApi<Decision[]>(() => helivexApi.decisions() as unknown as Promise<Decision[]>, [], 15000, 'audit');
   const [sel, setSel] = useState<number | null>(null);
-  if (loading) return <div className="hv-tab"><Skeleton /></div>;
-  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
+  if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
+  if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const decisions = data ?? [];
   if (decisions.length === 0) return <div className="hv-tab"><EmptyState text="暂无审计记录" /></div>;
   const selected = decisions.find(d => d.id === sel) ?? decisions[0]!;
   return (
     <div className="hv-tab">
+      {stale && <StaleBanner error={error!} />}
       <div className="hv-section-title">决策链(GOLD Ed25519 签名,真实)</div>
       <div className="hv-audit-layout">
         <div className="hv-audit-list">

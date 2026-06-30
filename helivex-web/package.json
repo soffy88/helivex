@@ -4,8 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3400",
-    "build": "next build",
-    "start": "next start"
+    "build": "NEXT_PUBLIC_API_BASE=/gw GATEWAY_ORIGIN=http://127.0.0.1:8765 next build",
+    "start": "next start -p 3400",
+    "shots": "node scripts/screenshot.mjs"
   },
   "dependencies": {
     "@helios/blocks": "file:vendor/helios-blocks-2.8.0.tgz",
@@ -19,6 +20,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "playwright": "^1.61.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }

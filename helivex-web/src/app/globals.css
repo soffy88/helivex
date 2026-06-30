@@ -120,9 +120,15 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 .hv-drill-btn { margin-top: 8px; padding: 8px 14px; border-radius: 8px; border: 1px solid var(--primary); background: color-mix(in oklch, var(--primary) 10%, transparent); color: var(--primary); font-size: var(--text-sm); cursor: pointer; }
 
 /* 诚实空状态 */
-.hv-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 16px; gap: 6px; }
+.hv-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 26px 16px; gap: 5px; }
 .hv-empty__text { font-size: var(--text-base); color: var(--muted-foreground); font-weight: 500; }
 .hv-empty__sub { font-size: var(--text-sm); color: var(--muted-foreground); opacity: 0.7; }
+
+/* stale / reconnecting banner — keeps last-good data visible on a poll blip */
+.hv-stale { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 8px; font-size: var(--text-xs); color: color-mix(in oklch, oklch(0.70 0.15 80) 85%, var(--foreground)); background: color-mix(in oklch, oklch(0.70 0.15 80) 10%, transparent); border: 1px solid color-mix(in oklch, oklch(0.70 0.15 80) 28%, transparent); }
+.hv-stale-dot { width: 7px; height: 7px; border-radius: 99px; background: oklch(0.70 0.15 80); animation: hv-pulse 1.4s ease-in-out infinite; }
+.hv-stale-err { color: var(--muted-foreground); opacity: 0.7; }
+@keyframes hv-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
 
 /* 信号历史 */
 .hv-signal-list { display: flex; flex-direction: column; gap: 4px; }
@@ -210,3 +216,157 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 .hv-tab-error__text { font-size: var(--text-base); font-weight: 600; color: var(--foreground); }
 .hv-tab-error__sub { font-size: var(--text-sm); color: var(--muted-foreground); }
 .hv-tab-error__retry { margin-top: 8px; padding: 8px 20px; border-radius: 8px; border: 1px solid var(--primary); background: color-mix(in oklch, var(--primary) 10%, transparent); color: var(--primary); font-size: var(--text-sm); cursor: pointer; }
+
+/* ── R14 risk panel ── */
+.hv-ks-banner { display: flex; align-items: center; gap: 14px; padding: 14px 18px; border-radius: 10px; border: 1px solid color-mix(in oklch, var(--success, oklch(0.62 0.18 145)) 30%, var(--border)); background: color-mix(in oklch, var(--success, oklch(0.62 0.18 145)) 8%, var(--card)); }
+.hv-ks-banner[data-tripped="true"] { border-color: color-mix(in oklch, var(--destructive) 40%, var(--border)); background: color-mix(in oklch, var(--destructive) 10%, var(--card)); }
+.hv-ks-icon { font-size: 18px; color: var(--success, oklch(0.62 0.18 145)); }
+.hv-ks-banner[data-tripped="true"] .hv-ks-icon { color: var(--destructive); }
+.hv-ks-text { display: flex; flex-direction: column; gap: 2px; flex: 1; font-size: var(--text-sm); }
+.hv-ks-text span { color: var(--muted-foreground); font-size: var(--text-xs); }
+.hv-btn-soft, .hv-btn-recover { padding: 7px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--background); color: var(--foreground); font-size: var(--text-sm); cursor: pointer; }
+.hv-btn-recover { border-color: var(--primary); color: var(--primary); background: color-mix(in oklch, var(--primary) 10%, transparent); }
+.hv-btn-soft:hover, .hv-btn-recover:hover { background: var(--muted); }
+
+.hv-util { position: relative; height: 18px; border-radius: 6px; background: var(--muted); overflow: hidden; }
+.hv-util-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 6px; transition: width 0.4s; }
+.hv-util-label { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font-size: 10px; color: var(--foreground); font-variant-numeric: tabular-nums; }
+
+/* ── R16 microstructure ── */
+.hv-micro-card { border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 14px; display: flex; flex-direction: column; gap: 6px; }
+.hv-micro-head { display: flex; align-items: baseline; justify-content: space-between; }
+.hv-micro-time { font-size: 10px; color: var(--muted-foreground); font-variant-numeric: tabular-nums; }
+.hv-micro-mid { font-size: var(--text-2xl); font-weight: 780; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.hv-micro-row { display: flex; justify-content: space-between; font-size: var(--text-xs); color: var(--muted-foreground); }
+.hv-micro-row .hv-num { color: var(--foreground); }
+.hv-micro-imb-label { font-size: var(--text-xs); color: var(--muted-foreground); margin-top: 6px; }
+.hv-imb { position: relative; height: 14px; border-radius: 4px; background: var(--muted); overflow: hidden; }
+.hv-imb-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.hv-imb-fill { position: absolute; top: 0; bottom: 0; transition: all 0.4s; }
+.hv-micro-spark { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 6px; font-size: 10px; color: var(--muted-foreground); }
+.hv-spark { flex-shrink: 0; }
+.hv-spark-empty { color: var(--muted-foreground); opacity: 0.5; }
+
+/* ── charts: underwater / diverging bars / selector spark ── */
+.hv-uw { position: relative; border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 8px; }
+.hv-uw-label { position: absolute; right: 12px; top: 8px; font-size: 10px; color: var(--destructive); font-variant-numeric: tabular-nums; }
+.hv-dbars { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 12px; }
+.hv-dbar-row { display: grid; grid-template-columns: 160px 1fr 64px; align-items: center; gap: 10px; font-size: var(--text-xs); }
+.hv-dbar-label { color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hv-dbar-track { position: relative; height: 12px; border-radius: 4px; background: var(--muted); overflow: hidden; }
+.hv-dbar-center { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; background: var(--border); }
+.hv-dbar-fill { position: absolute; top: 0; bottom: 0; transition: all 0.4s; }
+.hv-dbar-val { text-align: right; color: var(--foreground); }
+.hv-sel-spark { display: block; margin-top: 6px; height: 22px; }
+
+/* ════════════════════ 视觉美化层 (polish) ════════════════════ */
+
+/* faint top glow for depth (very subtle, theme-aware) */
+body { background-image: radial-gradient(120% 60% at 50% -10%, color-mix(in oklch, var(--primary) 5%, transparent), transparent 60%); background-attachment: fixed; }
+
+/* smooth micro-interactions across interactive + surface elements */
+.hv-nav-item, .hv-sel-chip, .hv-metric-card, .hv-strat-card, .hv-micro-card,
+.hv-audit-item, .hv-signal-head, .hv-chart-box, .hv-bar, .hv-btn-soft,
+.hv-btn-recover, .hv-kill-btn, .hv-run-gate, .hv-back-btn, .hv-export-btn,
+.hv-kill-cancel, .hv-kill-confirm-btn, .hv-table tbody tr {
+  transition: background .15s ease, border-color .15s ease, box-shadow .18s ease,
+              transform .12s ease, color .15s ease;
+}
+
+/* card depth: hairline shadow + inset top sheen (premium dark-surface look) */
+.hv-metric-card, .hv-micro-card, .hv-chart-box, .hv-gate-result, .hv-audit-detail,
+.hv-dbars, .hv-uw, .hv-signal-logic, .hv-bar, .hv-ks-banner {
+  box-shadow: 0 1px 2px color-mix(in oklch, black 22%, transparent),
+              inset 0 1px 0 color-mix(in oklch, white 4%, transparent);
+}
+
+/* static data cards: brighten border on hover (no jump) */
+.hv-metric-card:hover, .hv-micro-card:hover {
+  border-color: color-mix(in oklch, var(--primary) 32%, var(--border));
+  box-shadow: 0 4px 16px color-mix(in oklch, black 26%, transparent),
+              inset 0 1px 0 color-mix(in oklch, white 5%, transparent);
+}
+
+/* clickable surfaces: gentle lift */
+.hv-sel-chip:hover, .hv-audit-item:hover { transform: translateY(-1px); }
+.hv-sel-chip[data-active="true"] {
+  box-shadow: 0 0 0 1px var(--primary),
+              0 6px 18px color-mix(in oklch, var(--primary) 16%, transparent);
+}
+
+/* sticky, blurred header (stays on top while content scrolls under) */
+.hv-header {
+  position: sticky; top: 0; z-index: 20;
+  background: color-mix(in oklch, var(--card) 78%, transparent);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+}
+.hv-logo {
+  background: linear-gradient(100deg, var(--primary), color-mix(in oklch, var(--primary) 30%, var(--foreground)));
+  -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+}
+.hv-nav-item[data-active="true"] { box-shadow: inset 0 -2px 0 var(--primary); }
+
+/* table rows come alive on hover */
+.hv-table tbody tr:hover { background: color-mix(in oklch, var(--primary) 6%, transparent); }
+
+/* keyboard focus rings (a11y + polish; not shown on mouse click) */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, [role="tab"]:focus-visible {
+  outline: 2px solid color-mix(in oklch, var(--primary) 65%, transparent);
+  outline-offset: 2px; border-radius: 7px;
+}
+:where(button, [role="tab"]) { outline: none; }
+
+/* thin, unobtrusive scrollbars (terminal feel) */
+.hv-main, .hv-corr-matrix, .hv-json, .hv-audit-list, .hv-nav { scrollbar-width: thin; scrollbar-color: color-mix(in oklch, var(--muted-foreground) 30%, transparent) transparent; }
+.hv-main::-webkit-scrollbar, .hv-corr-matrix::-webkit-scrollbar, .hv-json::-webkit-scrollbar, .hv-nav::-webkit-scrollbar { width: 8px; height: 8px; }
+.hv-main::-webkit-scrollbar-thumb, .hv-corr-matrix::-webkit-scrollbar-thumb, .hv-json::-webkit-scrollbar-thumb, .hv-nav::-webkit-scrollbar-thumb { background: color-mix(in oklch, var(--muted-foreground) 28%, transparent); border-radius: 8px; }
+.hv-main::-webkit-scrollbar-thumb:hover { background: color-mix(in oklch, var(--muted-foreground) 45%, transparent); }
+.hv-main::-webkit-scrollbar-track { background: transparent; }
+
+/* gentle entrance for tab content (works with key={tab} remount) */
+.hv-tab { animation: hv-fade-in .26s cubic-bezier(.22,.61,.36,1); }
+@keyframes hv-fade-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* metric values: tighter, more confident numerals */
+.hv-metric-val, .hv-micro-mid { line-height: 1.1; }
+
+/* respect reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .hv-tab, .hv-stale-dot { animation: none; }
+  .hv-nav-item, .hv-sel-chip, .hv-metric-card, .hv-micro-card, .hv-audit-item, .hv-table tbody tr { transition: none; }
+}
+
+/* ── second pass: section titles, empty states, button feedback ── */
+
+/* scannable section titles: a small primary tick */
+.hv-section-title { display: flex; align-items: center; gap: 7px; }
+.hv-section-title::before { content: ""; width: 3px; height: 11px; border-radius: 2px; background: color-mix(in oklch, var(--primary) 70%, transparent); flex-shrink: 0; }
+
+/* empty states read as intentional surfaces, not broken/blank */
+.hv-empty { border: 1px dashed color-mix(in oklch, var(--border) 80%, transparent); border-radius: 10px; background: color-mix(in oklch, var(--card) 40%, transparent); }
+.hv-empty__text::before { content: "○ "; opacity: 0.5; }
+
+/* tactile button press + primary-button hover brighten */
+.hv-run-gate:active, .hv-kill-btn:active, .hv-btn-soft:active, .hv-btn-recover:active,
+.hv-kill-confirm-btn:active, .hv-kill-cancel:active, .hv-back-btn:active, .hv-export-btn:active,
+.hv-verify-btn:active, .hv-drill-btn:active { transform: translateY(1px); }
+.hv-run-gate:hover:not(:disabled), .hv-kill-confirm-btn:hover { filter: brightness(1.08); }
+.hv-kill-btn:hover { background: color-mix(in oklch, var(--destructive) 16%, transparent); }
+
+/* gate/tier/acted badges: a touch more presence */
+.hv-tier-badge, .hv-signal-acted { letter-spacing: 0.02em; }
+.hv-bar-val { letter-spacing: -0.01em; }
+
+/* configure tab: live param inputs + actions */
+.hv-param-input { padding: 8px 10px; border-radius: 7px; border: 1px solid var(--border); background: var(--background); color: var(--foreground); font-size: var(--text-base); font-weight: 600; font-variant-numeric: tabular-nums; width: 100%; transition: border-color .15s ease; }
+.hv-param-input:focus { outline: none; border-color: var(--primary); }
+.hv-cfg-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+
+/* signal summary bar (NEUTRAL collapsed by default) */
+.hv-signal-summary { display: flex; align-items: center; gap: 10px; padding: 6px 2px 8px; font-size: var(--text-xs); color: var(--muted-foreground); }
+.hv-signal-summary strong { color: var(--foreground); font-variant-numeric: tabular-nums; }
+.hv-signal-neutral-n { opacity: 0.75; }
+.hv-signal-toggle { margin-left: auto; padding: 4px 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--card); color: var(--muted-foreground); font-size: var(--text-xs); cursor: pointer; transition: background .15s ease, color .15s ease; }
+.hv-signal-toggle:hover { background: var(--muted); color: var(--foreground); }
+.hv-signal-empty-inline { padding: 14px; border: 1px dashed color-mix(in oklch, var(--border) 80%, transparent); border-radius: 10px; background: color-mix(in oklch, var(--card) 40%, transparent); font-size: var(--text-sm); color: var(--muted-foreground); text-align: center; }

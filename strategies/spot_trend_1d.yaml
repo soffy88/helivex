@@ -28,6 +28,12 @@ indicators:
 signal_logic:
   min_confluence: 1
   direction: long
+# live paper params (read by paper/node.py → SpotTrend1D; edit via Configure tab)
+live:
+  n_enter: 20
+  n_exit: 10
+  bear_ma: 200
+  qty_usd: 200
 mode: paper
 gate:
   n_splits: 6

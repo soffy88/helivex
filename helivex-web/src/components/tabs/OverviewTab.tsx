@@ -5,12 +5,13 @@
  */
 'use client';
 
-import { useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { SafeGateBadge } from '../SafeBadges';
-import { EmptyState, Skeleton } from '../EmptyState';
-import { helivexApi } from '@/lib/api-client';
+import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
+import { helivexApi, detailApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
-import type { StrategyState, PaperAccount } from '@/types/api';
+import { Sparkline } from '../charts';
+import type { StrategyState, PaperAccount, StrategyEquity } from '@/types/api';
 import {
   EquityView, StatsView, ExecutionView, PositionsView, TradesView, SignalsView,
 } from '../StrategyViews';
@@ -25,20 +26,38 @@ function Block({ title, children }: { title: string; children: React.ReactNode }
   return (<><div className="hv-section-title">{title}</div>{children}</>);
 }
 
+/** at-a-glance equity sparkline in the selector chip (shares eq:${id} cache) */
+function StratSparkline({ id }: { id: string }) {
+  const { data } = useApi<StrategyEquity>(() => detailApi.equity(id), [id], 30000, `eq:${id}`);
+  const pts = (data?.points ?? []).map(p => p.equity);
+  if (pts.length < 2) return <span className="hv-spark-empty">—</span>;
+  const up = pts[pts.length - 1]! >= pts[0]!;
+  return <Sparkline pts={pts} color={up ? 'var(--success, oklch(0.62 0.18 145))' : 'var(--destructive)'} w={100} h={22} />;
+}
+
 export function OverviewTab() {
-  const { data, loading, error } = useApi(
+  const { data, loading, error, stale } = useApi(
     () => Promise.all([
       helivexApi.strategies(),
       helivexApi.account(),
       helivexApi.chainHealth() as unknown as Promise<ChainHealthReal>,
       helivexApi.gateTrials() as unknown as Promise<Ledger>,
     ]),
-    [], 15000,
+    [], 15000, 'overview',
   );
-  const [sel, setSel] = useState<string | null>(null);
+  // selected strategy lives in the URL (?sel=) so it deep-links / survives refresh
+  const router = useRouter();
+  const pathname = usePathname();
+  const params = useSearchParams();
+  const sel = params.get('sel');
+  const setSel = (sid: string) => {
+    const p = new URLSearchParams(params.toString());
+    p.set('sel', sid);
+    router.replace(`${pathname}?${p.toString()}`, { scroll: false });
+  };
 
-  if (loading) return <div className="hv-tab"><Skeleton /></div>;
-  if (error) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
+  if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
+  if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const [strategies, account, chain, ledger] = data as [StrategyState[], PaperAccount, ChainHealthReal, Ledger];
 
   const id = sel ?? strategies?.[0]?.strategy_id ?? null;
@@ -48,6 +67,7 @@ export function OverviewTab() {
 
   return (
     <div className="hv-tab">
+      {stale && <StaleBanner error={error!} />}
       {/* ── 顶部:全局概览条(收窄) ── */}
       <div className="hv-bar">
         <div className="hv-bar-item"><span className="hv-bar-label">余额</span><span className="hv-bar-val">${account?.balance?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—'}</span></div>
@@ -68,6 +88,7 @@ export function OverviewTab() {
               <SafeGateBadge verdict={s.gate?.verdict} dsr={s.gate?.dsr} pbo={s.gate?.pbo} compact />
               <span className="hv-sel-pos">{s.position} · 今日 {s.signals_today}</span>
             </span>
+            <span className="hv-sel-spark"><StratSparkline id={s.strategy_id} /></span>
           </button>
         ))}
       </div>

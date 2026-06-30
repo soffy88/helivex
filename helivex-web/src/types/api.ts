@@ -216,3 +216,45 @@ export interface PortfolioSummary {
   margin_used: number;
   available: number;
 }
+
+// ── R14 risk layer ──────────────────────────────────────────────
+export interface RiskStatus {
+  kill_switch: { tripped: boolean; reason: string };
+  nav: number;
+  peak: number;
+  drawdown_pct: number;
+  realized_all: number;
+  realized_today: number;
+  caps: {
+    portfolio_gross_usd: number;
+    per_strategy_usd: number;
+    per_instrument_usd: number;
+    max_positions: number;
+    max_drawdown_pct: number;
+    daily_loss_limit_usd: number;
+  };
+}
+export interface RiskEvent {
+  ts: string;
+  kind: string;       // breach | trip | reset | block
+  entity_id: string;
+  severity: string;   // critical | high | ...
+  message: string;
+}
+
+// ── R16 L2 microstructure ───────────────────────────────────────
+export interface MicroFeatures {
+  instrument: string;
+  ts: string;
+  best_bid: number; best_ask: number; mid: number; microprice: number;
+  spread_bps: number;
+  bid_sz1: number; ask_sz1: number; bid_depth5: number; ask_depth5: number;
+  imbalance1: number; imbalance5: number;
+}
+export interface MicroSeriesPoint {
+  ts: string; mid: number; spread_bps: number; imbalance1: number; imbalance5: number;
+}
+export interface MicroLatest {
+  latest: MicroFeatures[];
+  series: Record<string, MicroSeriesPoint[]>;
+}

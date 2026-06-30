@@ -1,0 +1,14 @@
+[Unit]
+Description=Helivex Postgres backup timer (every 6h)
+
+[Timer]
+# Every 6h (was daily): shrinks the data-loss window for the irreplaceable
+# forward-collected data (paper.signals/fills, orderbook_features) from 24h to 6h.
+# A full -Fc dump of this DB is ~90MB / ~2s, so 4x/day is negligible load.
+OnCalendar=*-*-* 00,06,12,18:00:00
+# Persistent: run a missed backup on next boot (overnight host-off no longer
+# silently skips the dump, the failure mode the audit caught on 2026-06-30).
+Persistent=true
+
+[Install]
+WantedBy=timers.target

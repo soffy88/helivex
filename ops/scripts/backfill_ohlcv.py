@@ -86,7 +86,7 @@ async def backfill_ohlcv(
             ))
 
         if records:
-            result = await conn.executemany(
+            await conn.executemany(
                 """
                 INSERT INTO market_data.ohlcv_1h
                     (instrument, bar_close_ts, source, open, high, low, close, volume, quote_volume)
@@ -95,8 +95,9 @@ async def backfill_ohlcv(
                 """,
                 records,
             )
-            inserted = int(result.split()[-1]) if result else 0
-            rows_inserted += inserted
+            # asyncpg.executemany returns None, so count the batch we submitted.
+            # (ON CONFLICT DO NOTHING may dedupe some; this is an upper-bound row count.)
+            rows_inserted += len(records)
 
         if oldest_ts <= cutoff_ms:
             break
@@ -156,7 +157,7 @@ async def backfill_funding(
             ))
 
         if records:
-            result = await conn.executemany(
+            await conn.executemany(
                 """
                 INSERT INTO market_data.funding_rates
                     (instrument, ts, source, funding_rate, realized_rate, next_funding_time)
@@ -165,8 +166,9 @@ async def backfill_funding(
                 """,
                 records,
             )
-            inserted = int(result.split()[-1]) if result else 0
-            total_inserted += inserted
+            # asyncpg.executemany returns None, so count the batch we submitted.
+            # (ON CONFLICT DO NOTHING may dedupe some; this is an upper-bound row count.)
+            total_inserted += len(records)
 
         if len(items) < 100:
             break  # last page

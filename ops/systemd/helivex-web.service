@@ -1,0 +1,25 @@
+[Unit]
+Description=Helivex Frontend (Next.js prod :3400)
+After=network.target
+Documentation=https://github.com/soffy88/helivex
+
+[Service]
+Type=simple
+WorkingDirectory=/home/soffy/projects/helivex/helivex-web
+EnvironmentFile=/home/soffy/projects/helivex/.env
+# same-origin gateway proxy (process-env wins in Next). DASH_USER/DASH_PASS and
+# HELIVEX_GW_TOKEN now come from the 0600 .env (EnvironmentFile), not this
+# world-readable unit.
+Environment=NEXT_PUBLIC_API_BASE=/gw
+Environment=GATEWAY_ORIGIN=http://127.0.0.1:8765
+ExecStart=/home/soffy/projects/helivex/helivex-web/node_modules/.bin/next start -p 3400
+ExecStartPost=/bin/bash -c 'sleep 3 && echo $MAINPID > /tmp/helivex_web.pid'
+
+Restart=always
+RestartSec=10
+
+StandardOutput=append:/home/soffy/helivex_web.log
+StandardError=append:/home/soffy/helivex_web.log
+
+[Install]
+WantedBy=helivex.target

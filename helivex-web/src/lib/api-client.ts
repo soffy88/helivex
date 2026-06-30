@@ -7,7 +7,9 @@ import type {
   AuditDecision, ChainHealth, PaperAccount,
 } from '@/types/api';
 
-export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8765';
+// Same-origin by default — the browser hits /gw/* on this server, which Next
+// rewrites to the gateway (see next.config.ts). Override with NEXT_PUBLIC_API_BASE.
+export const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? '/gw';
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -22,6 +24,7 @@ export const helivexApi = {
   strategies:    () => req<StrategyState[]>('/strategies'),
   getConfig:     (id: string) => req<Record<string, unknown>>(`/strategies/${id}/config`),
   putConfig:     (id: string, config: Record<string, unknown>) => req<{ ok: boolean; path: string }>(`/strategies/${id}/config`, { method: 'PUT', body: JSON.stringify(config) }),
+  restartPaper:  () => req<{ ok: boolean; message?: string; reason?: string }>('/paper/restart', { method: 'POST' }),
   gateTrials:    () => req<unknown>('/gate/trials'),
   runBacktest:   (body: unknown) => req<BacktestResult>('/backtest/run', { method: 'POST', body: JSON.stringify(body) }),
   executions:    () => req<ExecutionsResponse>('/executions'),
@@ -52,4 +55,18 @@ export const portfolioApi = {
   correlation: () => req<CorrelationMatrix>('/portfolio/correlation'),
   summary:     () => req<PortfolioSummary>('/portfolio/summary'),
   kill:        () => req<void>('/portfolio/kill', { method: 'POST' }),
+};
+
+// ── R14 risk layer + R16 L2 microstructure ──────────────
+import type { RiskStatus, RiskEvent, MicroLatest } from '@/types/api';
+
+export const riskApi = {
+  status: () => req<RiskStatus>('/risk/status'),
+  events: () => req<RiskEvent[]>('/risk/events?limit=30'),
+  kill:   (reason?: string) => req<{ ok: boolean; tripped: boolean }>('/risk/kill', { method: 'POST', body: JSON.stringify({ reason }) }),
+  reset:  () => req<{ ok: boolean; tripped: boolean }>('/risk/reset', { method: 'POST' }),
+};
+
+export const microApi = {
+  latest: () => req<MicroLatest>('/microstructure/latest?series=60'),
 };

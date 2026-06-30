@@ -1,0 +1,10 @@
+[Unit]
+Description=Helivex daily Postgres backup (pg_dump + integrity check + off-host copy)
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/soffy/projects/helivex
+ExecStart=/home/soffy/projects/helivex/ops/backup/pg_dump_daily.sh
+StandardOutput=append:/home/soffy/backups/helivex/pg/pg_dump_daily.log
+StandardError=append:/home/soffy/backups/helivex/pg/pg_dump_daily.log

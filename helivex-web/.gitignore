@@ -1,0 +1,3 @@
+*.tsbuildinfo
+/screenshots
+.env*.local

@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+import logging
 import os
 import sys
 from datetime import datetime, timezone
@@ -20,9 +21,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import Body, FastAPI, HTTPException, Query
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, PlainTextResponse
 
+from gateway.auth import require_token
+from gateway.metrics import metrics_middleware, render as render_metrics
 from gateway.deps import (
     DB_DSN,
     PROJECT_ROOT,
@@ -34,22 +38,59 @@ from gateway.deps import (
     load_trials,
 )
 
+log = logging.getLogger("gateway")
+
 app = FastAPI(title="helivex api-gateway", version="0.8.0")
 
+# Same-origin dashboard talks to the gateway via the Next /gw proxy, so CORS is
+# only relevant for direct browser access. Restrict to the dashboard origins
+# (override with HELIVEX_CORS_ORIGINS) instead of the spec-invalid "*" + creds.
+_cors_origins = [
+    o.strip()
+    for o in os.environ.get(
+        "HELIVEX_CORS_ORIGINS",
+        "http://localhost:3400,http://127.0.0.1:3400",
+    ).split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_cors_origins,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "PUT"],
+    allow_headers=["Content-Type", "X-Helivex-Token"],
 )
+
+
+app.middleware("http")(metrics_middleware)
+
+
+@app.get("/metrics")
+async def metrics() -> PlainTextResponse:
+    """Prometheus exposition (request counts + latency, dependency-free)."""
+    return PlainTextResponse(render_metrics(), media_type="text/plain; version=0.0.4")
+
+
+@app.exception_handler(Exception)
+async def _unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
+    """Catch-all: log the detail server-side, return a generic 500 (no leak).
+
+    HTTPException keeps its own handler, so 400/401/404 still surface normally.
+    """
+    log.exception("unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "internal server error"})
 
 
 # ─── Lifecycle ────────────────────────────────────────────────────────────────
 
 @app.on_event("startup")
 async def _startup() -> None:
-    await get_pool()
+    # Non-fatal: if Postgres isn't up yet at boot, don't crash-loop — routes
+    # build the pool lazily via get_pool() on first request.
+    try:
+        await get_pool()
+    except Exception as exc:
+        log.warning("DB pool not ready at startup: %s — will retry lazily", exc)
 
 
 @app.on_event("shutdown")
@@ -219,7 +260,7 @@ async def get_strategy_config(strategy_id: str) -> dict:
     return _read_yaml(path)
 
 
-@app.put("/strategies/{strategy_id}/config")
+@app.put("/strategies/{strategy_id}/config", dependencies=[Depends(require_token)])
 async def put_strategy_config(strategy_id: str, body: dict = Body(...)) -> dict:
     """Overwrite strategy YAML config. Validates required top-level keys."""
     path = _strategy_id_to_yaml(strategy_id)
@@ -233,7 +274,7 @@ async def put_strategy_config(strategy_id: str, body: dict = Body(...)) -> dict:
 
 # ─── /gate ────────────────────────────────────────────────────────────────────
 
-@app.post("/gate/run")
+@app.post("/gate/run", dependencies=[Depends(require_token)])
 async def post_gate_run(
     config: str = Query(..., description="Strategy ID or relative config path"),
     instrument: str | None = Query(None),
@@ -253,10 +294,19 @@ async def post_gate_run(
     sys.path.insert(0, str(PROJECT_ROOT / "tools"))
     from strategy_gate import run_gate  # type: ignore
 
+    def _run() -> dict:
+        # Heavy CPU-bound gate (numpy / walk-forward). Run in a worker thread with
+        # its own event loop so a long gate doesn't block the dashboard's polling
+        # on the main event loop.
+        return asyncio.run(run_gate(config_path, instrument=instrument, verbose=not quiet))
+
     try:
-        result = await run_gate(config_path, instrument=instrument, verbose=not quiet)
-    except Exception as exc:
-        raise HTTPException(500, str(exc))
+        result = await asyncio.to_thread(_run)
+    except HTTPException:
+        raise
+    except Exception:
+        log.exception("gate run failed for %s", config_path)
+        raise HTTPException(500, "gate run failed")
     return result
 
 
@@ -268,7 +318,7 @@ async def get_gate_trials() -> dict:
 
 # ─── /backtest ────────────────────────────────────────────────────────────────
 
-@app.post("/backtest/run")
+@app.post("/backtest/run", dependencies=[Depends(require_token)])
 async def post_backtest_run(
     config: str = Query(..., description="Strategy ID or relative config path"),
     instrument: str | None = Query(None),
@@ -308,8 +358,9 @@ async def post_backtest_run(
 
     try:
         raw = await _fetch_ohlcv(instr, cfg["db_source"])
-    except Exception as exc:
-        raise HTTPException(500, f"DB fetch error: {exc}")
+    except Exception:
+        log.exception("backtest DB fetch error for %s", instr)
+        raise HTTPException(500, "DB fetch error")
 
     if cfg.get("resample_to_1d"):
         ohlcv = _resample_to_1d(raw)
@@ -364,7 +415,7 @@ async def post_backtest_run(
 @app.get("/executions")
 async def get_executions(
     strategy_id: str | None = Query(None),
-    limit: int = Query(200),
+    limit: int = Query(200, ge=1, le=1000),
 ) -> dict:
     """Return paper fills with slippage stats."""
     pool = await get_pool()
@@ -474,7 +525,7 @@ async def get_pnl(
 
 @app.get("/audit/decisions")
 async def get_audit_decisions(
-    limit: int = Query(100),
+    limit: int = Query(100, ge=1, le=1000),
     strategy_id: str | None = Query(None),
 ) -> list[dict]:
     """Return recent GOLD-signed signal decisions from paper.signals."""
@@ -638,7 +689,7 @@ async def get_anchors() -> dict:
 
 # ─── /strategies/{id}/mode ────────────────────────────────────────────────────
 
-@app.put("/strategies/{strategy_id}/mode")
+@app.put("/strategies/{strategy_id}/mode", dependencies=[Depends(require_token)])
 async def put_strategy_mode(
     strategy_id: str,
     mode: str = Query(..., description="Target mode: backtest | paper | live"),
@@ -773,11 +824,83 @@ async def get_strategy_positions(strategy_id: str) -> list:
 
 # ─── /strategies/{id}/trades ──────────────────────────────────────────────────
 
+def _fmt_duration(delta) -> str:
+    secs = int(max(0, delta.total_seconds()))
+    h, rem = divmod(secs, 3600)
+    m, s = divmod(rem, 60)
+    if h:
+        return f"{h}h {m}m"
+    if m:
+        return f"{m}m {s}s"
+    return f"{s}s"
+
+
+def _round_trips(rows: list) -> list[dict]:
+    """FIFO round-trip extraction from fills (ts-ASC). Each reducing fill closes
+    open lots oldest-first and emits a realized trade. Total realized P&L matches
+    the avg-cost figure in paper.risk; FIFO just gives clean per-trade entry ts/px."""
+    from collections import defaultdict, deque
+    lots: dict[str, deque] = defaultdict(deque)  # instrument -> deque[[qty_signed, px, ts]]
+    trades: list[dict] = []
+    seq = 0
+    for r in rows:
+        inst = r["instrument"]
+        px = float(r["actual_fill_price"])
+        ts = r["ts"]
+        q = float(r["quantity"]) * (1.0 if r["side"] == "BUY" else -1.0)
+        dq = lots[inst]
+        # close against opposite-signed lots first (FIFO)
+        while abs(q) > 1e-12 and dq and (dq[0][0] > 0) != (q > 0):
+            lot = dq[0]
+            lot_sign = 1.0 if lot[0] > 0 else -1.0
+            q_sign = 1.0 if q > 0 else -1.0
+            closed = min(abs(lot[0]), abs(q))
+            pnl = lot_sign * (px - lot[1]) * closed
+            entry_notional = lot[1] * closed
+            seq += 1
+            trades.append({
+                "trade_id": f"{inst}-{seq}",
+                "open_time": lot[2].isoformat(),
+                "close_time": ts.isoformat(),
+                "instrument": inst,
+                "side": "long" if lot_sign > 0 else "short",
+                "entry_price": round(lot[1], 6),
+                "exit_price": round(px, 6),
+                "quantity": round(closed, 8),
+                "realized_pnl": round(pnl, 6),
+                "realized_pnl_pct": round(pnl / entry_notional * 100, 4) if entry_notional else 0.0,
+                "fees": 0.0,
+                "holding_duration": _fmt_duration(ts - lot[2]),
+                "trigger_signal": "—",
+                "exit_reason": "close",
+            })
+            lot[0] -= lot_sign * closed
+            q -= q_sign * closed
+            if abs(lot[0]) < 1e-12:
+                dq.popleft()
+        # remainder opens a new lot
+        if abs(q) > 1e-12:
+            dq.append([q, px, ts])
+    return trades
+
+
 @app.get("/strategies/{strategy_id}/trades")
-async def get_strategy_trades(strategy_id: str) -> list:
-    """Return Trade[] — empty until fill pairs accumulate."""
-    _prefix_for(strategy_id)  # validate
-    return []
+async def get_strategy_trades(
+    strategy_id: str,
+    limit: int = Query(200, ge=1, le=1000),
+) -> list:
+    """Return Trade[] — realized FIFO round-trips from paper.fills, newest first."""
+    prefix = _prefix_for(strategy_id)
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT ts, instrument, side, quantity, signal_price, actual_fill_price
+               FROM paper.fills WHERE strategy_id LIKE $1 ORDER BY ts ASC""",
+            prefix,
+        )
+    trades = _round_trips(rows)
+    trades.reverse()  # newest first
+    return trades[:limit]
 
 
 # ─── /strategies/{id}/equity ──────────────────────────────────────────────────
@@ -818,7 +941,7 @@ async def get_strategy_equity(strategy_id: str) -> dict:
 @app.get("/strategies/{strategy_id}/signals")
 async def get_strategy_signals(
     strategy_id: str,
-    limit: int = Query(100),
+    limit: int = Query(100, ge=1, le=1000),
 ) -> list:
     """Return SignalLog[] with indicator snapshots for a strategy."""
     prefix = _prefix_for(strategy_id)
@@ -837,31 +960,60 @@ async def get_strategy_signals(
 
 @app.get("/strategies/{strategy_id}/stats")
 async def get_strategy_stats(strategy_id: str) -> dict:
-    """Return StrategyStats — honest zeros until fills accumulate."""
+    """Return StrategyStats computed from realized FIFO round-trips of paper.fills."""
+    import statistics
+
     prefix = _prefix_for(strategy_id)
     pool = await get_pool()
     async with pool.acquire() as conn:
-        fill_row = await conn.fetchrow(
-            """SELECT COUNT(*) AS n_fills,
-                      SUM(CASE WHEN side='SELL' THEN 1.0 ELSE -1.0 END
-                          * quantity * (actual_fill_price - COALESCE(signal_price, actual_fill_price))
-                      ) AS total_pnl
-               FROM paper.fills WHERE strategy_id LIKE $1""",
+        rows = await conn.fetch(
+            """SELECT ts, instrument, side, quantity, signal_price, actual_fill_price
+               FROM paper.fills WHERE strategy_id LIKE $1 ORDER BY ts ASC""",
             prefix,
         )
-    n_fills = int(fill_row["n_fills"]) if fill_row else 0
-    total_pnl = float(fill_row["total_pnl"]) if fill_row and fill_row["total_pnl"] else 0.0
-    gate_m = _latest_gate_metrics(strategy_id)
+    trades = _round_trips(rows)
+    n = len(trades)
+    pnls = [t["realized_pnl"] for t in trades]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p < 0]
+    total_pnl = sum(pnls)
+    gross_win = sum(wins)
+    gross_loss = -sum(losses)
+
+    # max drawdown over the cumulative realized-P&L curve, as % of base equity
+    cum = peak = maxdd = 0.0
+    for p in pnls:
+        cum += p
+        peak = max(peak, cum)
+        maxdd = max(maxdd, peak - cum)
+    base_equity = 5000.0
+
+    # per-trade Sharpe proxy (mean / population std of trade P&Ls)
+    sharpe = 0.0
+    if len(pnls) > 1:
+        sd = statistics.pstdev(pnls)
+        if sd > 0:
+            sharpe = statistics.mean(pnls) / sd
+
+    avg_hold = "—"
+    if trades:
+        durs = [
+            (datetime.fromisoformat(t["close_time"]) - datetime.fromisoformat(t["open_time"])).total_seconds()
+            for t in trades
+        ]
+        from datetime import timedelta
+        avg_hold = _fmt_duration(timedelta(seconds=sum(durs) / len(durs)))
+
     return {
-        "total_trades": n_fills // 2,
-        "win_rate": 0.0,
-        "profit_factor": 0.0,
-        "avg_holding": "—",
-        "max_drawdown": 0.0,
-        "forward_sharpe": 0.0,
+        "total_trades": n,
+        "win_rate": round(len(wins) / n, 4) if n else 0.0,
+        "profit_factor": round(gross_win / gross_loss, 4) if gross_loss > 0 else (0.0 if gross_win == 0 else None),
+        "avg_holding": avg_hold,
+        "max_drawdown": round(maxdd / base_equity * 100, 4),
+        "forward_sharpe": round(sharpe, 4),
         "total_pnl": round(total_pnl, 4),
         "backtest_oos_sharpe": None,
-        "sample_sufficient": n_fills >= 30,
+        "sample_sufficient": n >= 30,
     }
 
 
@@ -870,7 +1022,7 @@ async def get_strategy_stats(strategy_id: str) -> dict:
 @app.get("/strategies/{strategy_id}/execution")
 async def get_strategy_execution(
     strategy_id: str,
-    limit: int = Query(200),
+    limit: int = Query(200, ge=1, le=1000),
 ) -> dict:
     """Return StrategyExecution with fill list and slippage summary."""
     prefix = _prefix_for(strategy_id)
@@ -1030,7 +1182,7 @@ async def get_portfolio_summary() -> dict:
 
 # ─── /portfolio/kill ──────────────────────────────────────────────────────────
 
-@app.post("/portfolio/kill")
+@app.post("/portfolio/kill", dependencies=[Depends(require_token)])
 async def post_portfolio_kill() -> dict:
     """Stop paper node gracefully via systemd (preferred) or SIGTERM fallback.
 
@@ -1081,6 +1233,130 @@ async def post_portfolio_kill() -> dict:
         }
     except PermissionError:
         return {"ok": False, "reason": f"permission denied sending SIGTERM to PID {pid}"}
+
+
+# ─── /risk (R14 portfolio risk layer) ─────────────────────────────────────────
+
+@app.get("/risk/status")
+async def get_risk_status() -> dict:
+    """Risk layer state: kill-switch, NAV/drawdown vs cap, daily P&L vs limit, caps."""
+    from paper.risk import (
+        DAILY_LOSS_LIMIT_USD, MAX_CONCURRENT_POS, MAX_DRAWDOWN_PCT,
+        PER_INSTRUMENT_CAP, PER_STRATEGY_CAP, PORTFOLIO_GROSS_CAP,
+        RISK_DDL, is_tripped, kill_switch_reason, nav_and_drawdown,
+    )
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(RISK_DDL)
+        st = await nav_and_drawdown(conn)
+    return {
+        "kill_switch": {"tripped": is_tripped(), "reason": kill_switch_reason()},
+        "nav": round(st["nav"], 2),
+        "peak": round(st["peak"], 2),
+        "drawdown_pct": round(st["dd_pct"], 3),
+        "realized_all": round(st["realized_all"], 2),
+        "realized_today": round(st["realized_today"], 2),
+        "caps": {
+            "portfolio_gross_usd": PORTFOLIO_GROSS_CAP,
+            "per_strategy_usd": PER_STRATEGY_CAP,
+            "per_instrument_usd": PER_INSTRUMENT_CAP,
+            "max_positions": MAX_CONCURRENT_POS,
+            "max_drawdown_pct": MAX_DRAWDOWN_PCT,
+            "daily_loss_limit_usd": DAILY_LOSS_LIMIT_USD,
+        },
+    }
+
+
+@app.get("/risk/events")
+async def get_risk_events(limit: int = Query(30, ge=1, le=1000)) -> list[dict]:
+    """Recent risk events (breach / trip / reset) from paper.risk_events."""
+    from paper.risk import RISK_DDL
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(RISK_DDL)
+        rows = await conn.fetch(
+            """SELECT ts, kind, entity_id, severity, message
+               FROM paper.risk_events ORDER BY id DESC LIMIT $1""", limit)
+    return [{
+        "ts": r["ts"].isoformat(), "kind": r["kind"], "entity_id": r["entity_id"],
+        "severity": r["severity"], "message": r["message"],
+    } for r in rows]
+
+
+@app.post("/risk/kill", dependencies=[Depends(require_token)])
+async def post_risk_kill(body: dict = Body(default={})) -> dict:
+    """Trip the soft kill-switch — halts NEW entries (exits still allowed); the node
+    keeps running. Distinct from /portfolio/kill which stops the whole node."""
+    from paper.risk import is_tripped, kill_switch_reason, trip
+    trip(body.get("reason") or "manual trip via dashboard")
+    return {"ok": True, "tripped": is_tripped(), "reason": kill_switch_reason()}
+
+
+@app.post("/risk/reset", dependencies=[Depends(require_token)])
+async def post_risk_reset() -> dict:
+    """Clear the soft kill-switch — re-enables new entries."""
+    from paper.risk import is_tripped, reset
+    reset()
+    return {"ok": True, "tripped": is_tripped()}
+
+
+@app.post("/paper/restart", dependencies=[Depends(require_token)])
+async def post_paper_restart() -> dict:
+    """Restart the paper node so edited live params (Configure tab) take effect.
+    The node re-reads each strategy YAML's `live` block on build."""
+    import subprocess as _sub
+    try:
+        r = _sub.run(
+            ["systemctl", "--user", "restart", "helivex-paper.service"],
+            capture_output=True, text=True, timeout=45,
+        )
+        if r.returncode == 0:
+            return {"ok": True, "message": "paper 节点已重启 — 新参数生效"}
+        return {"ok": False, "reason": (r.stderr or r.stdout or "restart failed").strip()}
+    except Exception as e:
+        return {"ok": False, "reason": str(e)}
+
+
+# ─── /microstructure (R16 L2 order-book recorder) ─────────────────────────────
+
+@app.get("/microstructure/latest")
+async def get_microstructure_latest(series: int = Query(60, ge=1, le=1000)) -> dict:
+    """Latest order-book features per instrument + a short imbalance/spread series
+    for sparklines. Empty if the recorder has never written (table absent)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval(
+            "SELECT to_regclass('market_data.orderbook_features')")
+        if not exists:
+            return {"latest": [], "series": {}}
+        latest = await conn.fetch(
+            """SELECT DISTINCT ON (instrument)
+                   instrument, ts, best_bid, best_ask, mid, microprice, spread_bps,
+                   bid_sz1, ask_sz1, bid_depth5, ask_depth5, imbalance1, imbalance5
+               FROM market_data.orderbook_features
+               ORDER BY instrument, ts DESC""")
+        instruments = [r["instrument"] for r in latest]
+        series_map: dict[str, list] = {}
+        for inst in instruments:
+            pts = await conn.fetch(
+                """SELECT ts, mid, spread_bps, imbalance1, imbalance5
+                   FROM market_data.orderbook_features
+                   WHERE instrument = $1 ORDER BY ts DESC LIMIT $2""", inst, series)
+            series_map[inst] = [{
+                "ts": p["ts"].isoformat(), "mid": p["mid"], "spread_bps": p["spread_bps"],
+                "imbalance1": p["imbalance1"], "imbalance5": p["imbalance5"],
+            } for p in reversed(pts)]
+    return {
+        "latest": [{
+            "instrument": r["instrument"], "ts": r["ts"].isoformat(),
+            "best_bid": r["best_bid"], "best_ask": r["best_ask"], "mid": r["mid"],
+            "microprice": r["microprice"], "spread_bps": r["spread_bps"],
+            "bid_sz1": r["bid_sz1"], "ask_sz1": r["ask_sz1"],
+            "bid_depth5": r["bid_depth5"], "ask_depth5": r["ask_depth5"],
+            "imbalance1": r["imbalance1"], "imbalance5": r["imbalance5"],
+        } for r in latest],
+        "series": series_map,
+    }
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────

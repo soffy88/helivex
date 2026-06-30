@@ -24,12 +24,17 @@ from oservi.engines.alerter import AlerterEngine
 
 from paper.evaluators import (
     eval_audit_chain,
+    eval_backup_freshness,
+    eval_deadman_heartbeat,
     eval_gateway_alive,
+    eval_l2_recorder_flow,
     eval_node_alive,
     eval_on_bar_trigger,
     eval_web_alive,
+    eval_write_freshness,
     eval_ws_tick_flow,
 )
+from paper.risk import eval_daily_loss, eval_portfolio_drawdown
 
 log = logging.getLogger(__name__)
 
@@ -42,10 +47,17 @@ def log_channel(*, text: str, **_: object) -> None:
 
 
 def tg_channel(*, text: str, bot_token: str = "", chat_id: str = "", **_: object) -> None:
-    """Telegram channel — active only when bot_token + chat_id are provided."""
+    """Telegram channel — active only when bot_token + chat_id are provided.
+
+    The AlerterEngine invokes channels from within its running event loop, so
+    asyncio.run() here raised "cannot be called from a running event loop" and
+    every alert silently failed to send. Run the send in a dedicated thread with
+    its own loop — works whether or not the caller has a running loop.
+    """
     if not bot_token or not chat_id:
         return
     import asyncio
+    import threading
     from obase.notify.telegram import TelegramRequest, telegram_send
 
     async def _send():
@@ -54,7 +66,15 @@ def tg_channel(*, text: str, bot_token: str = "", chat_id: str = "", **_: object
         if not result.ok:
             log.warning("TG send failed: %s", result.error)
 
-    asyncio.run(_send())
+    def _runner():
+        try:
+            asyncio.run(_send())
+        except Exception as e:  # never let a channel error break the alerter loop
+            log.warning("TG send error: %s", e)
+
+    t = threading.Thread(target=_runner, daemon=True, name="tg-send")
+    t.start()
+    t.join(timeout=10)
 
 
 # ── factory ───────────────────────────────────────────────────────────────────
@@ -80,6 +100,12 @@ def build_alerter() -> AlerterEngine:
             eval_on_bar_trigger,
             eval_gateway_alive,
             eval_web_alive,
+            eval_portfolio_drawdown,
+            eval_daily_loss,
+            eval_l2_recorder_flow,
+            eval_write_freshness,
+            eval_backup_freshness,
+            eval_deadman_heartbeat,
         ],
         channels=channels,
         trigger={"on_interval": 120},  # check every 2 minutes
@@ -112,6 +138,22 @@ def build_alerter() -> AlerterEngine:
                 "eval_web_alive": {
                     "port": 3400,
                     "timeout": 5.0,
+                },
+                "eval_portfolio_drawdown": {
+                    "max_drawdown_pct": 15.0,
+                },
+                "eval_daily_loss": {
+                    "daily_loss_limit_usd": 250.0,
+                },
+                "eval_l2_recorder_flow": {
+                    "stale_seconds": 5 * 60,
+                },
+                "eval_write_freshness": {
+                    "stale_seconds": 15 * 60,  # 3× the 5-min scalp signal cadence
+                    "pid_file": "/tmp/helivex_paper_node.pid",
+                },
+                "eval_backup_freshness": {
+                    "max_age_hours": 26,
                 },
             },
         },

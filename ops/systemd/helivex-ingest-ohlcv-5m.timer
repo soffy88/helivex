@@ -1,0 +1,11 @@
+[Unit]
+Description=Helivex 5m OHLCV refresh timer (hourly)
+
+[Timer]
+OnCalendar=*-*-* *:10:00
+# Persistent: catch up a missed refresh after host-off (incremental watermark
+# fetch self-heals any gap on the next run).
+Persistent=true
+
+[Install]
+WantedBy=timers.target

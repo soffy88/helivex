@@ -1,0 +1,6 @@
+[Unit]
+Description=Helivex service-log rotation
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/logrotate --state /home/soffy/.local/state/helivex-logrotate.state /home/soffy/projects/helivex/ops/logrotate/helivex-logs.conf

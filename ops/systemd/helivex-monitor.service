@@ -1,0 +1,20 @@
+[Unit]
+Description=Helivex Health Monitor
+After=network.target
+Documentation=https://github.com/soffy88/helivex
+
+[Service]
+Type=simple
+WorkingDirectory=/home/soffy/projects/helivex
+EnvironmentFile=/home/soffy/projects/helivex/.env
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/paper/monitor.py
+ExecStartPost=/bin/bash -c 'sleep 1 && echo $MAINPID > /tmp/helivex_monitor.pid'
+
+Restart=always
+RestartSec=10
+
+StandardOutput=append:/home/soffy/helivex_monitor.log
+StandardError=append:/home/soffy/helivex_monitor.log
+
+[Install]
+WantedBy=helivex.target

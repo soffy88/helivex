@@ -1,0 +1,15 @@
+[Unit]
+Description=Helivex Cloudflare Tunnel (btc.uex.hk -> :3400)
+After=network.target helivex-web.service
+Documentation=https://github.com/soffy88/helivex
+
+[Service]
+Type=simple
+ExecStart=/home/soffy/.local/bin/cloudflared tunnel --no-autoupdate --config /home/soffy/.cloudflared/helivex-web.yml run
+Restart=always
+RestartSec=10
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+[Install]
+WantedBy=helivex.target

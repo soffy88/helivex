@@ -32,6 +32,10 @@ signal_logic:
 risk:
   cost_bps: 10.0
   bear_ma: 0
+live:
+  n_enter: 20
+  n_exit: 10
+  qty_usd: 200
 mode: paper
 gate:
   n_splits: 6

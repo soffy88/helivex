@@ -17,8 +17,6 @@ import datetime
 from collections import deque
 from typing import Any
 
-import asyncpg
-
 from nautilus_trader.config import StrategyConfig
 from nautilus_trader.model.data import Bar, BarType, TradeTick
 from nautilus_trader.model.enums import LiquiditySide, OrderSide, TimeInForce
@@ -26,7 +24,9 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
 from paper.audit import sign_signal
-from paper.db import DB_DSN, ensure_schema, log_signal, log_fill
+from paper.risk import RISK
+from paper.db import DB_DSN, DDL, log_signal, log_fill
+from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
 
 
@@ -52,17 +52,12 @@ class Donchian4H(Strategy):
         self._signal_ts: int | None = None
         self._pending_signal_id: int | None = None
         self._order_submit_ns: int | None = None
-        self._db_pool: asyncpg.Pool | None = None
+        self._db: ResilientPool | None = None
         self._tick_count: int = 0     # probe: count trade ticks received
 
     def _strategy_id(self) -> str:
         inst = self.config.instrument_id.replace(".", "_").replace("-", "_").lower()
         return f"{self.STRATEGY_BASE}_{inst}"
-
-    async def _init_db(self) -> None:
-        self._db_pool = await asyncpg.create_pool(DB_DSN, min_size=1, max_size=2)
-        async with self._db_pool.acquire() as conn:
-            await ensure_schema(conn)
 
     def on_start(self) -> None:
         import asyncio
@@ -72,12 +67,34 @@ class Donchian4H(Strategy):
         # Probe: explicit trade sub so on_trade fires — verifies public WS tick flow
         self.subscribe_trade_ticks(self._instrument_id_obj)
         self.log.info(f"[{self._strategy_id()}] started, subscribing to {self._bar_type}")
-        # Schedule DB init as a task on NT's running loop; pool ready before first bar.
-        asyncio.ensure_future(self._init_db())
+        # Resilient pool: retries the boot race + self-heals on container restart.
+        self._db = ResilientPool(DB_DSN, DDL, name=self._strategy_id(), logger=self.log)
+        asyncio.ensure_future(self._db.ensure())
+        asyncio.ensure_future(self._rehydrate_position())
+
+    async def _rehydrate_position(self) -> None:
+        # After a restart the venue may hold a position this strategy opened before
+        # the crash; NT reconciles it into the cache at startup. Recover direction
+        # so logic state matches reality. Deferred (reconciliation settles) and
+        # guarded (only when still flat) so it never overrides a live signal.
+        import asyncio
+        await asyncio.sleep(10)
+        if self._position != 0:
+            return
+        try:
+            net = float(self.portfolio.net_position(InstrumentId.from_str(self.config.instrument_id)))
+        except Exception as exc:
+            self.log.warning(f"[{self._strategy_id()}] position rehydrate skipped: {exc}")
+            return
+        self._position = 1 if net > 0 else (-1 if net < 0 else 0)
+        if self._position != 0:
+            self.log.info(f"[{self._strategy_id()}] rehydrated _position={self._position} from venue net={net}")
 
     def on_trade_tick(self, tick: TradeTick) -> None:
+        # Probe only the first few ticks to confirm WS flow at boot, then go quiet.
+        # The old `% 100` logged thousands of lines/min and grew the log to 500MB+.
         self._tick_count += 1
-        if self._tick_count <= 3 or self._tick_count % 100 == 0:
+        if self._tick_count <= 3:
             self.log.info(
                 f"[tick_probe] {tick.instrument_id} px={tick.price} "
                 f"sz={tick.size} n={self._tick_count}"
@@ -140,19 +157,21 @@ class Donchian4H(Strategy):
         }
         rec = sign_signal(audit_body)
 
-        # Persist signal
-        if self._db_pool:
+        # Persist signal (resilient pool: self-heals, logs loudly on failure)
+        if self._db is not None:
             _indicators = indicators
             async def _store():
-                async with self._db_pool.acquire() as conn:
-                    sid = await log_signal(
+                try:
+                    sid = await self._db.execute(lambda conn: log_signal(
                         conn, strat, inst, action, price,
                         audit_record_id=rec["record_id"],
                         fingerprint_hex=rec["fingerprint_hex"],
                         sig_b64=rec.get("sig_b64", ""),
                         indicators=_indicators,
-                    )
+                    ))
                     self._pending_signal_id = sid
+                except Exception as exc:
+                    self.log.error(f"[{strat}] SIGNAL PERSIST FAILED ({action}): {exc}")
             asyncio.ensure_future(_store())
 
         self._signal_price = price
@@ -164,6 +183,16 @@ class Donchian4H(Strategy):
 
         if action == "NEUTRAL":
             return
+
+        # ── portfolio risk gate (pre-trade) — see paper/risk.py ──
+        if action.startswith("enter"):
+            _dec = RISK.gate_entry(strat, inst, self.config.qty_usd)
+            if not _dec.allowed:
+                self.log.warning(f"[{strat}] ENTRY BLOCKED by risk: {_dec.reason}")
+                return
+            RISK.open_position(strat, inst, self.config.qty_usd)
+        else:
+            RISK.close_position(strat, inst)
 
         # Submit order
         instrument = self.cache.instrument(
@@ -200,30 +229,40 @@ class Donchian4H(Strategy):
 
     def on_order_filled(self, event: Any) -> None:
         import asyncio
-        if self._db_pool and self._signal_price is not None:
+        if self._db is not None and self._signal_price is not None:
             fill_price = float(str(event.last_px))
             side       = "BUY" if event.order_side == OrderSide.BUY else "SELL"
             qty        = float(str(event.last_qty))
             strat      = self._strategy_id()
             inst       = self.config.instrument_id
             sig_id     = self._pending_signal_id
+            # Reconcile risk exposure to the ACTUAL executed notional (price×qty),
+            # replacing the nominal qty_usd estimate from _fire_signal. _position is
+            # already updated by _fire_signal: non-zero = entry fill, 0 = exit fill.
+            if self._position != 0:
+                RISK.open_position(strat, inst, fill_price * qty)
+            else:
+                RISK.close_position(strat, inst)
             fill_type  = "maker" if getattr(event, "liquidity_side", None) == LiquiditySide.MAKER else "taker"
             latency_ms = None
             if self._order_submit_ns is not None:
                 latency_ms = max(0, int((self.clock.timestamp_ns() - self._order_submit_ns) / 1_000_000))
 
+            sig_price = self._signal_price
             async def _store():
-                async with self._db_pool.acquire() as conn:
-                    await log_fill(
+                try:
+                    await self._db.execute(lambda conn: log_fill(
                         conn, strat, inst, side, qty,
-                        signal_price=self._signal_price,
+                        signal_price=sig_price,
                         actual_fill_price=fill_price,
                         order_id=str(event.client_order_id),
                         venue_order_id=str(getattr(event, "venue_order_id", "")),
                         latency_ms=latency_ms,
                         fill_type=fill_type,
                         signal_id=sig_id,
-                    )
+                    ))
+                except Exception as exc:
+                    self.log.error(f"[{strat}] FILL PERSIST FAILED: {exc}")
             asyncio.ensure_future(_store())
             self._pending_signal_id = None
             self._order_submit_ns = None
@@ -231,7 +270,7 @@ class Donchian4H(Strategy):
     def on_stop(self) -> None:
         inst_id = InstrumentId.from_str(self.config.instrument_id)
         self.close_all_positions(inst_id)
-        if self._db_pool:
+        if self._db is not None:
             import asyncio
-            asyncio.ensure_future(self._db_pool.close())
-            self._db_pool = None
+            asyncio.ensure_future(self._db.close())
+            self._db = None
