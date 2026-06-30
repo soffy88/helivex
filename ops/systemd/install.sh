@@ -21,7 +21,9 @@ systemctl --user enable helivex.target
 for svc in gw web paper monitor l2recorder cf; do
   systemctl --user enable "helivex-$svc.service" 2>/dev/null || true
 done
-systemctl --user enable --now helivex-backup.timer helivex-logrotate.timer
+for t in "$SRC"/helivex-*.timer; do
+  systemctl --user enable --now "$(basename "$t")"
+done
 
 echo "installed. start everything with:  systemctl --user start helivex.target"
 echo "current state:"

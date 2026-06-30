@@ -1,0 +1,13 @@
+[Unit]
+Description=Helivex 4H OHLCV refresh timer (every 4h)
+
+[Timer]
+# Fires every 4h, ~15min after a 4H bar close. Host TZ (+08:00) is a whole
+# multiple of 4h, so these local boundaries coincide with the UTC 4H bar closes.
+OnCalendar=*-*-* 00,04,08,12,16,20:15:00
+# Persistent: catch up a missed refresh after host-off (incremental watermark
+# fetch self-heals any gap on the next run).
+Persistent=true
+
+[Install]
+WantedBy=timers.target

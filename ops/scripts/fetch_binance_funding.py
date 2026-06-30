@@ -14,8 +14,8 @@ Egress: fapi.binance.com returns 451 from CN. We go through the running SG egres
         helios-proxy IP:2080 > http://proxy:2080 (the docker-network HTTP_PROXY).
 
 Storage: upsert into market_data.binance_funding_history, PK (symbol, funding_time),
-         source='binance_rest' (SINGLE-EXCHANGE — distinct from the Coinalyze
-         cross-exchange aggregate in market_data.funding_rates).
+         source='binance_rest' (Binance-only — distinct from the OKX-sourced
+         funding in market_data.funding_rates, which holds source='okx').
 
 Usage:
     python ops/scripts/fetch_binance_funding.py                      # full history → now
