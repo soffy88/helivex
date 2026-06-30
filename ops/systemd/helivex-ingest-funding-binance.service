@@ -8,6 +8,9 @@ Type=oneshot
 WorkingDirectory=/home/soffy/projects/helivex
 EnvironmentFile=/home/soffy/projects/helivex/.env
 # No --start: walks full history each run (idempotent upsert, ~8 calls); self-heals gaps.
+# All 3 perp symbols (oneshot runs ExecStart lines sequentially).
 ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/fetch_binance_funding.py --symbol BTCUSDT
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/fetch_binance_funding.py --symbol ETHUSDT
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/fetch_binance_funding.py --symbol SOLUSDT
 StandardOutput=append:/home/soffy/helivex_ingest_funding_binance.log
 StandardError=append:/home/soffy/helivex_ingest_funding_binance.log

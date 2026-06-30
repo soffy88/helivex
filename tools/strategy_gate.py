@@ -113,12 +113,15 @@ def _dsr_threshold(n_trials: int) -> float:
 # ──────────────────── DB fetch ────────────────────
 
 async def _fetch_ohlcv(instrument: str, db_source: str) -> dict[str, np.ndarray]:
+    # 5-minute bars live in market_data.ohlcv_5m (migrations 003/005 moved them out
+    # of ohlcv_1h). Route by source so the okx_swap_5m configs keep working.
+    table = "market_data.ohlcv_5m" if db_source.endswith("5m") else "market_data.ohlcv_1h"
     conn = await asyncpg.connect(DB_DSN)
     rows = await conn.fetch(
-        """SELECT bar_close_ts,
+        f"""SELECT bar_close_ts,
                   open::float, high::float, low::float, close::float,
                   volume::float
-           FROM market_data.ohlcv_1h
+           FROM {table}
            WHERE instrument=$1 AND source=$2
            ORDER BY bar_close_ts""",
         instrument, db_source,
