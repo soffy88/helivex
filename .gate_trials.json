@@ -1,5 +1,5 @@
 {
-  "total_trials": 13,
+  "total_trials": 16,
   "history": [
     {
       "trial_n": 1,
@@ -374,6 +374,108 @@
         },
         "overall": "FAIL",
         "note": "R13: volatility/VRP direction CLOSED. Decision rule (pre-registered): BTC weekly hedged Sharpe >0.3 -> viable; -0.41 -> exhausted. Efficient-market: retail vol-seller can't harvest VRP risk-managed after real Deribit skew. See docs/R13_VOL_STRADDLE_GATE.md."
+      }
+    },
+    {
+      "trial_n": 14,
+      "config": "strategies/trend_dual.yaml",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.2531881925914479,
+            "pbo": 0.3333333333333333,
+            "pbo_cscv": 0.08571428571428572,
+            "mean_oos": 0.7957907644509176,
+            "gross_sharpe": 0.40046111853440286,
+            "deflated_sharpe_real": 1.3516290431935834e-16
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.3221190412270891,
+            "pbo": 0.5,
+            "pbo_cscv": 0.14285714285714285,
+            "mean_oos": 0.036915462434415604,
+            "gross_sharpe": 0.7170850358780961,
+            "deflated_sharpe_real": 6.0041027506793414e-06
+          },
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -0.823077150330328,
+            "pbo": 0.8333333333333334,
+            "pbo_cscv": 0.4857142857142857,
+            "mean_oos": 0.34466189507928285,
+            "gross_sharpe": 0.8123646219824684,
+            "deflated_sharpe_real": 0.001296600593212202
+          }
+        },
+        "overall": "FAIL"
+      }
+    },
+    {
+      "trial_n": 15,
+      "config": "strategies/vwap_mr_1h.yaml",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.5731987925244748,
+            "pbo": 0.8333333333333334,
+            "pbo_cscv": 0.6142857142857143,
+            "mean_oos": -0.8692522135101108,
+            "gross_sharpe": -0.7910908052747576,
+            "deflated_sharpe_real": 5.728791839561461e-07
+          },
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -3.6778174781651494,
+            "pbo": 0.6666666666666666,
+            "pbo_cscv": 0.8428571428571429,
+            "mean_oos": -1.476036660596728,
+            "gross_sharpe": -0.8881879073381589,
+            "deflated_sharpe_real": 1.559040972903242e-35
+          }
+        },
+        "overall": "FAIL"
+      }
+    },
+    {
+      "trial_n": 16,
+      "config": "strategies/spot_trend_1d.yaml",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.4189455278245382,
+            "pbo": 0.3333333333333333,
+            "pbo_cscv": 0.8,
+            "mean_oos": 0.7974747847225766,
+            "gross_sharpe": 1.200162682192835,
+            "deflated_sharpe_real": 1.426408467713904e-19
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.0246437741762633,
+            "pbo": 0.6666666666666666,
+            "pbo_cscv": 0.5714285714285714,
+            "mean_oos": 0.5045275037629084,
+            "gross_sharpe": 1.2261976427917025,
+            "deflated_sharpe_real": 1.6756708729892934e-07
+          },
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.3314803039714305,
+            "pbo": 0.5,
+            "pbo_cscv": 0.42857142857142855,
+            "mean_oos": 0.3280958117656024,
+            "gross_sharpe": 1.0512482694729997,
+            "deflated_sharpe_real": 7.774880325965642e-32
+          }
+        },
+        "overall": "FAIL"
       }
     }
   ]
