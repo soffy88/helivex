@@ -8,6 +8,7 @@ Start:
 All endpoints mirror HELIVEX_FRONTEND_REQUIREMENTS.md §7 so the frontend
 can flip USE_MOCK=false against http://localhost:8765.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -83,6 +84,7 @@ async def _unhandled_exception(request: Request, exc: Exception) -> JSONResponse
 
 # ─── Lifecycle ────────────────────────────────────────────────────────────────
 
+
 @app.on_event("startup")
 async def _startup() -> None:
     # Non-fatal: if Postgres isn't up yet at boot, don't crash-loop — routes
@@ -99,6 +101,7 @@ async def _shutdown() -> None:
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
+
 
 def _read_yaml(path: Path) -> dict:
     with open(path) as f:
@@ -127,10 +130,10 @@ def _detect_regime(closes: list[float], ma_period: int = 200) -> str:
 
 
 STRATEGY_DISPLAY_NAMES = {
-    "trend_dual":   "趋势双向 (Donchian 4H)",
+    "trend_dual": "趋势双向 (Donchian 4H)",
     "vwap_mr_dual": "VWAP 均值回归 (1H)",
-    "spot_trend":   "现货趋势 (日线)",
-    "scalp_5m":     "⚠ 剥头皮 (VWAP-MR 5M) [NO-GO 观察]",
+    "spot_trend": "现货趋势 (日线)",
+    "scalp_5m": "⚠ 剥头皮 (VWAP-MR 5M) [NO-GO 观察]",
 }
 
 # Hard-coded gate results for strategies with known permanent verdicts
@@ -156,8 +159,16 @@ def _latest_gate_metrics(strategy_id: str) -> dict:
         if strategy_id in cfg_path or yaml_name in cfg_path:
             instruments = entry.get("metrics", {}).get("instruments", {})
             if instruments:
-                dsrs = [v.get("dsr") for v in instruments.values() if v.get("dsr") is not None]
-                pbos = [v.get("pbo") for v in instruments.values() if v.get("pbo") is not None]
+                dsrs = [
+                    v.get("dsr")
+                    for v in instruments.values()
+                    if v.get("dsr") is not None
+                ]
+                pbos = [
+                    v.get("pbo")
+                    for v in instruments.values()
+                    if v.get("pbo") is not None
+                ]
                 return {
                     "dsr": round(sum(dsrs) / len(dsrs), 4) if dsrs else None,
                     "pbo": round(sum(pbos) / len(pbos), 4) if pbos else None,
@@ -179,9 +190,7 @@ def _row_to_signal_log(r: Any) -> dict:
     acted = action != "NEUTRAL"
     indic_raw: dict = json.loads(r["indicators"]) if r["indicators"] else {}
     indicator_values = [
-        {"name": k, "value": v}
-        for k, v in indic_raw.items()
-        if k != "warmup"
+        {"name": k, "value": v} for k, v in indic_raw.items() if k != "warmup"
     ]
     return {
         "time": r["ts"].isoformat(),
@@ -199,6 +208,7 @@ def _row_to_signal_log(r: Any) -> dict:
 
 # ─── /strategies ──────────────────────────────────────────────────────────────
 
+
 @app.get("/strategies")
 async def get_strategies() -> list[dict]:
     """Return StrategyState-compatible list for all 4 strategies."""
@@ -210,7 +220,8 @@ async def get_strategies() -> list[dict]:
         prefix = STRATEGY_SIGNAL_PREFIX.get(sid, sid)
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
-                "SELECT COUNT(*) AS n FROM paper.signals WHERE strategy_id LIKE $1", prefix
+                "SELECT COUNT(*) AS n FROM paper.signals WHERE strategy_id LIKE $1",
+                prefix,
             )
         n_signals = int(row["n"]) if row else 0
 
@@ -221,35 +232,39 @@ async def get_strategies() -> list[dict]:
             gate_obj = _HARDCODED_GATE[sid]
         else:
             verdict = latest_verdict(sid)
-            gate_m  = _latest_gate_metrics(sid)
+            gate_m = _latest_gate_metrics(sid)
             gate_obj = {
-                "verdict": ("pass" if verdict == "PASS" else "fail") if verdict else "pending",
+                "verdict": ("pass" if verdict == "PASS" else "fail")
+                if verdict
+                else "pending",
                 "dsr": gate_m.get("dsr"),
                 "pbo": gate_m.get("pbo"),
                 "reason": verdict,
             }
 
-        result.append({
-            "strategy_id": sid,
-            "name": STRATEGY_DISPLAY_NAMES.get(sid, sid),
-            "mode": cfg.get("mode", "paper"),
-            "regime": "unknown",
-            "position": "空仓",
-            "signals_today": n_signals,
-            "indicators": [],
-            "signal_logic": {
-                "entry": str(sl.get("entry", "")),
-                "exit": str(sl.get("exit", "")),
-                "min_confluence": sl.get("min_confluence", 1),
-                "direction_mode": str(sl.get("direction_mode", "dual")),
-            },
-            "gate": gate_obj,
-            # Extra context fields (not in StrategyState type, ignored by frontend)
-            "n_paper_signals": n_signals,
-            "instruments": cfg.get("instruments", []),
-            "timeframe": cfg.get("timeframe", ""),
-            "config_path": str(yaml_path.relative_to(PROJECT_ROOT)),
-        })
+        result.append(
+            {
+                "strategy_id": sid,
+                "name": STRATEGY_DISPLAY_NAMES.get(sid, sid),
+                "mode": cfg.get("mode", "paper"),
+                "regime": "unknown",
+                "position": "空仓",
+                "signals_today": n_signals,
+                "indicators": [],
+                "signal_logic": {
+                    "entry": str(sl.get("entry", "")),
+                    "exit": str(sl.get("exit", "")),
+                    "min_confluence": sl.get("min_confluence", 1),
+                    "direction_mode": str(sl.get("direction_mode", "dual")),
+                },
+                "gate": gate_obj,
+                # Extra context fields (not in StrategyState type, ignored by frontend)
+                "n_paper_signals": n_signals,
+                "instruments": cfg.get("instruments", []),
+                "timeframe": cfg.get("timeframe", ""),
+                "config_path": str(yaml_path.relative_to(PROJECT_ROOT)),
+            }
+        )
     return result
 
 
@@ -273,6 +288,7 @@ async def put_strategy_config(strategy_id: str, body: dict = Body(...)) -> dict:
 
 
 # ─── /gate ────────────────────────────────────────────────────────────────────
+
 
 @app.post("/gate/run", dependencies=[Depends(require_token)])
 async def post_gate_run(
@@ -298,7 +314,9 @@ async def post_gate_run(
         # Heavy CPU-bound gate (numpy / walk-forward). Run in a worker thread with
         # its own event loop so a long gate doesn't block the dashboard's polling
         # on the main event loop.
-        return asyncio.run(run_gate(config_path, instrument=instrument, verbose=not quiet))
+        return asyncio.run(
+            run_gate(config_path, instrument=instrument, verbose=not quiet)
+        )
 
     try:
         result = await asyncio.to_thread(_run)
@@ -318,6 +336,7 @@ async def get_gate_trials() -> dict:
 
 # ─── /backtest ────────────────────────────────────────────────────────────────
 
+
 @app.post("/backtest/run", dependencies=[Depends(require_token)])
 async def post_backtest_run(
     config: str = Query(..., description="Strategy ID or relative config path"),
@@ -336,7 +355,13 @@ async def post_backtest_run(
         raise HTTPException(404, f"Config not found: {config_path}")
 
     sys.path.insert(0, str(PROJECT_ROOT / "tools"))
-    from strategy_gate import _fetch_ohlcv, _resample_ohlcv, _resample_to_1d, _signals_to_pnl, _walk_forward_gate  # type: ignore
+    from strategy_gate import (
+        _fetch_ohlcv,
+        _resample_ohlcv,
+        _resample_to_1d,
+        _signals_to_pnl,
+        _walk_forward_gate,
+    )  # type: ignore
     import yaml as _yaml
     import importlib
 
@@ -344,9 +369,9 @@ async def post_backtest_run(
     strategy_name = cfg["strategy"]
 
     SMAP = {
-        "trend_dual":   ("omodul.strategies.trend_dual",   "trend_dual"),
+        "trend_dual": ("omodul.strategies.trend_dual", "trend_dual"),
         "vwap_mr_dual": ("omodul.strategies.vwap_mr_dual", "vwap_mr_dual"),
-        "spot_trend":   ("omodul.strategies.spot_trend",   "spot_trend"),
+        "spot_trend": ("omodul.strategies.spot_trend", "spot_trend"),
     }
     if strategy_name not in SMAP:
         raise HTTPException(400, f"Unknown strategy: {strategy_name}")
@@ -377,18 +402,20 @@ async def post_backtest_run(
     }
     out = strategy_fn(market_state, cfg)
     signals = out["signals"]
-    closes  = ohlcv["close"]
-    cost    = out["cost_bps"]
+    closes = ohlcv["close"]
+    cost = out["cost_bps"]
     direction = cfg.get("signal_logic", {}).get("direction", "both")
 
     pnl = _signals_to_pnl(signals, closes, cost, direction=direction)
 
-    gate_cfg   = cfg.get("gate", {})
-    n_splits   = gate_cfg.get("n_splits", 6)
-    embargo    = gate_cfg.get("embargo_bars", 50)
-    pbo_thr    = gate_cfg.get("pbo_threshold", 0.5)
-    is_daily   = cfg.get("resample_to_1d", False) or cfg.get("timeframe", "") == "1D"
-    periods_py = 252 if is_daily else (6 * 252 if "1H" in cfg.get("timeframe", "") else 2 * 252)
+    gate_cfg = cfg.get("gate", {})
+    n_splits = gate_cfg.get("n_splits", 6)
+    embargo = gate_cfg.get("embargo_bars", 50)
+    pbo_thr = gate_cfg.get("pbo_threshold", 0.5)
+    is_daily = cfg.get("resample_to_1d", False) or cfg.get("timeframe", "") == "1D"
+    periods_py = (
+        252 if is_daily else (6 * 252 if "1H" in cfg.get("timeframe", "") else 2 * 252)
+    )
 
     gate_result = _walk_forward_gate(pnl, n_splits, embargo, periods_py, pbo_thr)
 
@@ -396,7 +423,7 @@ async def post_backtest_run(
     closes_arr = list(closes)
     regime_labels: list[str] = []
     for i, c in enumerate(closes_arr):
-        window = closes_arr[max(0, i - 200):i + 1]
+        window = closes_arr[max(0, i - 200) : i + 1]
         ma = sum(window) / len(window)
         regime_labels.append("bull" if c > ma else "bear")
 
@@ -412,6 +439,7 @@ async def post_backtest_run(
 
 # ─── /executions ──────────────────────────────────────────────────────────────
 
+
 @app.get("/executions")
 async def get_executions(
     strategy_id: str | None = Query(None),
@@ -421,7 +449,7 @@ async def get_executions(
     pool = await get_pool()
     async with pool.acquire() as conn:
         where = "WHERE strategy_id=$1" if strategy_id else ""
-        args  = [strategy_id, limit] if strategy_id else [limit]
+        args = [strategy_id, limit] if strategy_id else [limit]
         limit_placeholder = "$2" if strategy_id else "$1"
 
         fills = await conn.fetch(
@@ -455,15 +483,23 @@ async def get_executions(
         sid = r["strategy_id"]
         n_sigs = sig_by_strat.get(sid, 0)
         n_fills = r["n_fills"]
-        fidelity.append({
-            "strategy_id": sid,
-            "n_signals": n_sigs,
-            "n_fills": n_fills,
-            "fill_rate": n_fills / n_sigs if n_sigs else None,
-            "mean_slippage_bps": float(r["mean_slippage_bps"]) if r["mean_slippage_bps"] else None,
-            "p95_slippage_bps": float(r["p95_slippage_bps"]) if r["p95_slippage_bps"] else None,
-            "mean_latency_ms": float(r["mean_latency_ms"]) if r["mean_latency_ms"] else None,
-        })
+        fidelity.append(
+            {
+                "strategy_id": sid,
+                "n_signals": n_sigs,
+                "n_fills": n_fills,
+                "fill_rate": n_fills / n_sigs if n_sigs else None,
+                "mean_slippage_bps": float(r["mean_slippage_bps"])
+                if r["mean_slippage_bps"]
+                else None,
+                "p95_slippage_bps": float(r["p95_slippage_bps"])
+                if r["p95_slippage_bps"]
+                else None,
+                "mean_latency_ms": float(r["mean_latency_ms"])
+                if r["mean_latency_ms"]
+                else None,
+            }
+        )
 
     return {
         "fidelity": fidelity,
@@ -473,12 +509,14 @@ async def get_executions(
 
 # ─── /pnl ─────────────────────────────────────────────────────────────────────
 
+
 @app.get("/pnl")
 async def get_pnl(
     strategy_id: str | None = Query(None),
     instrument: str | None = Query(None),
 ) -> dict:
-    """Return cumulative paper P&L computed from fills, segmented by strategy/instrument."""
+    """Return cumulative realized paper P&L (FIFO round-trips), segmented by
+    strategy/instrument. Same engine as /strategies/{id}/trades and /portfolio."""
     pool = await get_pool()
     filters = []
     args: list[Any] = []
@@ -501,6 +539,7 @@ async def get_pnl(
 
     # Group by (strategy_id, instrument), compute naive mark-to-market P&L
     from collections import defaultdict
+
     groups: dict[tuple, list] = defaultdict(list)
     for r in fills:
         groups[(r["strategy_id"], r["instrument"])].append(r)
@@ -509,19 +548,16 @@ async def get_pnl(
     for (sid, inst), rows in groups.items():
         cum = 0.0
         pts = []
-        for r in rows:
-            sign = 1 if r["side"] == "BUY" else -1
-            slip = float(r["slippage_bps"] or 0) / 10000
-            # cost of fill relative to signal price
-            pnl = -sign * float(r["quantity"]) * float(r["actual_fill_price"]) * slip
-            cum += pnl
-            pts.append({"ts": r["ts"].isoformat(), "cum_pnl_usd": round(cum, 4)})
+        for t in sorted(_round_trips(rows), key=lambda t: t["close_time"]):
+            cum += t["realized_pnl"]
+            pts.append({"ts": t["close_time"], "cum_pnl_usd": round(cum, 4)})
         series[f"{sid}/{inst}"] = pts
 
     return {"series": series}
 
 
 # ─── /audit ───────────────────────────────────────────────────────────────────
+
 
 @app.get("/audit/decisions")
 async def get_audit_decisions(
@@ -531,7 +567,7 @@ async def get_audit_decisions(
     """Return recent GOLD-signed signal decisions from paper.signals."""
     pool = await get_pool()
     where = "WHERE strategy_id=$1" if strategy_id else ""
-    args  = [strategy_id, limit] if strategy_id else [limit]
+    args = [strategy_id, limit] if strategy_id else [limit]
     limit_ph = "$2" if strategy_id else "$1"
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -595,12 +631,17 @@ async def verify_signature(body: dict = Body(...)) -> dict:
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
         from cryptography.exceptions import InvalidSignature
 
-        fp_hex   = body["fingerprint_hex"]
-        sig_b64  = body["sig_b64"]
-        pub_b64  = body.get("public_key_b64") or os.environ.get("HELIVEX_AUDIT_PUBLIC_KEY_B64", "")
+        fp_hex = body["fingerprint_hex"]
+        sig_b64 = body["sig_b64"]
+        pub_b64 = body.get("public_key_b64") or os.environ.get(
+            "HELIVEX_AUDIT_PUBLIC_KEY_B64", ""
+        )
 
         if not pub_b64:
-            raise HTTPException(400, "No public_key_b64 provided and HELIVEX_AUDIT_PUBLIC_KEY_B64 not set")
+            raise HTTPException(
+                400,
+                "No public_key_b64 provided and HELIVEX_AUDIT_PUBLIC_KEY_B64 not set",
+            )
 
         pub_bytes = base64.b64decode(pub_b64)
         sig_bytes = base64.b64decode(sig_b64)
@@ -613,6 +654,7 @@ async def verify_signature(body: dict = Body(...)) -> dict:
         raise HTTPException(400, f"Bad request body: {e}")
     except Exception:
         from cryptography.exceptions import InvalidSignature
+
         return {"valid": False, "fingerprint_hex": body.get("fingerprint_hex", "")}
 
 
@@ -624,11 +666,16 @@ async def get_audit_chain_verify() -> dict:
     """
     pub_b64 = os.environ.get("HELIVEX_AUDIT_PUBLIC_KEY_B64", "")
     if not pub_b64:
-        return {"ok": False, "reason": "HELIVEX_AUDIT_PUBLIC_KEY_B64 not configured", "records": []}
+        return {
+            "ok": False,
+            "reason": "HELIVEX_AUDIT_PUBLIC_KEY_B64 not configured",
+            "records": [],
+        }
 
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
     pub_bytes = base64.b64decode(pub_b64)
-    pub_key   = Ed25519PublicKey.from_public_bytes(pub_bytes)
+    pub_key = Ed25519PublicKey.from_public_bytes(pub_bytes)
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -689,6 +736,7 @@ async def get_anchors() -> dict:
 
 # ─── /strategies/{id}/mode ────────────────────────────────────────────────────
 
+
 @app.put("/strategies/{strategy_id}/mode", dependencies=[Depends(require_token)])
 async def put_strategy_mode(
     strategy_id: str,
@@ -704,7 +752,7 @@ async def put_strategy_mode(
         raise HTTPException(400, f"Invalid mode: {mode}. Must be backtest|paper|live")
 
     path = _strategy_id_to_yaml(strategy_id)
-    cfg  = _read_yaml(path)
+    cfg = _read_yaml(path)
     current_mode = cfg.get("mode", "backtest")
 
     if mode in ("paper", "live"):
@@ -731,11 +779,14 @@ async def put_strategy_mode(
         "strategy_id": strategy_id,
         "previous_mode": current_mode,
         "mode": mode,
-        "gate_bypassed": mode in ("paper", "live") and latest_verdict(strategy_id) != "PASS" and force,
+        "gate_bypassed": mode in ("paper", "live")
+        and latest_verdict(strategy_id) != "PASS"
+        and force,
     }
 
 
 # ─── /paper/account ───────────────────────────────────────────────────────────
+
 
 @app.get("/paper/account")
 async def get_paper_account() -> dict:
@@ -743,34 +794,35 @@ async def get_paper_account() -> dict:
     pool = await get_pool()
     async with pool.acquire() as conn:
         fills = await conn.fetch(
-            """SELECT side, quantity, signal_price, actual_fill_price, slippage_bps
-               FROM paper.fills WHERE ts >= CURRENT_DATE"""
+            """SELECT ts, instrument, side, quantity, signal_price, actual_fill_price
+               FROM paper.fills ORDER BY ts ASC"""
         )
-    # OKX Demo base balance (USDT); non-USDT assets shown as USDT-equivalent = 0 for simplicity
-    balance = 5000.0
-    pnl_gross = 0.0
-    pnl_net = 0.0
-    open_positions = 0
+    # Realized P&L from FIFO round-trips (canonical) — the actual_fill_price the
+    # FIFO uses already embeds slippage, so realized is inherently net. Balance is
+    # base + ALL realized (a running account), not just today's slice.
+    base = 5000.0
+    totals = _realized_totals(fills)
+
+    # Open positions = instruments with a non-zero net signed quantity.
+    from collections import defaultdict
+
+    net_qty: dict[str, float] = defaultdict(float)
     for f in fills:
-        sign = 1.0 if f["side"] == "SELL" else -1.0
-        if f["signal_price"] and f["signal_price"] > 0:
-            raw_pnl = sign * float(f["quantity"]) * (float(f["actual_fill_price"]) - float(f["signal_price"]))
-            slip_cost = abs(float(f["slippage_bps"] or 0)) / 10000 * float(f["quantity"]) * float(f["actual_fill_price"])
-            pnl_gross += raw_pnl
-            pnl_net += raw_pnl - slip_cost
-        if f["side"] == "BUY":
-            open_positions += 1
-        elif f["side"] == "SELL":
-            open_positions = max(0, open_positions - 1)
+        net_qty[f["instrument"]] += float(f["quantity"]) * (
+            1.0 if f["side"] == "BUY" else -1.0
+        )
+    open_positions = sum(1 for v in net_qty.values() if abs(v) > 1e-9)
+
     return {
-        "balance": balance + round(pnl_net, 2),
+        "balance": round(base + totals["total"], 2),
         "positions": open_positions,
-        "pnl_today_gross": round(pnl_gross, 2),
-        "pnl_today_net": round(pnl_net, 2),
+        "pnl_today_gross": round(totals["today"], 2),
+        "pnl_today_net": round(totals["today"], 2),
     }
 
 
 # ─── /strategies/{id}/positions ───────────────────────────────────────────────
+
 
 def _prefix_for(strategy_id: str) -> str:
     if strategy_id not in STRATEGY_SIGNAL_PREFIX:
@@ -791,13 +843,18 @@ async def get_strategy_positions(strategy_id: str) -> list:
             prefix,
         )
     from collections import defaultdict
-    net: dict[str, dict] = defaultdict(lambda: {"buy_qty": 0.0, "sell_qty": 0.0, "buy_px": 0.0, "sell_px": 0.0})
+
+    net: dict[str, dict] = defaultdict(
+        lambda: {"buy_qty": 0.0, "sell_qty": 0.0, "buy_px": 0.0, "sell_px": 0.0}
+    )
     for r in rows:
         inst = r["instrument"]
         if r["side"] == "BUY":
-            net[inst]["buy_qty"] += float(r["qty"]); net[inst]["buy_px"] = float(r["avg_px"])
+            net[inst]["buy_qty"] += float(r["qty"])
+            net[inst]["buy_px"] = float(r["avg_px"])
         else:
-            net[inst]["sell_qty"] += float(r["qty"]); net[inst]["sell_px"] = float(r["avg_px"])
+            net[inst]["sell_qty"] += float(r["qty"])
+            net[inst]["sell_px"] = float(r["avg_px"])
 
     positions = []
     for inst, d in net.items():
@@ -806,23 +863,26 @@ async def get_strategy_positions(strategy_id: str) -> list:
             continue
         side = "long" if net_qty > 0 else "short"
         avg_entry = d["buy_px"] if net_qty > 0 else d["sell_px"]
-        positions.append({
-            "instrument": inst,
-            "side": side,
-            "quantity": round(abs(net_qty), 8),
-            "avg_entry_price": round(avg_entry, 4),
-            "current_price": None,
-            "unrealized_pnl": 0.0,
-            "unrealized_pnl_pct": 0.0,
-            "holding_duration": "—",
-            "margin_used": None,
-            "leverage": None,
-            "liquidation_price": None,
-        })
+        positions.append(
+            {
+                "instrument": inst,
+                "side": side,
+                "quantity": round(abs(net_qty), 8),
+                "avg_entry_price": round(avg_entry, 4),
+                "current_price": None,
+                "unrealized_pnl": 0.0,
+                "unrealized_pnl_pct": 0.0,
+                "holding_duration": "—",
+                "margin_used": None,
+                "leverage": None,
+                "liquidation_price": None,
+            }
+        )
     return positions
 
 
 # ─── /strategies/{id}/trades ──────────────────────────────────────────────────
+
 
 def _fmt_duration(delta) -> str:
     secs = int(max(0, delta.total_seconds()))
@@ -840,7 +900,10 @@ def _round_trips(rows: list) -> list[dict]:
     open lots oldest-first and emits a realized trade. Total realized P&L matches
     the avg-cost figure in paper.risk; FIFO just gives clean per-trade entry ts/px."""
     from collections import defaultdict, deque
-    lots: dict[str, deque] = defaultdict(deque)  # instrument -> deque[[qty_signed, px, ts]]
+
+    lots: dict[str, deque] = defaultdict(
+        deque
+    )  # instrument -> deque[[qty_signed, px, ts]]
     trades: list[dict] = []
     seq = 0
     for r in rows:
@@ -858,22 +921,26 @@ def _round_trips(rows: list) -> list[dict]:
             pnl = lot_sign * (px - lot[1]) * closed
             entry_notional = lot[1] * closed
             seq += 1
-            trades.append({
-                "trade_id": f"{inst}-{seq}",
-                "open_time": lot[2].isoformat(),
-                "close_time": ts.isoformat(),
-                "instrument": inst,
-                "side": "long" if lot_sign > 0 else "short",
-                "entry_price": round(lot[1], 6),
-                "exit_price": round(px, 6),
-                "quantity": round(closed, 8),
-                "realized_pnl": round(pnl, 6),
-                "realized_pnl_pct": round(pnl / entry_notional * 100, 4) if entry_notional else 0.0,
-                "fees": 0.0,
-                "holding_duration": _fmt_duration(ts - lot[2]),
-                "trigger_signal": "—",
-                "exit_reason": "close",
-            })
+            trades.append(
+                {
+                    "trade_id": f"{inst}-{seq}",
+                    "open_time": lot[2].isoformat(),
+                    "close_time": ts.isoformat(),
+                    "instrument": inst,
+                    "side": "long" if lot_sign > 0 else "short",
+                    "entry_price": round(lot[1], 6),
+                    "exit_price": round(px, 6),
+                    "quantity": round(closed, 8),
+                    "realized_pnl": round(pnl, 6),
+                    "realized_pnl_pct": round(pnl / entry_notional * 100, 4)
+                    if entry_notional
+                    else 0.0,
+                    "fees": 0.0,
+                    "holding_duration": _fmt_duration(ts - lot[2]),
+                    "trigger_signal": "—",
+                    "exit_reason": "close",
+                }
+            )
             lot[0] -= lot_sign * closed
             q -= q_sign * closed
             if abs(lot[0]) < 1e-12:
@@ -882,6 +949,42 @@ def _round_trips(rows: list) -> list[dict]:
         if abs(q) > 1e-12:
             dq.append([q, px, ts])
     return trades
+
+
+# ── Canonical P&L: every surface below derives from _round_trips (FIFO realized)
+#    so equity, /pnl, /paper/account and /portfolio/* can never disagree. Before
+#    this, equity used signal-vs-fill, /pnl used a slippage-cost proxy, and
+#    /paper/account used a third formula — three different numbers for one book.
+
+
+def _equity_points(rows: list, base: float) -> list[dict]:
+    """Realized-P&L equity curve from FIFO round-trips: steps at each trade close
+    by that trade's realized P&L, carrying a running (fractional) drawdown."""
+    trades = sorted(_round_trips(rows), key=lambda t: t["close_time"])
+    cum = peak = 0.0
+    pts: list[dict] = []
+    for t in trades:
+        cum += t["realized_pnl"]
+        peak = max(peak, cum)
+        denom = base + peak
+        pts.append(
+            {
+                "date": t["close_time"],
+                "equity": round(base + cum, 4),
+                "drawdown": round(-(peak - cum) / denom, 6) if denom else 0.0,
+                "realized_pnl": round(cum, 4),
+            }
+        )
+    return pts
+
+
+def _realized_totals(rows: list) -> dict:
+    """All-time and today's realized P&L (+ trade count) from FIFO round-trips."""
+    trades = _round_trips(rows)
+    total = sum(t["realized_pnl"] for t in trades)
+    today = datetime.now(timezone.utc).date().isoformat()
+    today_pnl = sum(t["realized_pnl"] for t in trades if t["close_time"][:10] == today)
+    return {"total": total, "today": today_pnl, "n_trades": len(trades)}
 
 
 @app.get("/strategies/{strategy_id}/trades")
@@ -905,6 +1008,7 @@ async def get_strategy_trades(
 
 # ─── /strategies/{id}/equity ──────────────────────────────────────────────────
 
+
 @app.get("/strategies/{strategy_id}/equity")
 async def get_strategy_equity(strategy_id: str) -> dict:
     """Return StrategyEquity with equity curve points (5000 base + cum P&L)."""
@@ -912,31 +1016,26 @@ async def get_strategy_equity(strategy_id: str) -> dict:
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            """SELECT ts, side, quantity, signal_price, actual_fill_price
+            """SELECT ts, instrument, side, quantity, signal_price, actual_fill_price
                FROM paper.fills WHERE strategy_id LIKE $1 ORDER BY ts ASC""",
             prefix,
         )
     base = 5000.0
-    cum = 0.0
-    points = []
-    for r in rows:
-        sign = 1.0 if r["side"] == "SELL" else -1.0
-        sp = float(r["signal_price"] or 0)
-        fp = float(r["actual_fill_price"])
-        if sp > 0:
-            cum += sign * float(r["quantity"]) * (fp - sp)
-        points.append({
-            "date": r["ts"].isoformat(),
-            "equity": round(base + cum, 2),
-            "drawdown": 0.0,
-            "realized_pnl": round(cum, 4),
-        })
+    points = _equity_points(rows, base)
     if not points:
-        points = [{"date": datetime.now(timezone.utc).isoformat(), "equity": base, "drawdown": 0.0, "realized_pnl": 0.0}]
+        points = [
+            {
+                "date": datetime.now(timezone.utc).isoformat(),
+                "equity": base,
+                "drawdown": 0.0,
+                "realized_pnl": 0.0,
+            }
+        ]
     return {"points": points, "by_instrument": None}
 
 
 # ─── /strategies/{id}/signals ─────────────────────────────────────────────────
+
 
 @app.get("/strategies/{strategy_id}/signals")
 async def get_strategy_signals(
@@ -951,12 +1050,14 @@ async def get_strategy_signals(
             """SELECT ts, instrument, action, signal_price, sig_b64, indicators
                FROM paper.signals WHERE strategy_id LIKE $1
                ORDER BY ts DESC LIMIT $2""",
-            prefix, limit,
+            prefix,
+            limit,
         )
     return [_row_to_signal_log(r) for r in rows]
 
 
 # ─── /strategies/{id}/stats ───────────────────────────────────────────────────
+
 
 @app.get("/strategies/{strategy_id}/stats")
 async def get_strategy_stats(strategy_id: str) -> dict:
@@ -980,7 +1081,9 @@ async def get_strategy_stats(strategy_id: str) -> dict:
     gross_win = sum(wins)
     gross_loss = -sum(losses)
 
-    # max drawdown over the cumulative realized-P&L curve, as % of base equity
+    # max drawdown over the cumulative realized-P&L curve, as a FRACTION of base
+    # equity (0..1), matching the win_rate convention. The frontend multiplies by
+    # 100 for display; returning a percent here double-scaled it (0.5% → "54%").
     cum = peak = maxdd = 0.0
     for p in pnls:
         cum += p
@@ -998,18 +1101,24 @@ async def get_strategy_stats(strategy_id: str) -> dict:
     avg_hold = "—"
     if trades:
         durs = [
-            (datetime.fromisoformat(t["close_time"]) - datetime.fromisoformat(t["open_time"])).total_seconds()
+            (
+                datetime.fromisoformat(t["close_time"])
+                - datetime.fromisoformat(t["open_time"])
+            ).total_seconds()
             for t in trades
         ]
         from datetime import timedelta
+
         avg_hold = _fmt_duration(timedelta(seconds=sum(durs) / len(durs)))
 
     return {
         "total_trades": n,
         "win_rate": round(len(wins) / n, 4) if n else 0.0,
-        "profit_factor": round(gross_win / gross_loss, 4) if gross_loss > 0 else (0.0 if gross_win == 0 else None),
+        "profit_factor": round(gross_win / gross_loss, 4)
+        if gross_loss > 0
+        else (0.0 if gross_win == 0 else None),
         "avg_holding": avg_hold,
-        "max_drawdown": round(maxdd / base_equity * 100, 4),
+        "max_drawdown": round(maxdd / base_equity, 4),
         "forward_sharpe": round(sharpe, 4),
         "total_pnl": round(total_pnl, 4),
         "backtest_oos_sharpe": None,
@@ -1018,6 +1127,7 @@ async def get_strategy_stats(strategy_id: str) -> dict:
 
 
 # ─── /strategies/{id}/execution ───────────────────────────────────────────────
+
 
 @app.get("/strategies/{strategy_id}/execution")
 async def get_strategy_execution(
@@ -1032,7 +1142,8 @@ async def get_strategy_execution(
             """SELECT id, ts, instrument, signal_price, actual_fill_price, fill_type, slippage_bps
                FROM paper.fills WHERE strategy_id LIKE $1
                ORDER BY ts DESC LIMIT $2""",
-            prefix, limit,
+            prefix,
+            limit,
         )
         agg = await conn.fetchrow(
             """SELECT AVG(slippage_bps) AS mean_slip, MAX(slippage_bps) AS max_slip
@@ -1052,13 +1163,18 @@ async def get_strategy_execution(
             }
             for r in rows
         ],
-        "avg_slippage_bps": round(float(agg["mean_slip"]), 4) if agg and agg["mean_slip"] else 0.0,
-        "max_slippage_bps": round(float(agg["max_slip"]), 4) if agg and agg["max_slip"] else 0.0,
+        "avg_slippage_bps": round(float(agg["mean_slip"]), 4)
+        if agg and agg["mean_slip"]
+        else 0.0,
+        "max_slippage_bps": round(float(agg["max_slip"]), 4)
+        if agg and agg["max_slip"]
+        else 0.0,
         "backtest_assumed_bps": 2,
     }
 
 
 # ─── /portfolio/equity ────────────────────────────────────────────────────────
+
 
 @app.get("/portfolio/equity")
 async def get_portfolio_equity() -> dict:
@@ -1066,45 +1182,57 @@ async def get_portfolio_equity() -> dict:
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            """SELECT ts, strategy_id, side, quantity, signal_price, actual_fill_price
+            """SELECT ts, strategy_id, instrument, side, quantity, signal_price, actual_fill_price
                FROM paper.fills ORDER BY ts ASC"""
         )
 
     from collections import defaultdict
+
     by_strat_rows: dict[str, list] = defaultdict(list)
     for r in rows:
         by_strat_rows[r["strategy_id"]].append(r)
 
     BASE_PER_STRATEGY = 5000.0
     by_strategy = []
-    combined_map: dict[str, float] = {}
+    # Combined curve: union of ALL strategies' FIFO trades on one timeline (never
+    # cross-matched between strategies — each strategy's lots are FIFO'd alone).
+    all_trades: list[dict] = []
 
     for sid, fills in by_strat_rows.items():
-        cum = 0.0
-        points = []
-        for r in fills:
-            sign = 1.0 if r["side"] == "SELL" else -1.0
-            sp = float(r["signal_price"] or 0)
-            fp = float(r["actual_fill_price"])
-            if sp > 0:
-                cum += sign * float(r["quantity"]) * (fp - sp)
-            ts_str = r["ts"].isoformat()
-            combined_map[ts_str] = combined_map.get(ts_str, 0.0) + cum
-            points.append({"date": ts_str, "equity": round(BASE_PER_STRATEGY + cum, 2), "drawdown": 0.0})
-        by_strategy.append({"strategy_id": sid, "points": points, "contribution_pct": 0.0})
+        trades = _round_trips(fills)
+        all_trades.extend(trades)
+        by_strategy.append(
+            {
+                "strategy_id": sid,
+                "points": _equity_points(fills, BASE_PER_STRATEGY),
+                "contribution_pct": 0.0,
+            }
+        )
 
-    combined = [
-        {"date": ts, "equity": round(BASE_PER_STRATEGY * 3 + v, 2), "drawdown": 0.0}
-        for ts, v in sorted(combined_map.items())
-    ]
+    n = max(1, len(by_strat_rows))
+    combined_base = BASE_PER_STRATEGY * n
+    cum = peak = 0.0
+    combined = []
+    for t in sorted(all_trades, key=lambda t: t["close_time"]):
+        cum += t["realized_pnl"]
+        peak = max(peak, cum)
+        denom = combined_base + peak
+        combined.append(
+            {
+                "date": t["close_time"],
+                "equity": round(combined_base + cum, 2),
+                "drawdown": round(-(peak - cum) / denom, 6) if denom else 0.0,
+            }
+        )
     if not combined:
         now = datetime.now(timezone.utc).isoformat()
-        combined = [{"date": now, "equity": BASE_PER_STRATEGY * 3, "drawdown": 0.0}]
+        combined = [{"date": now, "equity": combined_base, "drawdown": 0.0}]
 
     return {"combined": combined, "by_strategy": by_strategy}
 
 
 # ─── /portfolio/correlation ───────────────────────────────────────────────────
+
 
 @app.get("/portfolio/correlation")
 async def get_portfolio_correlation() -> dict:
@@ -1120,6 +1248,7 @@ async def get_portfolio_correlation() -> dict:
         )
 
     from collections import defaultdict
+
     daily: dict[str, dict[str, float]] = defaultdict(dict)
     strats: set[str] = set()
     for r in rows:
@@ -1128,7 +1257,10 @@ async def get_portfolio_correlation() -> dict:
 
     strat_list = sorted(strats)
     if len(strat_list) < 2:
-        return {"strategies": strat_list, "matrix": [[1.0]] if len(strat_list) == 1 else []}
+        return {
+            "strategies": strat_list,
+            "matrix": [[1.0]] if len(strat_list) == 1 else [],
+        }
 
     days = sorted(daily.keys())
     vecs = {s: [daily[d].get(s, 0.0) for d in days] for s in strat_list}
@@ -1141,7 +1273,11 @@ async def get_portfolio_correlation() -> dict:
         num = sum((x - ma) * (y - mb) for x, y in zip(a, b))
         da = sum((x - ma) ** 2 for x in a) ** 0.5
         db = sum((y - mb) ** 2 for y in b) ** 0.5
-        return round(num / (da * db), 4) if da > 1e-12 and db > 1e-12 else (1.0 if a == b else 0.0)
+        return (
+            round(num / (da * db), 4)
+            if da > 1e-12 and db > 1e-12
+            else (1.0 if a == b else 0.0)
+        )
 
     matrix = [[_corr(vecs[s1], vecs[s2]) for s2 in strat_list] for s1 in strat_list]
     return {"strategies": strat_list, "matrix": matrix}
@@ -1149,27 +1285,31 @@ async def get_portfolio_correlation() -> dict:
 
 # ─── /portfolio/summary ───────────────────────────────────────────────────────
 
+
 @app.get("/portfolio/summary")
 async def get_portfolio_summary() -> dict:
     """Return PortfolioSummary with realized P&L and exposure."""
     pool = await get_pool()
     async with pool.acquire() as conn:
         fill_rows = await conn.fetch(
-            """SELECT instrument, side, quantity,
-                      CASE WHEN side='SELL' THEN 1.0 ELSE -1.0 END
-                          * quantity * (actual_fill_price - COALESCE(signal_price, actual_fill_price)) AS pnl
-               FROM paper.fills"""
+            """SELECT ts, instrument, side, quantity, signal_price, actual_fill_price
+               FROM paper.fills ORDER BY ts ASC"""
         )
 
     from collections import defaultdict
+
     net_exp: dict[str, float] = defaultdict(float)
-    total_pnl = 0.0
     for r in fill_rows:
         sign = 1.0 if r["side"] == "BUY" else -1.0
         net_exp[r["instrument"]] += sign * float(r["quantity"])
-        total_pnl += float(r["pnl"])
+    # Canonical realized P&L (FIFO), consistent with every other P&L surface.
+    total_pnl = _realized_totals(fill_rows)["total"]
 
-    net_exposure = [{"instrument": k, "net": round(v, 8)} for k, v in net_exp.items() if abs(v) > 1e-9]
+    net_exposure = [
+        {"instrument": k, "net": round(v, 8)}
+        for k, v in net_exp.items()
+        if abs(v) > 1e-9
+    ]
     return {
         "total_positions": len(net_exposure),
         "total_unrealized_pnl": 0.0,
@@ -1181,6 +1321,7 @@ async def get_portfolio_summary() -> dict:
 
 
 # ─── /portfolio/kill ──────────────────────────────────────────────────────────
+
 
 @app.post("/portfolio/kill", dependencies=[Depends(require_token)])
 async def post_portfolio_kill() -> dict:
@@ -1197,7 +1338,9 @@ async def post_portfolio_kill() -> dict:
     try:
         result = _sub.run(
             ["systemctl", "--user", "stop", "helivex-paper.service"],
-            capture_output=True, text=True, timeout=35,
+            capture_output=True,
+            text=True,
+            timeout=35,
         )
         if result.returncode == 0:
             return {
@@ -1215,7 +1358,10 @@ async def post_portfolio_kill() -> dict:
     try:
         pid = int(Path(pid_file).read_text().strip())
     except (FileNotFoundError, ValueError):
-        return {"ok": False, "reason": "paper node PID file not found — node may not be running"}
+        return {
+            "ok": False,
+            "reason": "paper node PID file not found — node may not be running",
+        }
 
     try:
         _os.kill(pid, 0)
@@ -1232,19 +1378,31 @@ async def post_portfolio_kill() -> dict:
             "next": "restart: bash paper/start_all.sh restart paper",
         }
     except PermissionError:
-        return {"ok": False, "reason": f"permission denied sending SIGTERM to PID {pid}"}
+        return {
+            "ok": False,
+            "reason": f"permission denied sending SIGTERM to PID {pid}",
+        }
 
 
 # ─── /risk (R14 portfolio risk layer) ─────────────────────────────────────────
+
 
 @app.get("/risk/status")
 async def get_risk_status() -> dict:
     """Risk layer state: kill-switch, NAV/drawdown vs cap, daily P&L vs limit, caps."""
     from paper.risk import (
-        DAILY_LOSS_LIMIT_USD, MAX_CONCURRENT_POS, MAX_DRAWDOWN_PCT,
-        PER_INSTRUMENT_CAP, PER_STRATEGY_CAP, PORTFOLIO_GROSS_CAP,
-        RISK_DDL, is_tripped, kill_switch_reason, nav_and_drawdown,
+        DAILY_LOSS_LIMIT_USD,
+        MAX_CONCURRENT_POS,
+        MAX_DRAWDOWN_PCT,
+        PER_INSTRUMENT_CAP,
+        PER_STRATEGY_CAP,
+        PORTFOLIO_GROSS_CAP,
+        RISK_DDL,
+        is_tripped,
+        kill_switch_reason,
+        nav_and_drawdown,
     )
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(RISK_DDL)
@@ -1271,16 +1429,25 @@ async def get_risk_status() -> dict:
 async def get_risk_events(limit: int = Query(30, ge=1, le=1000)) -> list[dict]:
     """Recent risk events (breach / trip / reset) from paper.risk_events."""
     from paper.risk import RISK_DDL
+
     pool = await get_pool()
     async with pool.acquire() as conn:
         await conn.execute(RISK_DDL)
         rows = await conn.fetch(
             """SELECT ts, kind, entity_id, severity, message
-               FROM paper.risk_events ORDER BY id DESC LIMIT $1""", limit)
-    return [{
-        "ts": r["ts"].isoformat(), "kind": r["kind"], "entity_id": r["entity_id"],
-        "severity": r["severity"], "message": r["message"],
-    } for r in rows]
+               FROM paper.risk_events ORDER BY id DESC LIMIT $1""",
+            limit,
+        )
+    return [
+        {
+            "ts": r["ts"].isoformat(),
+            "kind": r["kind"],
+            "entity_id": r["entity_id"],
+            "severity": r["severity"],
+            "message": r["message"],
+        }
+        for r in rows
+    ]
 
 
 @app.post("/risk/kill", dependencies=[Depends(require_token)])
@@ -1288,6 +1455,7 @@ async def post_risk_kill(body: dict = Body(default={})) -> dict:
     """Trip the soft kill-switch — halts NEW entries (exits still allowed); the node
     keeps running. Distinct from /portfolio/kill which stops the whole node."""
     from paper.risk import is_tripped, kill_switch_reason, trip
+
     trip(body.get("reason") or "manual trip via dashboard")
     return {"ok": True, "tripped": is_tripped(), "reason": kill_switch_reason()}
 
@@ -1296,6 +1464,7 @@ async def post_risk_kill(body: dict = Body(default={})) -> dict:
 async def post_risk_reset() -> dict:
     """Clear the soft kill-switch — re-enables new entries."""
     from paper.risk import is_tripped, reset
+
     reset()
     return {"ok": True, "tripped": is_tripped()}
 
@@ -1305,19 +1474,26 @@ async def post_paper_restart() -> dict:
     """Restart the paper node so edited live params (Configure tab) take effect.
     The node re-reads each strategy YAML's `live` block on build."""
     import subprocess as _sub
+
     try:
         r = _sub.run(
             ["systemctl", "--user", "restart", "helivex-paper.service"],
-            capture_output=True, text=True, timeout=45,
+            capture_output=True,
+            text=True,
+            timeout=45,
         )
         if r.returncode == 0:
             return {"ok": True, "message": "paper 节点已重启 — 新参数生效"}
-        return {"ok": False, "reason": (r.stderr or r.stdout or "restart failed").strip()}
+        return {
+            "ok": False,
+            "reason": (r.stderr or r.stdout or "restart failed").strip(),
+        }
     except Exception as e:
         return {"ok": False, "reason": str(e)}
 
 
 # ─── /microstructure (R16 L2 order-book recorder) ─────────────────────────────
+
 
 @app.get("/microstructure/latest")
 async def get_microstructure_latest(series: int = Query(60, ge=1, le=1000)) -> dict:
@@ -1326,7 +1502,8 @@ async def get_microstructure_latest(series: int = Query(60, ge=1, le=1000)) -> d
     pool = await get_pool()
     async with pool.acquire() as conn:
         exists = await conn.fetchval(
-            "SELECT to_regclass('market_data.orderbook_features')")
+            "SELECT to_regclass('market_data.orderbook_features')"
+        )
         if not exists:
             return {"latest": [], "series": {}}
         latest = await conn.fetch(
@@ -1334,32 +1511,53 @@ async def get_microstructure_latest(series: int = Query(60, ge=1, le=1000)) -> d
                    instrument, ts, best_bid, best_ask, mid, microprice, spread_bps,
                    bid_sz1, ask_sz1, bid_depth5, ask_depth5, imbalance1, imbalance5
                FROM market_data.orderbook_features
-               ORDER BY instrument, ts DESC""")
+               ORDER BY instrument, ts DESC"""
+        )
         instruments = [r["instrument"] for r in latest]
         series_map: dict[str, list] = {}
         for inst in instruments:
             pts = await conn.fetch(
                 """SELECT ts, mid, spread_bps, imbalance1, imbalance5
                    FROM market_data.orderbook_features
-                   WHERE instrument = $1 ORDER BY ts DESC LIMIT $2""", inst, series)
-            series_map[inst] = [{
-                "ts": p["ts"].isoformat(), "mid": p["mid"], "spread_bps": p["spread_bps"],
-                "imbalance1": p["imbalance1"], "imbalance5": p["imbalance5"],
-            } for p in reversed(pts)]
+                   WHERE instrument = $1 ORDER BY ts DESC LIMIT $2""",
+                inst,
+                series,
+            )
+            series_map[inst] = [
+                {
+                    "ts": p["ts"].isoformat(),
+                    "mid": p["mid"],
+                    "spread_bps": p["spread_bps"],
+                    "imbalance1": p["imbalance1"],
+                    "imbalance5": p["imbalance5"],
+                }
+                for p in reversed(pts)
+            ]
     return {
-        "latest": [{
-            "instrument": r["instrument"], "ts": r["ts"].isoformat(),
-            "best_bid": r["best_bid"], "best_ask": r["best_ask"], "mid": r["mid"],
-            "microprice": r["microprice"], "spread_bps": r["spread_bps"],
-            "bid_sz1": r["bid_sz1"], "ask_sz1": r["ask_sz1"],
-            "bid_depth5": r["bid_depth5"], "ask_depth5": r["ask_depth5"],
-            "imbalance1": r["imbalance1"], "imbalance5": r["imbalance5"],
-        } for r in latest],
+        "latest": [
+            {
+                "instrument": r["instrument"],
+                "ts": r["ts"].isoformat(),
+                "best_bid": r["best_bid"],
+                "best_ask": r["best_ask"],
+                "mid": r["mid"],
+                "microprice": r["microprice"],
+                "spread_bps": r["spread_bps"],
+                "bid_sz1": r["bid_sz1"],
+                "ask_sz1": r["ask_sz1"],
+                "bid_depth5": r["bid_depth5"],
+                "ask_depth5": r["ask_depth5"],
+                "imbalance1": r["imbalance1"],
+                "imbalance5": r["imbalance5"],
+            }
+            for r in latest
+        ],
         "series": series_map,
     }
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
+
 
 @app.get("/health")
 async def health() -> dict:

@@ -59,21 +59,35 @@ import yaml
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
-sys.path.insert(0, str(PROJECT_ROOT.parent.parent / "platform" / "3O" / "oprim"))
-sys.path.insert(0, str(PROJECT_ROOT.parent.parent / "platform" / "3O" / "oskill"))
-sys.path.insert(0, str(PROJECT_ROOT.parent.parent / "platform" / "3O" / "omodul"))
+# 3O libs live alongside this repo at <projects>/platform/3O/{oprim,oskill,omodul}
+# (i.e. PROJECT_ROOT.parent/platform, NOT .parent.parent — the latter was an
+# off-by-one that pointed at a non-existent /data/soffy/platform and made every
+# host-side gate run fail to import its strategy module). Inside the container
+# the 3O packages are pip-installed, so these inserts are harmless no-ops there.
+_3O = PROJECT_ROOT.parent / "platform" / "3O"
+for _pkg in ("oprim", "oskill", "omodul"):
+    sys.path.insert(0, str(_3O / _pkg))
 
 TRIAL_FILE = PROJECT_ROOT / ".gate_trials.json"
-DB_DSN     = "postgresql://helios:helios_dev_pass@localhost:5434/helivex"
+DB_DSN = "postgresql://helios:helios_dev_pass@localhost:5434/helivex"
+
+# Minimum real Deflated-Sharpe probability (Bailey & López de Prado 2016) required
+# to PASS. DSR is P(true SR > 0) after skew/kurtosis + multiple-testing deflation;
+# 0.95 = the conventional 95% one-sided significance bar. This is now a GATING
+# condition (see run_gate), not merely a diagnostic — a strategy whose edge is not
+# significant at 95% after deflation does not pass, regardless of the mean−std
+# heuristic. Conservative: it can only ADD a fail reason, never rescue a FAIL.
+DSR_CONFIDENCE = 0.95
 
 STRATEGY_MAP = {
-    "trend_dual":   ("omodul.strategies.trend_dual",   "trend_dual"),
+    "trend_dual": ("omodul.strategies.trend_dual", "trend_dual"),
     "vwap_mr_dual": ("omodul.strategies.vwap_mr_dual", "vwap_mr_dual"),
-    "spot_trend":   ("omodul.strategies.spot_trend",   "spot_trend"),
+    "spot_trend": ("omodul.strategies.spot_trend", "spot_trend"),
 }
 
 
 # ──────────────────── Trial counter ────────────────────
+
 
 def _load_trials() -> dict:
     if TRIAL_FILE.exists():
@@ -85,12 +99,14 @@ def _load_trials() -> dict:
 def _save_trial(config_path: str, verdict: str, metrics: dict) -> int:
     data = _load_trials()
     data["total_trials"] += 1
-    data["history"].append({
-        "trial_n": data["total_trials"],
-        "config":  config_path,
-        "verdict": verdict,
-        "metrics": metrics,
-    })
+    data["history"].append(
+        {
+            "trial_n": data["total_trials"],
+            "config": config_path,
+            "verdict": verdict,
+            "metrics": metrics,
+        }
+    )
     with open(TRIAL_FILE, "w") as f:
         json.dump(data, f, indent=2)
     return data["total_trials"]
@@ -107,21 +123,25 @@ def _dsr_threshold(n_trials: int) -> float:
     if n_trials <= 1:
         return 0.0
     from scipy import stats
+
     gamma = 0.5772
-    e     = math.e
-    p1    = 1.0 - 1.0 / n_trials
-    p2    = 1.0 - 1.0 / (n_trials * e)
-    p1    = max(0.001, min(0.999, p1))
-    p2    = max(0.001, min(0.999, p2))
+    e = math.e
+    p1 = 1.0 - 1.0 / n_trials
+    p2 = 1.0 - 1.0 / (n_trials * e)
+    p1 = max(0.001, min(0.999, p1))
+    p2 = max(0.001, min(0.999, p2))
     return (1.0 - gamma) * stats.norm.ppf(p1) + gamma * stats.norm.ppf(p2)
 
 
 # ──────────────────── DB fetch ────────────────────
 
+
 async def _fetch_ohlcv(instrument: str, db_source: str) -> dict[str, np.ndarray]:
     # 5-minute bars live in market_data.ohlcv_5m (migrations 003/005 moved them out
     # of ohlcv_1h). Route by source so the okx_swap_5m configs keep working.
-    table = "market_data.ohlcv_5m" if db_source.endswith("5m") else "market_data.ohlcv_1h"
+    table = (
+        "market_data.ohlcv_5m" if db_source.endswith("5m") else "market_data.ohlcv_1h"
+    )
     conn = await asyncpg.connect(DB_DSN)
     rows = await conn.fetch(
         f"""SELECT bar_close_ts,
@@ -130,17 +150,18 @@ async def _fetch_ohlcv(instrument: str, db_source: str) -> dict[str, np.ndarray]
            FROM {table}
            WHERE instrument=$1 AND source=$2
            ORDER BY bar_close_ts""",
-        instrument, db_source,
+        instrument,
+        db_source,
     )
     await conn.close()
     if not rows:
         raise ValueError(f"No data for instrument={instrument!r} source={db_source!r}")
     return {
-        "ts":     np.array([r[0] for r in rows]),
-        "open":   np.array([r[1] for r in rows], dtype=float),
-        "high":   np.array([r[2] for r in rows], dtype=float),
-        "low":    np.array([r[3] for r in rows], dtype=float),
-        "close":  np.array([r[4] for r in rows], dtype=float),
+        "ts": np.array([r[0] for r in rows]),
+        "open": np.array([r[1] for r in rows], dtype=float),
+        "high": np.array([r[2] for r in rows], dtype=float),
+        "low": np.array([r[3] for r in rows], dtype=float),
+        "close": np.array([r[4] for r in rows], dtype=float),
         "volume": np.array([r[5] for r in rows], dtype=float),
     }
 
@@ -163,10 +184,10 @@ def _resample_ohlcv(raw: dict, bars_per_target: int) -> dict:
         if ts is not None:
             result_ts.append(ts[start + bars_per_target - 1])
     out = {
-        "open":   np.array(result_o),
-        "high":   np.array(result_h),
-        "low":    np.array(result_l),
-        "close":  np.array(result_c),
+        "open": np.array(result_o),
+        "high": np.array(result_h),
+        "low": np.array(result_l),
+        "close": np.array(result_c),
         "volume": np.array(result_v),
     }
     if ts is not None:
@@ -177,6 +198,7 @@ def _resample_ohlcv(raw: dict, bars_per_target: int) -> dict:
 def _resample_to_1d(raw: dict) -> dict:
     """Resample OHLCV to 1D using pandas groupby on date."""
     import pandas as pd
+
     ts = raw["ts"]
     # asyncpg returns datetime.datetime objects; handle both datetime and numeric
     if len(ts) > 0 and hasattr(ts[0], "date"):
@@ -185,34 +207,41 @@ def _resample_to_1d(raw: dict) -> dict:
         ts_arr = np.asarray(ts, dtype=float)
         unit = "ns" if float(ts_arr[0]) > 1e15 else "s"
         dates = pd.to_datetime(ts_arr, unit=unit, utc=True).date
-    df = pd.DataFrame({
-        "date":   dates,
-        "ts":     pd.to_datetime(ts, utc=True),
-        "open":   raw["open"],
-        "high":   raw["high"],
-        "low":    raw["low"],
-        "close":  raw["close"],
-        "volume": raw["volume"],
-    })
-    daily = df.groupby("date").agg(
-        ts=("ts",       "last"),
-        open=("open",   "first"),
-        high=("high",   "max"),
-        low=("low",     "min"),
-        close=("close", "last"),
-        volume=("volume", "sum"),
-    ).reset_index()
+    df = pd.DataFrame(
+        {
+            "date": dates,
+            "ts": pd.to_datetime(ts, utc=True),
+            "open": raw["open"],
+            "high": raw["high"],
+            "low": raw["low"],
+            "close": raw["close"],
+            "volume": raw["volume"],
+        }
+    )
+    daily = (
+        df.groupby("date")
+        .agg(
+            ts=("ts", "last"),
+            open=("open", "first"),
+            high=("high", "max"),
+            low=("low", "min"),
+            close=("close", "last"),
+            volume=("volume", "sum"),
+        )
+        .reset_index()
+    )
     return {
-        "ts":     np.array([t.to_pydatetime() for t in daily["ts"]], dtype=object),
-        "open":   daily["open"].to_numpy(dtype=float),
-        "high":   daily["high"].to_numpy(dtype=float),
-        "low":    daily["low"].to_numpy(dtype=float),
-        "close":  daily["close"].to_numpy(dtype=float),
+        "ts": np.array([t.to_pydatetime() for t in daily["ts"]], dtype=object),
+        "open": daily["open"].to_numpy(dtype=float),
+        "high": daily["high"].to_numpy(dtype=float),
+        "low": daily["low"].to_numpy(dtype=float),
+        "close": daily["close"].to_numpy(dtype=float),
         "volume": daily["volume"].to_numpy(dtype=float),
     }
 
 
 # ──────────────────── Signal → P&L ────────────────────
+
 
 def _signals_to_pnl(
     signals: np.ndarray,
@@ -250,7 +279,7 @@ def _signals_to_pnl(
             if sig == 1:
                 new_pos = 1
             elif sig == -1:
-                new_pos = 0   # exit signal → flatten
+                new_pos = 0  # exit signal → flatten
             else:
                 new_pos = position  # hold
         else:  # 'both'
@@ -267,7 +296,7 @@ def _signals_to_pnl(
                 position = 0
             # Open new
             if new_pos != 0:
-                position    = new_pos
+                position = new_pos
                 entry_price = closes[i]
                 pnl[i] -= cost_frac
 
@@ -283,6 +312,7 @@ def _signals_to_pnl(
 
 
 # ──────────────────── Perp funding carry ────────────────────
+
 
 def _funding_symbol(instrument: str) -> str:
     """Map an OKX instrument id to the Binance funding-history symbol.
@@ -344,6 +374,7 @@ def _funding_into_bars(ts_bars, funding_rows: list[tuple]) -> np.ndarray:
 # ──────────────────── Blocked walk-forward gate (sequential, embargoed —
 #                      NOT combinatorial, NOT purged CPCV) ────────────────────
 
+
 def _deflated_sharpe_real(
     pnl: np.ndarray,
     fold_sharpes: list[float],
@@ -369,17 +400,19 @@ def _deflated_sharpe_real(
     sd = float(np.std(r))
     if T < 3 or sd < 1e-12:
         return float("nan")
-    sr_obs = float(np.mean(r)) / sd                  # per-observation Sharpe
+    sr_obs = float(np.mean(r)) / sd  # per-observation Sharpe
     skew = float(stats.skew(r))
-    kurt = float(stats.kurtosis(r, fisher=False))    # non-excess (normal = 3)
+    kurt = float(stats.kurtosis(r, fisher=False))  # non-excess (normal = 3)
 
     # Benchmark SR* in per-observation units: dispersion of trial Sharpes
     # (de-annualised) times the expected max of N standard normals.
     ann = math.sqrt(periods_per_year)
-    sr_var = float(np.var(np.asarray(fold_sharpes) / ann)) if len(fold_sharpes) > 1 else 0.0
+    sr_var = (
+        float(np.var(np.asarray(fold_sharpes) / ann)) if len(fold_sharpes) > 1 else 0.0
+    )
     sr_star = math.sqrt(sr_var) * _dsr_threshold(max(1, n_trials))
 
-    denom = 1.0 - skew * sr_obs + (kurt - 1.0) / 4.0 * sr_obs ** 2
+    denom = 1.0 - skew * sr_obs + (kurt - 1.0) / 4.0 * sr_obs**2
     if denom <= 0:
         return float("nan")
     z = (sr_obs - sr_star) * math.sqrt(T - 1) / math.sqrt(denom)
@@ -489,7 +522,7 @@ def _cscv_pbo(
     cols = [r] + _block_bootstrap_surrogates(r, n_surrogates, block_len, seed)
     N = len(cols)
     Tt = blk * n_blocks
-    M = np.column_stack([c[:Tt] for c in cols])          # Tt × N
+    M = np.column_stack([c[:Tt] for c in cols])  # Tt × N
 
     block_rows = [np.arange(b * blk, (b + 1) * blk) for b in range(n_blocks)]
     half = n_blocks // 2
@@ -503,19 +536,68 @@ def _cscv_pbo(
     n_comb = 0
     for is_blocks in combinations(range(n_blocks), half):
         oos_blocks = [b for b in range(n_blocks) if b not in is_blocks]
-        is_rows  = np.concatenate([block_rows[b] for b in is_blocks])
+        is_rows = np.concatenate([block_rows[b] for b in is_blocks])
         oos_rows = np.concatenate([block_rows[b] for b in oos_blocks])
-        is_sr  = _col_sharpe(M[is_rows, :])
+        is_sr = _col_sharpe(M[is_rows, :])
         oos_sr = _col_sharpe(M[oos_rows, :])
         n_star = int(np.argmax(is_sr))
-        r_star = float(rankdata(oos_sr)[n_star])         # 1=worst OOS … N=best
-        omega  = r_star / (N + 1.0)
-        lam    = math.log(omega / (1.0 - omega))
+        r_star = float(rankdata(oos_sr)[n_star])  # 1=worst OOS … N=best
+        omega = r_star / (N + 1.0)
+        lam = math.log(omega / (1.0 - omega))
         if lam <= 0:
             n_le0 += 1
         n_comb += 1
 
     return n_le0 / n_comb if n_comb else float("nan")
+
+
+def _cpcv_paths(
+    pnl: np.ndarray,
+    n_groups: int,
+    k_test: int,
+    embargo_bars: int,
+    purge_bars: int,
+    periods_per_year: int,
+) -> tuple[list[float], list[float]]:
+    """Combinatorial Purged Cross-Validation paths (López de Prado, AFML ch. 12).
+
+    Partition the sample into ``n_groups`` contiguous groups and, for EVERY way to
+    choose ``k_test`` of them as the test set (C(n_groups, k_test) combinations),
+    train on the remaining groups. Each combination is one backtest path, so the
+    OOS Sharpe distribution has C(n_groups,k_test) points instead of the n_groups
+    of sequential blocked CV — a far more robust estimate of out-of-sample spread.
+
+    Purging + embargo (per test group [a,b)): a train label at index j spans
+    [j, j+purge_bars], so any train obs with j+purge_bars >= a and j < b leaks into
+    test and is dropped; an additional ``embargo_bars`` after b is also dropped to
+    remove serial-correlation leakage. Returns (is_sharpes, oos_sharpes), one entry
+    per valid combination.
+    """
+    from itertools import combinations
+
+    n = len(pnl)
+    bounds = [round(i * n / n_groups) for i in range(n_groups + 1)]
+    groups = [(bounds[i], bounds[i + 1]) for i in range(n_groups)]
+
+    is_sharpes: list[float] = []
+    oos_sharpes: list[float] = []
+    for combo in combinations(range(n_groups), k_test):
+        test_mask = np.zeros(n, dtype=bool)
+        for g in combo:
+            a, b = groups[g]
+            test_mask[a:b] = True
+        train_mask = ~test_mask
+        for g in combo:
+            a, b = groups[g]
+            train_mask[max(0, a - purge_bars) : b] = False  # purge
+            train_mask[b : min(n, b + embargo_bars)] = False  # embargo
+        test_pnl = pnl[test_mask]
+        train_pnl = pnl[train_mask]
+        if len(test_pnl) < 20 or len(train_pnl) < 20:
+            continue
+        is_sharpes.append(_sharpe(train_pnl, periods_per_year))
+        oos_sharpes.append(_sharpe(test_pnl, periods_per_year))
+    return is_sharpes, oos_sharpes
 
 
 def _walk_forward_gate(
@@ -526,17 +608,18 @@ def _walk_forward_gate(
     pbo_threshold: float = 0.5,
     purge_bars: int = 0,
 ) -> dict:
-    """Blocked walk-forward gate with an embargo gap AND label purging.
+    """Combinatorial Purged CV gate with embargo + label purging (López de Prado).
 
-    NOTE ON LABELS: the fold layout is still sequential blocked CV (folds are
-    contiguous, non-overlapping, separated by ``embargo_bars``) — NOT the full
-    combinatorial recombination of CPCV. What IS now textbook-correct:
+    NOTE ON LABELS: the fold layout is now full CPCV — the sample is split into
+    ``n_splits`` groups and every C(n_splits, k) choice of k test-groups is a
+    backtest path (see `_cpcv_paths`), not the old sequential blocked CV. What is
+    textbook-correct:
+      - CPCV: C(n_splits,k) train/test recombinations → a proper OOS Sharpe
+        distribution (many paths) instead of n_splits sequential folds.
       - PURGING (López de Prado): per-bar P&L labels are multi-bar (a position
-        opened in the IS segment can still be open when the OOS segment starts),
-        so the last ``purge_bars`` observations of each fold's IS segment — whose
-        label window [t, t+purge_bars] overlaps the OOS window — are DROPPED to
-        remove train/test leakage. This is in addition to the between-fold
-        embargo gap.
+        opened in the train set can still be open when a test group starts), so
+        train observations whose label window [t, t+purge_bars] overlaps a test
+        group are DROPPED to remove train/test leakage — plus an embargo gap.
       - "pbo_cscv" (NEW key): the real CSCV logit-rank Probability of Backtest
         Overfitting (see `_cscv_pbo`), computed on the full per-bar P&L.
 
@@ -556,7 +639,8 @@ def _walk_forward_gate(
     fold_size = (n - embargo_bars * (n_splits - 1)) // n_splits
     if fold_size < 50:
         return {
-            "oos_sharpes": [], "is_sharpes": [],
+            "oos_sharpes": [],
+            "is_sharpes": [],
             "mean_oos_sharpe": float("nan"),
             "pbo": float("nan"),
             "pbo_cscv": pbo_cscv,
@@ -567,36 +651,20 @@ def _walk_forward_gate(
             "status": "FAIL",
         }
 
-    oos_sharpes = []
-    is_sharpes  = []
-    pbo_count   = 0
-
-    for k in range(n_splits):
-        start = k * (fold_size + embargo_bars)
-        end   = min(start + fold_size, n)
-        if end - start < 20:
-            continue
-
-        fold_pnl = pnl[start:end]
-        split    = max(1, int(len(fold_pnl) * 2 / 3))
-        # PURGE: drop IS observations whose label window overlaps the OOS window.
-        # A label at fold-local index j spans [j, j+purge_bars]; it leaks into the
-        # OOS segment (which starts at `split`) iff j + purge_bars >= split. So we
-        # keep only IS indices < split - purge_bars.
-        is_end   = max(1, split - max(0, purge_bars))
-        is_pnl   = fold_pnl[:is_end]
-        oos_pnl  = fold_pnl[split:]
-
-        is_sr  = _sharpe(is_pnl,  periods_per_year)
-        oos_sr = _sharpe(oos_pnl, periods_per_year)
-        is_sharpes.append(is_sr)
-        oos_sharpes.append(oos_sr)
-        if is_sr > oos_sr:
-            pbo_count += 1
+    # Combinatorial Purged CV: treat n_splits as the number of groups and test on
+    # k=2 groups at a time (k=1 when there are too few groups), giving C(n_splits,k)
+    # backtest paths instead of n_splits sequential folds. Purging + embargo are
+    # applied per test group inside _cpcv_paths.
+    k_test = 2 if n_splits >= 4 else 1
+    is_sharpes, oos_sharpes = _cpcv_paths(
+        pnl, n_splits, k_test, embargo_bars, purge_bars, periods_per_year
+    )
+    pbo_count = sum(1 for i_sr, o_sr in zip(is_sharpes, oos_sharpes) if i_sr > o_sr)
 
     if not oos_sharpes:
         return {
-            "oos_sharpes": [], "is_sharpes": [],
+            "oos_sharpes": [],
+            "is_sharpes": [],
             "mean_oos_sharpe": float("nan"),
             "pbo": float("nan"),
             "pbo_cscv": pbo_cscv,
@@ -609,15 +677,15 @@ def _walk_forward_gate(
 
     mean_oos = float(np.mean(oos_sharpes))
     # "pbo" key = frequency of IS Sharpe > OOS Sharpe (heuristic, not CSCV PBO).
-    pbo      = pbo_count / len(oos_sharpes)
+    pbo = pbo_count / len(oos_sharpes)
 
     # "deflated_sharpe" key = mean_oos − std_oos: a mean-minus-dispersion
     # heuristic that penalises high cross-fold variance. This is NOT the
     # skew/kurtosis-adjusted Deflated Sharpe of Bailey & López de Prado — see
     # _deflated_sharpe_real() for the real figure (reported, non-gating).
-    n_f       = len(oos_sharpes)
-    oos_std   = float(np.std(oos_sharpes)) if n_f > 1 else 0.0
-    dsr       = mean_oos - oos_std
+    n_f = len(oos_sharpes)
+    oos_std = float(np.std(oos_sharpes)) if n_f > 1 else 0.0
+    dsr = mean_oos - oos_std
 
     fail_reasons = []
     if dsr <= 0:
@@ -633,68 +701,80 @@ def _walk_forward_gate(
     status = "PASS" if not fail_reasons else "FAIL"
 
     return {
-        "oos_sharpes":      oos_sharpes,
-        "is_sharpes":       is_sharpes,
-        "mean_oos_sharpe":  mean_oos,
-        "pbo":              pbo,              # = is_gt_oos_freq (kept for consumers)
-        "is_gt_oos_freq":   pbo,             # honest alias
-        "pbo_cscv":         pbo_cscv,         # REAL CSCV logit-rank PBO (new key)
-        "purge_bars":       purge_bars,       # label-purge horizon (bars)
-        "purged_cv":        True,             # folds are purged + embargoed
-        "deflated_sharpe":  dsr,              # = mean_minus_std_oos (kept for consumers)
-        "mean_minus_std_oos": dsr,           # honest alias
-        "fail_reasons":     fail_reasons,
-        "status":           status,
+        "oos_sharpes": oos_sharpes,
+        "is_sharpes": is_sharpes,
+        "mean_oos_sharpe": mean_oos,
+        "pbo": pbo,  # = is_gt_oos_freq (kept for consumers)
+        "is_gt_oos_freq": pbo,  # honest alias
+        "pbo_cscv": pbo_cscv,  # REAL CSCV logit-rank PBO (new key)
+        "purge_bars": purge_bars,  # label-purge horizon (bars)
+        "purged_cv": True,  # folds are purged + embargoed
+        "deflated_sharpe": dsr,  # = mean_minus_std_oos (kept for consumers)
+        "mean_minus_std_oos": dsr,  # honest alias
+        "fail_reasons": fail_reasons,
+        "status": status,
     }
 
 
 # ──────────────────── Main gate runner ────────────────────
 
+
 def _periods_per_year(timeframe: str) -> int:
     tf = timeframe.upper()
-    if tf == "1H":   return 8760
-    if tf == "4H":   return 8760 // 4
-    if tf == "1D":   return 365
-    if tf == "30M":  return 17520
+    if tf == "1H":
+        return 8760
+    if tf == "4H":
+        return 8760 // 4
+    if tf == "1D":
+        return 365
+    if tf == "30M":
+        return 17520
     return 8760
 
 
-async def run_gate(config_path: str, instrument: str | None = None, verbose: bool = True) -> dict:
+async def run_gate(
+    config_path: str, instrument: str | None = None, verbose: bool = True
+) -> dict:
     cfg_file = PROJECT_ROOT / config_path
     with open(cfg_file) as f:
         cfg = yaml.safe_load(f)
 
     strategy_name = cfg["strategy"]
-    timeframe     = cfg.get("timeframe", "1H")
-    db_source     = cfg.get("db_source", "okx_swap_1h")
-    instruments   = [instrument] if instrument else cfg.get("instruments", [])
+    timeframe = cfg.get("timeframe", "1H")
+    db_source = cfg.get("db_source", "okx_swap_1h")
+    instruments = [instrument] if instrument else cfg.get("instruments", [])
     if not instruments:
         raise ValueError("No instruments specified in config or via --instrument")
 
-    gate_cfg       = cfg.get("gate", {})
-    n_splits       = int(gate_cfg.get("n_splits", 6))
-    embargo_bars   = int(gate_cfg.get("embargo_bars", 50))
-    pbo_threshold  = float(gate_cfg.get("pbo_threshold", 0.5))
-    ppy            = _periods_per_year(timeframe)
+    gate_cfg = cfg.get("gate", {})
+    n_splits = int(gate_cfg.get("n_splits", 6))
+    embargo_bars = int(gate_cfg.get("embargo_bars", 50))
+    pbo_threshold = float(gate_cfg.get("pbo_threshold", 0.5))
+    ppy = _periods_per_year(timeframe)
 
     # Label-purge horizon (bars): the max number of bars a position/label can
     # stay open before being re-evaluated. Used to purge IS observations that
     # leak into OOS, and as the block length for the CSCV surrogate bootstrap.
     # Order of preference: explicit gate.purge_bars → the strategy's Donchian
     # enter/exit lookbacks (live.n_enter / live.n_exit) → DEFAULT_PURGE_BARS.
-    live_cfg       = cfg.get("live", {})
+    live_cfg = cfg.get("live", {})
     DEFAULT_PURGE_BARS = 24
-    purge_bars     = int(gate_cfg.get(
-        "purge_bars",
-        max(int(live_cfg.get("n_enter", 0)), int(live_cfg.get("n_exit", 0)))
-        or DEFAULT_PURGE_BARS,
-    ))
+    purge_bars = int(
+        gate_cfg.get(
+            "purge_bars",
+            max(int(live_cfg.get("n_enter", 0)), int(live_cfg.get("n_exit", 0)))
+            or DEFAULT_PURGE_BARS,
+        )
+    )
 
     # Load strategy function
     if strategy_name not in STRATEGY_MAP:
-        raise ValueError(f"Unknown strategy: {strategy_name!r}. Known: {list(STRATEGY_MAP)}")
+        raise ValueError(
+            f"Unknown strategy: {strategy_name!r}. Known: {list(STRATEGY_MAP)}"
+        )
     mod_path, fn_name = STRATEGY_MAP[strategy_name]
     import importlib
+
     mod = importlib.import_module(mod_path)
     strategy_fn = getattr(mod, fn_name)
 
@@ -703,11 +783,13 @@ async def run_gate(config_path: str, instrument: str | None = None, verbose: boo
     dsr_threshold = _dsr_threshold(trials_before + 1)
 
     if verbose:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"R7 strategy_gate: {strategy_name}")
         print(f"Config : {config_path}")
-        print(f"Trial  : #{trials_before + 1}  (expected-max-of-N benchmark Sharpe: {dsr_threshold:.3f})")
-        print(f"{'='*60}")
+        print(
+            f"Trial  : #{trials_before + 1}  (expected-max-of-N benchmark Sharpe: {dsr_threshold:.3f})"
+        )
+        print(f"{'=' * 60}")
 
     all_results = {}
 
@@ -731,7 +813,9 @@ async def run_gate(config_path: str, instrument: str | None = None, verbose: boo
         elif cfg.get("resample_from_1h", 1) > 1:
             ohlcv = _resample_ohlcv(raw, int(cfg["resample_from_1h"]))
         else:
-            ohlcv = {k: raw[k] for k in ("ts", "open", "high", "low", "close", "volume")}
+            ohlcv = {
+                k: raw[k] for k in ("ts", "open", "high", "low", "close", "volume")
+            }
 
         n_bars = len(ohlcv["close"])
         if verbose:
@@ -739,16 +823,20 @@ async def run_gate(config_path: str, instrument: str | None = None, verbose: boo
 
         # Run strategy → signals
         market_state = {
-            "ohlcv": ohlcv, "instrument": inst,
-            "current_positions": {}, "capital_usd": 10000.0,
+            "ohlcv": ohlcv,
+            "instrument": inst,
+            "current_positions": {},
+            "capital_usd": 10000.0,
         }
         result = strategy_fn(market_state, cfg)
-        signals  = result["signals"]
+        signals = result["signals"]
         cost_bps = result["cost_bps"]
 
         if verbose:
-            print(f"  Signals: {int(np.sum(signals != 0))} / {n_bars} bars  "
-                  f"({int(np.sum(signals==1))} long, {int(np.sum(signals==-1))} short)")
+            print(
+                f"  Signals: {int(np.sum(signals != 0))} / {n_bars} bars  "
+                f"({int(np.sum(signals == 1))} long, {int(np.sum(signals == -1))} short)"
+            )
 
         # Perp funding carry: default ON for SWAP instruments, OFF for spot.
         # Overridable via cfg['funding']['enabled'].
@@ -758,63 +846,93 @@ async def run_gate(config_path: str, instrument: str | None = None, verbose: boo
         if funding_enabled:
             ts_bars = ohlcv.get("ts")
             if ts_bars is None:
-                print(f"  [WARN] funding requested but no bar timestamps available — skipping funding")
+                print(
+                    f"  [WARN] funding requested but no bar timestamps available — skipping funding"
+                )
             else:
                 frows = await _fetch_funding(inst)
                 if not frows:
-                    print(f"  [WARN] no funding rows for {inst} "
-                          f"(symbol {_funding_symbol(inst)}) — funding carry = 0")
+                    print(
+                        f"  [WARN] no funding rows for {inst} "
+                        f"(symbol {_funding_symbol(inst)}) — funding carry = 0"
+                    )
                 else:
                     funding_into = _funding_into_bars(ts_bars, frows)
                     if verbose:
-                        print(f"  Funding: {len(frows)} rows, "
-                              f"Σrate over span = {float(np.sum(funding_into)):.5f}")
+                        print(
+                            f"  Funding: {len(frows)} rows, "
+                            f"Σrate over span = {float(np.sum(funding_into)):.5f}"
+                        )
 
         # P&L — direction from config
-        closes    = ohlcv["close"]
+        closes = ohlcv["close"]
         direction = cfg.get("signal_logic", {}).get("direction", "both")
-        pnl       = _signals_to_pnl(signals, closes, cost_bps, direction=direction,
-                                    funding_into=funding_into)
+        pnl = _signals_to_pnl(
+            signals, closes, cost_bps, direction=direction, funding_into=funding_into
+        )
 
         gross_sr = _sharpe(pnl, ppy)
         if verbose:
-            print(f"  Gross Sharpe (net of cost{' + funding' if funding_into is not None else ''}): {gross_sr:.3f}")
+            print(
+                f"  Gross Sharpe (net of cost{' + funding' if funding_into is not None else ''}): {gross_sr:.3f}"
+            )
 
         # Blocked walk-forward gate (sequential, purged + embargoed)
-        gate = _walk_forward_gate(pnl, n_splits, embargo_bars, ppy, pbo_threshold,
-                                  purge_bars=purge_bars)
+        gate = _walk_forward_gate(
+            pnl, n_splits, embargo_bars, ppy, pbo_threshold, purge_bars=purge_bars
+        )
         gate["gross_sharpe"] = gross_sr
 
-        # REAL Deflated Sharpe (Bailey & López de Prado) — reported, NON-gating.
+        # REAL Deflated Sharpe (Bailey & López de Prado). Now GATING: require ≥95%.
         gate["deflated_sharpe_real"] = _deflated_sharpe_real(
             pnl, gate.get("oos_sharpes", []), trials_before + 1, ppy
         )
+        real_dsr = gate["deflated_sharpe_real"]
+        gate["dsr_confidence"] = DSR_CONFIDENCE
+        if not math.isnan(real_dsr) and real_dsr < DSR_CONFIDENCE:
+            gate["fail_reasons"].append(
+                f"real DSR={real_dsr:.3f} < {DSR_CONFIDENCE} "
+                f"(Bailey-LdP deflated Sharpe not significant at 95%)"
+            )
+            gate["status"] = "FAIL"
 
         # Apply expected-max-of-N benchmark to the mean−std heuristic (this is the
         # legit multiple-testing correction; key name kept for compatibility).
         adjusted_dsr = gate["deflated_sharpe"] - dsr_threshold
-        gate["adjusted_dsr"]   = adjusted_dsr
-        gate["dsr_threshold"]  = dsr_threshold
-        gate["trial_n"]        = trials_before + 1
+        gate["adjusted_dsr"] = adjusted_dsr
+        gate["dsr_threshold"] = dsr_threshold
+        gate["trial_n"] = trials_before + 1
 
         # Re-check PASS against the trial-count-adjusted benchmark
-        if not math.isnan(gate["deflated_sharpe"]) and gate["deflated_sharpe"] > 0 and adjusted_dsr <= 0:
-            gate["fail_reasons"].append(f"mean_oos−std_oos={gate['deflated_sharpe']:.3f} > 0 but adjusted={adjusted_dsr:.3f} ≤ 0 (N={trials_before+1} trials)")
+        if (
+            not math.isnan(gate["deflated_sharpe"])
+            and gate["deflated_sharpe"] > 0
+            and adjusted_dsr <= 0
+        ):
+            gate["fail_reasons"].append(
+                f"mean_oos−std_oos={gate['deflated_sharpe']:.3f} > 0 but adjusted={adjusted_dsr:.3f} ≤ 0 (N={trials_before + 1} trials)"
+            )
             gate["status"] = "FAIL"
 
         if verbose:
             real_dsr = gate["deflated_sharpe_real"]
             print(f"  OOS Sharpes: {[f'{s:.3f}' for s in gate['oos_sharpes']]}")
-            print(f"  Mean OOS: {gate['mean_oos_sharpe']:.3f}  "
-                  f"mean−std_oos(='dsr'): {gate['deflated_sharpe']:.3f}  "
-                  f"adj: {adjusted_dsr:.3f}  "
-                  f"IS>OOS freq(='pbo'): {gate['pbo']:.2f}")
+            print(
+                f"  Mean OOS: {gate['mean_oos_sharpe']:.3f}  "
+                f"mean−std_oos(='dsr'): {gate['deflated_sharpe']:.3f}  "
+                f"adj: {adjusted_dsr:.3f}  "
+                f"IS>OOS freq(='pbo'): {gate['pbo']:.2f}"
+            )
             pbo_cscv = gate.get("pbo_cscv", float("nan"))
-            print(f"  CSCV PBO (real, purge={gate.get('purge_bars')} bars): "
-                  + (f"{pbo_cscv:.2f}" if not math.isnan(pbo_cscv) else "n/a"))
-            print(f"  Real Deflated Sharpe (diagnostic, non-gating): "
-                  f"{real_dsr:.3f}" if not math.isnan(real_dsr) else
-                  "  Real Deflated Sharpe (diagnostic, non-gating): n/a")
+            print(
+                f"  CSCV PBO (real, purge={gate.get('purge_bars')} bars): "
+                + (f"{pbo_cscv:.2f}" if not math.isnan(pbo_cscv) else "n/a")
+            )
+            print(
+                f"  Real Deflated Sharpe (GATING, need ≥{DSR_CONFIDENCE}): {real_dsr:.3f}"
+                if not math.isnan(real_dsr)
+                else "  Real Deflated Sharpe (GATING, need ≥0.95): n/a"
+            )
             verdict_str = f"  ✓ PASS" if gate["status"] == "PASS" else f"  ✗ FAIL"
             if gate["fail_reasons"]:
                 verdict_str += f" — {'; '.join(gate['fail_reasons'])}"
@@ -823,24 +941,30 @@ async def run_gate(config_path: str, instrument: str | None = None, verbose: boo
         all_results[inst] = gate
 
     # Overall verdict: PASS only if ALL instruments pass
-    overall = "PASS" if all(v.get("status") == "PASS" for v in all_results.values()) else "FAIL"
+    overall = (
+        "PASS"
+        if all(v.get("status") == "PASS" for v in all_results.values())
+        else "FAIL"
+    )
 
     if verbose:
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"OVERALL VERDICT: {overall}")
-        print(f"{'='*60}\n")
+        print(f"{'=' * 60}\n")
 
     # Save trial
     metrics = {
         "instruments": {
             inst: {
-                "status":       v.get("status"),
-                "dsr":          v.get("deflated_sharpe"),        # mean_oos − std_oos heuristic
-                "pbo":          v.get("pbo"),                    # IS>OOS frequency heuristic
-                "pbo_cscv":     v.get("pbo_cscv"),               # real CSCV PBO (new)
-                "mean_oos":     v.get("mean_oos_sharpe"),
+                "status": v.get("status"),
+                "dsr": v.get("deflated_sharpe"),  # mean_oos − std_oos heuristic
+                "pbo": v.get("pbo"),  # IS>OOS frequency heuristic
+                "pbo_cscv": v.get("pbo_cscv"),  # real CSCV PBO (new)
+                "mean_oos": v.get("mean_oos_sharpe"),
                 "gross_sharpe": v.get("gross_sharpe"),
-                "deflated_sharpe_real": v.get("deflated_sharpe_real"),  # real DSR, non-gating
+                "deflated_sharpe_real": v.get(
+                    "deflated_sharpe_real"
+                ),  # real DSR, non-gating
             }
             for inst, v in all_results.items()
         },
@@ -850,16 +974,24 @@ async def run_gate(config_path: str, instrument: str | None = None, verbose: boo
 
     return {
         "overall_status": overall,
-        "trial_n":        trial_n,
-        "instruments":    all_results,
+        "trial_n": trial_n,
+        "instruments": all_results,
     }
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="R7 strategy backtest gate")
-    parser.add_argument("--config",     required=True, help="Path to strategy YAML (relative to project root)")
-    parser.add_argument("--instrument", default=None,  help="Override instrument (default: use all in config)")
-    parser.add_argument("--quiet",      action="store_true", help="Suppress verbose output")
+    parser.add_argument(
+        "--config",
+        required=True,
+        help="Path to strategy YAML (relative to project root)",
+    )
+    parser.add_argument(
+        "--instrument",
+        default=None,
+        help="Override instrument (default: use all in config)",
+    )
+    parser.add_argument("--quiet", action="store_true", help="Suppress verbose output")
     args = parser.parse_args()
 
     result = asyncio.run(run_gate(args.config, args.instrument, verbose=not args.quiet))

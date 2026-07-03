@@ -143,7 +143,7 @@ export function StatsView({ id }: { id: string }) {
         <Metric label="胜率" val={`${(s.win_rate * 100).toFixed(0)}%`} />
         <Metric label="盈亏比" val={s.profit_factor.toFixed(2)} />
         <Metric label="Forward Sharpe" val={s.forward_sharpe.toFixed(2)} />
-        <Metric label="最大回撤" val={`${(s.max_drawdown * 100).toFixed(0)}%`} />
+        <Metric label="最大回撤" val={`${(s.max_drawdown * 100).toFixed(2)}%`} />
         <Metric label="累计盈亏" val={`$${s.total_pnl?.toFixed?.(4) ?? s.total_pnl}`} />
       </div>
     </div>

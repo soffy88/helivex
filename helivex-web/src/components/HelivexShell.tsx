@@ -53,11 +53,14 @@ export function HelivexShell() {
 
   return (
     <div className="hv-shell">
+      <a className="hv-skip" href={`#panel-${tab}`}>跳到主内容</a>
       <header className="hv-header">
         <span className="hv-logo">helivex</span>
         <nav className="hv-nav" role="tablist" aria-label="视图">
           {TABS.map(t => (
             <button key={t.id} className="hv-nav-item" role="tab"
+              id={`tab-${t.id}`}
+              aria-controls={`panel-${t.id}`}
               aria-selected={tab === t.id}
               data-active={tab === t.id ? 'true' : undefined}
               onClick={() => setTab(t.id)}>{t.label}</button>
@@ -65,7 +68,8 @@ export function HelivexShell() {
         </nav>
         <span className="hv-mode-global">paper mode</span>
       </header>
-      <main className="hv-main">
+      <main className="hv-main" role="tabpanel"
+        id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>
         <TabErrorBoundary tabName={tab} key={tab}>
           {renderTab()}
         </TabErrorBoundary>

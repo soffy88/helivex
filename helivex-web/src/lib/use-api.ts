@@ -24,11 +24,12 @@ export function useApi<T>(
   deps: unknown[] = [],
   pollMs?: number,
   cacheKey?: string,
-): { data: T | null; loading: boolean; error: string | null; stale: boolean } {
+): { data: T | null; loading: boolean; error: string | null; stale: boolean; refetch: () => void } {
   const cached = cacheKey && _cache.has(cacheKey) ? (_cache.get(cacheKey) as T) : null;
   const [data, setData] = useState<T | null>(cached);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(cached === null);
+  const [nonce, setNonce] = useState(0);  // bump to force an on-demand refetch
 
   useEffect(() => {
     let alive = true;
@@ -69,8 +70,12 @@ export function useApi<T>(
     }
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
+  }, [...deps, nonce]);
 
   // stale = showing retained data while the latest fetch failed (reconnecting)
-  return { data, loading, error, stale: error !== null && data !== null };
+  return {
+    data, loading, error,
+    stale: error !== null && data !== null,
+    refetch: () => setNonce(n => n + 1),
+  };
 }

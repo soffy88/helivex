@@ -1,5 +1,5 @@
 {
-  "total_trials": 16,
+  "total_trials": 18,
   "history": [
     {
       "trial_n": 1,
@@ -473,6 +473,62 @@
             "mean_oos": 0.3280958117656024,
             "gross_sharpe": 1.0512482694729997,
             "deflated_sharpe_real": 7.774880325965642e-32
+          }
+        },
+        "overall": "FAIL"
+      }
+    },
+    {
+      "trial_n": 17,
+      "config": "strategies/trend_dual.yaml",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -3.3795221597063465,
+            "pbo": 0.5,
+            "pbo_cscv": 0.45714285714285713,
+            "mean_oos": 0.07808571921887286,
+            "gross_sharpe": -0.0818531153101817,
+            "deflated_sharpe_real": 6.923549874534821e-20
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -4.992002440638029,
+            "pbo": 0.5,
+            "pbo_cscv": 0.4857142857142857,
+            "mean_oos": -0.23916714237956316,
+            "gross_sharpe": 0.8083132162375422,
+            "deflated_sharpe_real": 2.4671465030901508e-31
+          },
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": 0.12415372921918344,
+            "pbo": 0.3333333333333333,
+            "pbo_cscv": 0.8,
+            "mean_oos": 2.5895699986092104,
+            "gross_sharpe": 0.12275479362592619,
+            "deflated_sharpe_real": 2.3647856093747154e-10
+          }
+        },
+        "overall": "FAIL"
+      }
+    },
+    {
+      "trial_n": 18,
+      "config": "strategies/trend_dual.yaml",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -0.7908292302681708,
+            "pbo": 0.4666666666666667,
+            "pbo_cscv": 0.45714285714285713,
+            "mean_oos": -0.1133521367663509,
+            "gross_sharpe": -0.0818531153101817,
+            "deflated_sharpe_real": 0.02926661092536102
           }
         },
         "overall": "FAIL"

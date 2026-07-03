@@ -26,13 +26,19 @@ export const helivexApi = {
   putConfig:     (id: string, config: Record<string, unknown>) => req<{ ok: boolean; path: string }>(`/strategies/${id}/config`, { method: 'PUT', body: JSON.stringify(config) }),
   restartPaper:  () => req<{ ok: boolean; message?: string; reason?: string }>('/paper/restart', { method: 'POST' }),
   gateTrials:    () => req<unknown>('/gate/trials'),
+  gateRun:       (config: string, instrument?: string) =>
+    req<{ overall_status?: string; trial_n?: number; instruments?: Record<string, unknown> }>(
+      `/gate/run?config=${encodeURIComponent(config)}${instrument ? `&instrument=${encodeURIComponent(instrument)}` : ''}&quiet=true`,
+      { method: 'POST' }),
   runBacktest:   (body: unknown) => req<BacktestResult>('/backtest/run', { method: 'POST', body: JSON.stringify(body) }),
   executions:    () => req<ExecutionsResponse>('/executions'),
   decisions:     () => req<AuditDecision[]>('/audit/decisions'),
-  verifySig:     (eventId: string) => req<{ valid: boolean }>(`/audit/verify_signature?event_id=${eventId}`),
+  verifySig:     (rec: { fingerprint_hex: string; sig_b64: string; public_key_b64?: string }) =>
+    req<{ valid: boolean }>('/verify_signature', { method: 'POST', body: JSON.stringify(rec) }),
   chainHealth:   () => req<ChainHealth>('/audit/chain/verify'),
   account:       () => req<PaperAccount>('/paper/account'),
-  setMode:       (id: string, mode: string) => req<void>(`/strategies/${id}/mode`, { method: 'PUT', body: JSON.stringify({ mode }) }),
+  setMode:       (id: string, mode: string, force = false) =>
+    req<void>(`/strategies/${id}/mode?mode=${encodeURIComponent(mode)}${force ? '&force=true' : ''}`, { method: 'PUT' }),
 };
 
 // ── V2 策略详情 + Portfolio endpoint(§4)──────────

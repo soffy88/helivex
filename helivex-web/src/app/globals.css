@@ -9,6 +9,9 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 .hv-shell { min-height: 100dvh; display: flex; flex-direction: column; }
 .hv-header { display: flex; align-items: center; gap: 24px; padding: 0 20px; height: 52px; border-bottom: 1px solid var(--border); background: var(--card); }
 .hv-logo { font-size: var(--text-lg); font-weight: 780; letter-spacing: -0.02em; }
+/* Skip-link: off-screen until keyboard-focused, then pinned top-left (a11y). */
+.hv-skip { position: absolute; left: -9999px; top: 0; z-index: 100; padding: 8px 14px; background: var(--primary); color: var(--primary-foreground, #fff); border-radius: 0 0 7px 0; }
+.hv-skip:focus { left: 0; }
 .hv-nav { display: flex; gap: 2px; flex: 1; }
 .hv-nav-item { padding: 6px 14px; background: none; border: none; cursor: pointer; color: var(--muted-foreground); font-size: var(--text-sm); border-radius: 7px; }
 .hv-nav-item:hover { background: var(--muted); }

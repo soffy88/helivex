@@ -26,6 +26,25 @@ UNITS="helivex-paper.service helivex-gw.service helivex-monitor.service helivex-
 CMD="${1:-start}"
 TARGET="${2:-}"
 
+# Preflight: refuse to start if the systemd units were never installed. On the
+# 2026-06-30 host rebuild the operator hand-started the processes and skipped
+# `bash ops/systemd/install.sh`, so the entire timer/monitor/backup layer stayed
+# uninstalled and silently absent. Fail loud instead of pretending to manage a
+# stack that isn't wired to systemd.
+if [ "${CMD}" = "start" ] || [ "${CMD}" = "restart" ]; then
+    _missing=""
+    for u in ${UNITS}; do
+        systemctl --user cat "$u" >/dev/null 2>&1 || _missing="${_missing} ${u}"
+    done
+    if [ -n "${_missing}" ]; then
+        echo "[start_all] ABORT: units not installed:${_missing}" >&2
+        echo "[start_all] Run:  bash ops/systemd/install.sh   (then retry)" >&2
+        echo "[start_all] NOTE: if this host runs the stack via Docker containers" >&2
+        echo "[start_all]       (helivex-paper/gateway/web), use Docker — not this script." >&2
+        exit 1
+    fi
+fi
+
 _unit() {
     case "$TARGET" in
         paper)   echo "helivex-paper.service" ;;
