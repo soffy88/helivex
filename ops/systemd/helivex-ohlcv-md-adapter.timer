@@ -1,8 +1,8 @@
 [Unit]
-Description=Helivex OHLCV md-adapter timer (every 5min — covers 5m freshness; 4H upserts are idempotent)
+Description=Helivex OHLCV md-adapter timer (every 2min — tight 5m freshness; DB->DB is ~free, 4H upserts idempotent)
 
 [Timer]
-OnCalendar=*:0/5
+OnCalendar=*:0/2
 Persistent=true
 
 [Install]
