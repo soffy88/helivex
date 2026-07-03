@@ -22,8 +22,51 @@ interface TrialInst { status: string; dsr: number; pbo: number; mean_oos: number
 interface Trial { trial_n: number; config: string; verdict: string; metrics: { instruments: Record<string, TrialInst>; overall: string }; }
 interface GateLedger { total_trials: number; history: Trial[]; }
 
+const GATE_CONFIGS = [
+  { path: 'strategies/trend_dual.yaml',   label: 'trend_dual (4H SWAP)' },
+  { path: 'strategies/vwap_mr_1h.yaml',   label: 'vwap_mr (1H SWAP)' },
+  { path: 'strategies/spot_trend_1d.yaml', label: 'spot_trend (1D)' },
+];
+
+function GateRunner({ onDone }: { onDone: () => void }) {
+  const [cfg, setCfg] = useState(GATE_CONFIGS[0].path);
+  const [running, setRunning] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const run = async () => {
+    setRunning(true); setMsg(null); setErr(null);
+    try {
+      const r = await helivexApi.gateRun(cfg);
+      setMsg(`Trial #${r.trial_n ?? '?'} 完成 — 裁决 ${r.overall_status ?? '?'}`);
+      onDone();  // refresh the ledger
+    } catch (e) {
+      // The gate engine (numpy/scipy + 3O + market data) is a heavy host-side
+      // component; if the gateway isn't provisioned to run it, say so plainly
+      // rather than surfacing a raw 500. Gates also run host-side via
+      // `python tools/strategy_gate.py --config <cfg>`.
+      setErr(`回测引擎未在网关启用(重活应在主机侧运行:tools/strategy_gate.py)。${String(e).slice(0, 120)}`);
+    } finally { setRunning(false); }
+  };
+
+  return (
+    <div className="hv-gate-runner" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+      <label htmlFor="gate-cfg" className="hv-honest-note">运行 gate:</label>
+      <select id="gate-cfg" value={cfg} onChange={e => setCfg(e.target.value)} disabled={running}
+        aria-label="选择策略配置">
+        {GATE_CONFIGS.map(c => <option key={c.path} value={c.path}>{c.label}</option>)}
+      </select>
+      <button className="hv-nav-item" onClick={run} disabled={running} aria-busy={running}>
+        {running ? '运行中…(walk-forward,约需数十秒)' : '运行 Gate'}
+      </button>
+      {msg && <span className="hv-honest-note" style={{ color: 'var(--ok, #3a3)' }}>{msg}</span>}
+      {err && <span className="hv-honest-note" style={{ color: 'var(--err, #c33)' }}>{err}</span>}
+    </div>
+  );
+}
+
 export function BacktestTab() {
-  const { data, loading, error, stale } = useApi(() => helivexApi.gateTrials() as unknown as Promise<GateLedger>, [], undefined, 'gate');
+  const { data, loading, error, stale, refetch } = useApi(() => helivexApi.gateTrials() as unknown as Promise<GateLedger>, [], undefined, 'gate');
   if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
   if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const hist = data?.history ?? [];
@@ -31,6 +74,7 @@ export function BacktestTab() {
   return (
     <div className="hv-tab">
       {stale && <StaleBanner error={error!} />}
+      <GateRunner onDone={refetch} />
       <div className="hv-section-title">Gate 账本(真实,全局 N = {data?.total_trials ?? 0})</div>
       {hist.length === 0 ? <EmptyState text="暂无 gate 记录" /> : (
         <>

@@ -33,6 +33,7 @@ CLI:
   python -m paper.risk reset       # clear the kill-switch
   python -m paper.risk initdb      # create paper.risk_events table
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -50,15 +51,19 @@ from paper.db import DB_DSN
 log = logging.getLogger(__name__)
 
 # ── CONFIG (env-overridable; generous defaults sized for the 5k demo book) ──────
-BASE_EQUITY_USD       = float(os.environ.get("HELIVEX_BASE_EQUITY_USD", "5000"))
-PORTFOLIO_GROSS_CAP   = float(os.environ.get("HELIVEX_PORTFOLIO_GROSS_CAP_USD", "3000"))
-PER_STRATEGY_CAP      = float(os.environ.get("HELIVEX_PER_STRATEGY_CAP_USD", "1200"))
-PER_INSTRUMENT_CAP    = float(os.environ.get("HELIVEX_PER_INSTRUMENT_CAP_USD", "1000"))
-MAX_CONCURRENT_POS    = int(os.environ.get("HELIVEX_MAX_CONCURRENT_POSITIONS", "12"))
-MAX_DRAWDOWN_PCT      = float(os.environ.get("HELIVEX_MAX_DRAWDOWN_PCT", "15"))   # of peak NAV
-DAILY_LOSS_LIMIT_USD  = float(os.environ.get("HELIVEX_DAILY_LOSS_LIMIT_USD", "250"))
+BASE_EQUITY_USD = float(os.environ.get("HELIVEX_BASE_EQUITY_USD", "5000"))
+PORTFOLIO_GROSS_CAP = float(os.environ.get("HELIVEX_PORTFOLIO_GROSS_CAP_USD", "3000"))
+PER_STRATEGY_CAP = float(os.environ.get("HELIVEX_PER_STRATEGY_CAP_USD", "1200"))
+PER_INSTRUMENT_CAP = float(os.environ.get("HELIVEX_PER_INSTRUMENT_CAP_USD", "1000"))
+MAX_CONCURRENT_POS = int(os.environ.get("HELIVEX_MAX_CONCURRENT_POSITIONS", "12"))
+MAX_DRAWDOWN_PCT = float(
+    os.environ.get("HELIVEX_MAX_DRAWDOWN_PCT", "15")
+)  # of peak NAV
+DAILY_LOSS_LIMIT_USD = float(os.environ.get("HELIVEX_DAILY_LOSS_LIMIT_USD", "250"))
 
-KILL_SWITCH_FILE = Path(os.environ.get("HELIVEX_KILL_SWITCH_FILE", "/tmp/helivex_paper_killswitch"))
+KILL_SWITCH_FILE = Path(
+    os.environ.get("HELIVEX_KILL_SWITCH_FILE", "/tmp/helivex_paper_killswitch")
+)
 # Persistent high-water-mark for drawdown. The old peak proxy `max(base, nav)`
 # recomputed from current realized P&L every call, so it could NEVER show a
 # drawdown from a prior equity high (a +500 peak that fell to +300 reported dd=0).
@@ -87,6 +92,7 @@ class RiskDecision:
 
 
 # ── kill-switch (cross-process via file flag) ───────────────────────────────────
+
 
 def is_tripped() -> bool:
     return KILL_SWITCH_FILE.exists()
@@ -117,6 +123,7 @@ def kill_switch_reason() -> str:
 
 # ── in-process exposure registry + pre-trade gate ───────────────────────────────
 
+
 @dataclass
 class PortfolioRiskManager:
     """Tracks open notional per (strategy_id, instrument) within this process."""
@@ -125,7 +132,9 @@ class PortfolioRiskManager:
     _lock: threading.Lock = field(default_factory=threading.Lock)
 
     # — bookkeeping (called by strategies on entry pass / exit) —
-    def open_position(self, strategy_id: str, instrument: str, notional_usd: float) -> None:
+    def open_position(
+        self, strategy_id: str, instrument: str, notional_usd: float
+    ) -> None:
         with self._lock:
             self._exposure[(strategy_id, instrument)] = abs(notional_usd)
 
@@ -161,31 +170,54 @@ class PortfolioRiskManager:
         }
 
     # — the pre-trade gate —
-    def gate_entry(self, strategy_id: str, instrument: str, notional_usd: float) -> RiskDecision:
+    def gate_entry(
+        self, strategy_id: str, instrument: str, notional_usd: float
+    ) -> RiskDecision:
         """Decide whether a NEW entry of `notional_usd` is allowed. Never raises."""
         try:
             if is_tripped():
-                return RiskDecision(False, f"kill-switch tripped: {kill_switch_reason()}")
+                return RiskDecision(
+                    False, f"kill-switch tripped: {kill_switch_reason()}"
+                )
 
             notional = abs(notional_usd)
             # treat re-entry on an already-open (strategy,instrument) as a replace, not an add
             with self._lock:
                 cur_key = self._exposure.get((strategy_id, instrument), 0.0)
                 gross = sum(self._exposure.values()) - cur_key + notional
-                strat = sum(v for (s, _), v in self._exposure.items()
-                            if s == strategy_id) - cur_key + notional
-                instr = sum(v for (_, i), v in self._exposure.items()
-                            if i == instrument) - cur_key + notional
-                n_pos = len(self._exposure) + (0 if (strategy_id, instrument) in self._exposure else 1)
+                strat = (
+                    sum(v for (s, _), v in self._exposure.items() if s == strategy_id)
+                    - cur_key
+                    + notional
+                )
+                instr = (
+                    sum(v for (_, i), v in self._exposure.items() if i == instrument)
+                    - cur_key
+                    + notional
+                )
+                n_pos = len(self._exposure) + (
+                    0 if (strategy_id, instrument) in self._exposure else 1
+                )
 
             if gross > PORTFOLIO_GROSS_CAP:
-                return RiskDecision(False, f"portfolio gross {gross:.0f} > cap {PORTFOLIO_GROSS_CAP:.0f}")
+                return RiskDecision(
+                    False,
+                    f"portfolio gross {gross:.0f} > cap {PORTFOLIO_GROSS_CAP:.0f}",
+                )
             if strat > PER_STRATEGY_CAP:
-                return RiskDecision(False, f"strategy {strategy_id} exposure {strat:.0f} > cap {PER_STRATEGY_CAP:.0f}")
+                return RiskDecision(
+                    False,
+                    f"strategy {strategy_id} exposure {strat:.0f} > cap {PER_STRATEGY_CAP:.0f}",
+                )
             if instr > PER_INSTRUMENT_CAP:
-                return RiskDecision(False, f"instrument {instrument} exposure {instr:.0f} > cap {PER_INSTRUMENT_CAP:.0f}")
+                return RiskDecision(
+                    False,
+                    f"instrument {instrument} exposure {instr:.0f} > cap {PER_INSTRUMENT_CAP:.0f}",
+                )
             if n_pos > MAX_CONCURRENT_POS:
-                return RiskDecision(False, f"open positions {n_pos} > cap {MAX_CONCURRENT_POS}")
+                return RiskDecision(
+                    False, f"open positions {n_pos} > cap {MAX_CONCURRENT_POS}"
+                )
             return RiskDecision(True, "ok")
         except Exception as e:  # fail-open (paper): never let a risk bug halt trading
             log.error("gate_entry internal error (failing open): %s", e)
@@ -205,7 +237,10 @@ RISK = PortfolioRiskManager()
 
 # ── realized P&L (avg-cost round-trip matching) for the breakers ────────────────
 
-async def realized_pnl(conn: asyncpg.Connection, since: _dt.datetime | None = None) -> float:
+
+async def realized_pnl(
+    conn: asyncpg.Connection, since: _dt.datetime | None = None
+) -> float:
     """Cumulative realized P&L (USD) from closed round-trips, avg-cost matched.
 
     Walks fills in ts order per (strategy_id, instrument); realizes P&L on the
@@ -230,7 +265,9 @@ async def realized_pnl(conn: asyncpg.Connection, since: _dt.datetime | None = No
         if q == 0 or (q > 0) == (fill_q > 0):
             # opening or adding to the position → update avg cost
             new_q = q + fill_q
-            cost = (cost * abs(q) + px * abs(fill_q)) / abs(new_q) if new_q != 0 else 0.0
+            cost = (
+                (cost * abs(q) + px * abs(fill_q)) / abs(new_q) if new_q != 0 else 0.0
+            )
             q = new_q
         else:
             # reducing / closing → realize on the closed amount
@@ -247,12 +284,15 @@ async def realized_pnl(conn: asyncpg.Connection, since: _dt.datetime | None = No
     return pnl
 
 
-async def open_positions(conn: asyncpg.Connection) -> dict[tuple[str, str], list[float]]:
+async def open_positions(
+    conn: asyncpg.Connection,
+) -> dict[tuple[str, str], list[float]]:
     """Current open book per (strategy_id, instrument) as [signed_qty, avg_cost],
     from the same avg-cost walk as realized_pnl. Flat keys omitted."""
     rows = await conn.fetch(
         """SELECT strategy_id, instrument, side, quantity, actual_fill_price
-           FROM paper.fills ORDER BY ts ASC""")
+           FROM paper.fills ORDER BY ts ASC"""
+    )
     pos: dict[tuple[str, str], list[float]] = {}
     for r in rows:
         key = (r["strategy_id"], r["instrument"])
@@ -261,7 +301,9 @@ async def open_positions(conn: asyncpg.Connection) -> dict[tuple[str, str], list
         px = float(r["actual_fill_price"])
         if q == 0 or (q > 0) == (fill_q > 0):
             new_q = q + fill_q
-            cost = (cost * abs(q) + px * abs(fill_q)) / abs(new_q) if new_q != 0 else 0.0
+            cost = (
+                (cost * abs(q) + px * abs(fill_q)) / abs(new_q) if new_q != 0 else 0.0
+            )
             q = new_q
         else:
             q += fill_q
@@ -273,13 +315,26 @@ async def open_positions(conn: asyncpg.Connection) -> dict[tuple[str, str], list
     return {k: v for k, v in pos.items() if abs(v[0]) > 1e-12}
 
 
-async def _latest_marks(conn: asyncpg.Connection, fresh_seconds: int = 600) -> dict[str, float]:
-    """Latest fresh mid price per instrument from the L2 recorder feed."""
+async def _latest_marks(
+    conn: asyncpg.Connection, fresh_seconds: int = 600
+) -> dict[str, float]:
+    """Latest fresh mid price per instrument from the L2 recorder feed.
+
+    The orderbook_features table only exists once the L2 recorder has run. If it
+    is absent (fresh host, recorder never started) return no marks rather than
+    raising UndefinedTableError — otherwise every nav/drawdown/risk-status caller
+    500s. Positions then contribute 0 unrealized (conservative), same as an
+    unmarked instrument.
+    """
+    exists = await conn.fetchval("SELECT to_regclass('market_data.orderbook_features')")
+    if exists is None:
+        return {}
     rows = await conn.fetch(
         f"""SELECT DISTINCT ON (instrument) instrument, mid
             FROM market_data.orderbook_features
             WHERE ts > now() - interval '{int(fresh_seconds)} seconds' AND mid IS NOT NULL
-            ORDER BY instrument, ts DESC""")
+            ORDER BY instrument, ts DESC"""
+    )
     return {r["instrument"]: float(r["mid"]) for r in rows}
 
 
@@ -295,7 +350,9 @@ async def unrealized_pnl(conn: asyncpg.Connection) -> dict:
         if mark is None:
             unmarked += 1
             continue
-        upnl += (mark - cost) * qty   # qty is signed: short positions profit as mark falls
+        upnl += (
+            mark - cost
+        ) * qty  # qty is signed: short positions profit as mark falls
         marked += 1
     return {"unrealized": upnl, "n_marked": marked, "n_unmarked": unmarked}
 
@@ -304,7 +361,9 @@ async def nav_and_drawdown(conn: asyncpg.Connection) -> dict:
     """Mark-to-market NAV = base + realized + unrealized. Returns nav, HWM peak,
     dd_pct (now sees OPEN-position losses), realized today/all, unrealized."""
     all_time = await realized_pnl(conn)
-    midnight = _dt.datetime.now(_dt.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    midnight = _dt.datetime.now(_dt.timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     today = await realized_pnl(conn, since=midnight)
     u = await unrealized_pnl(conn)
     nav = BASE_EQUITY_USD + all_time + u["unrealized"]
@@ -315,9 +374,15 @@ async def nav_and_drawdown(conn: asyncpg.Connection) -> dict:
         peak = nav
         _write_hwm(peak)
     dd_pct = (peak - nav) / peak * 100.0 if peak > 0 else 0.0
-    return {"nav": nav, "peak": peak, "dd_pct": dd_pct,
-            "realized_all": all_time, "realized_today": today,
-            "unrealized": u["unrealized"], "n_unmarked": u["n_unmarked"]}
+    return {
+        "nav": nav,
+        "peak": peak,
+        "dd_pct": dd_pct,
+        "realized_all": all_time,
+        "realized_today": today,
+        "unrealized": u["unrealized"],
+        "n_unmarked": u["n_unmarked"],
+    }
 
 
 # ── DB audit of risk events ─────────────────────────────────────────────────────
@@ -335,19 +400,30 @@ CREATE TABLE IF NOT EXISTS paper.risk_events (
 """
 
 
-async def log_risk_event(conn: asyncpg.Connection, kind: str, entity_id: str,
-                         severity: str, message: str, metrics: dict | None = None) -> None:
+async def log_risk_event(
+    conn: asyncpg.Connection,
+    kind: str,
+    entity_id: str,
+    severity: str,
+    message: str,
+    metrics: dict | None = None,
+) -> None:
     import json
+
     await conn.execute(
         """INSERT INTO paper.risk_events (kind, entity_id, severity, message, metrics)
            VALUES ($1,$2,$3,$4,$5)""",
-        kind, entity_id, severity, message,
+        kind,
+        entity_id,
+        severity,
+        message,
         json.dumps(metrics) if metrics else None,
     )
 
 
 # ── circuit-breaker evaluators (AlerterEngine-compatible) ───────────────────────
 # signature: async evaluator(*, config=None) -> list[dict{entity_id,severity,message}]
+
 
 def _alert(entity_id: str, severity: str, message: str) -> dict:
     return {"entity_id": entity_id, "severity": severity, "message": message}
@@ -363,11 +439,15 @@ async def eval_portfolio_drawdown(*, config: dict | None = None) -> list[dict]:
             await conn.execute(RISK_DDL)
             st = await nav_and_drawdown(conn)
             if st["dd_pct"] >= cap:
-                msg = (f"portfolio drawdown {st['dd_pct']:.1f}% >= {cap:.1f}% "
-                       f"(NAV {st['nav']:.0f} / peak {st['peak']:.0f}) — tripping kill-switch")
+                msg = (
+                    f"portfolio drawdown {st['dd_pct']:.1f}% >= {cap:.1f}% "
+                    f"(NAV {st['nav']:.0f} / peak {st['peak']:.0f}) — tripping kill-switch"
+                )
                 if not is_tripped():
                     trip(msg)
-                    await log_risk_event(conn, "trip", "portfolio_drawdown", "critical", msg, st)
+                    await log_risk_event(
+                        conn, "trip", "portfolio_drawdown", "critical", msg, st
+                    )
                 return [_alert("portfolio_drawdown", "critical", msg)]
             return []
         finally:
@@ -386,11 +466,15 @@ async def eval_daily_loss(*, config: dict | None = None) -> list[dict]:
             await conn.execute(RISK_DDL)
             st = await nav_and_drawdown(conn)
             if st["realized_today"] <= -abs(limit):
-                msg = (f"daily realized loss {st['realized_today']:.0f} <= -{abs(limit):.0f} "
-                       f"— tripping kill-switch")
+                msg = (
+                    f"daily realized loss {st['realized_today']:.0f} <= -{abs(limit):.0f} "
+                    f"— tripping kill-switch"
+                )
                 if not is_tripped():
                     trip(msg)
-                    await log_risk_event(conn, "trip", "daily_loss", "critical", msg, st)
+                    await log_risk_event(
+                        conn, "trip", "daily_loss", "critical", msg, st
+                    )
                 return [_alert("daily_loss", "critical", msg)]
             return []
         finally:
@@ -401,6 +485,7 @@ async def eval_daily_loss(*, config: dict | None = None) -> list[dict]:
 
 # ── CLI ─────────────────────────────────────────────────────────────────────────
 
+
 async def _cli_status() -> None:
     conn = await asyncpg.connect(DB_DSN)
     try:
@@ -409,19 +494,30 @@ async def _cli_status() -> None:
     finally:
         await conn.close()
     print("── helivex paper risk ──────────────────────────────────────────")
-    print(f"kill-switch : {'TRIPPED — ' + kill_switch_reason() if is_tripped() else 'clear'}")
-    print(f"NAV         : {st['nav']:.2f}  (base {BASE_EQUITY_USD:.0f} + realized {st['realized_all']:+.2f} "
-          f"+ unrealized {st['unrealized']:+.2f}; {st['n_unmarked']} unmarked)")
-    print(f"drawdown    : {st['dd_pct']:.2f}%  (peak {st['peak']:.0f})   cap {MAX_DRAWDOWN_PCT:.0f}%")
-    print(f"today P&L   : {st['realized_today']:+.2f}   daily limit -{DAILY_LOSS_LIMIT_USD:.0f}")
-    print("caps        : "
-          f"gross {PORTFOLIO_GROSS_CAP:.0f} | per-strat {PER_STRATEGY_CAP:.0f} | "
-          f"per-instr {PER_INSTRUMENT_CAP:.0f} | max-pos {MAX_CONCURRENT_POS}")
+    print(
+        f"kill-switch : {'TRIPPED — ' + kill_switch_reason() if is_tripped() else 'clear'}"
+    )
+    print(
+        f"NAV         : {st['nav']:.2f}  (base {BASE_EQUITY_USD:.0f} + realized {st['realized_all']:+.2f} "
+        f"+ unrealized {st['unrealized']:+.2f}; {st['n_unmarked']} unmarked)"
+    )
+    print(
+        f"drawdown    : {st['dd_pct']:.2f}%  (peak {st['peak']:.0f})   cap {MAX_DRAWDOWN_PCT:.0f}%"
+    )
+    print(
+        f"today P&L   : {st['realized_today']:+.2f}   daily limit -{DAILY_LOSS_LIMIT_USD:.0f}"
+    )
+    print(
+        "caps        : "
+        f"gross {PORTFOLIO_GROSS_CAP:.0f} | per-strat {PER_STRATEGY_CAP:.0f} | "
+        f"per-instr {PER_INSTRUMENT_CAP:.0f} | max-pos {MAX_CONCURRENT_POS}"
+    )
     print("(in-process exposure registry is per-node-process; not visible from CLI)")
 
 
 def main() -> None:
     import sys
+
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     cmd = sys.argv[1] if len(sys.argv) > 1 else "status"
     if cmd == "status":
@@ -433,14 +529,18 @@ def main() -> None:
         reset()
         print("kill-switch cleared")
     elif cmd == "initdb":
+
         async def _init():
             conn = await asyncpg.connect(DB_DSN)
             await conn.execute(RISK_DDL)
             await conn.close()
             print("paper.risk_events ensured")
+
         asyncio.run(_init())
     else:
-        print(f"unknown command: {cmd}\nusage: python -m paper.risk [status|trip <msg>|reset|initdb]")
+        print(
+            f"unknown command: {cmd}\nusage: python -m paper.risk [status|trip <msg>|reset|initdb]"
+        )
 
 
 if __name__ == "__main__":

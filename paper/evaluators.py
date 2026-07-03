@@ -9,6 +9,7 @@ Four oprim evaluators, each returns list[dict] (empty = healthy):
 AlerterEngine calls: evaluator(config=evaluator_config) → list[dict]
 Each alert event must contain: entity_id, severity, message.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -40,9 +41,13 @@ def _maybe_restart(service: str, cooldown_s: float = 600.0) -> bool:
         if stamp.exists() and (time.time() - stamp.stat().st_mtime) < cooldown_s:
             return False
         stamp.write_text(str(time.time()))
-        subprocess.run(["systemctl", "--user", "restart", service],
-                       check=False, timeout=30,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["systemctl", "--user", "restart", service],
+            check=False,
+            timeout=30,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         log.warning("auto-remediation: restarted %s", service)
         return True
     except Exception as exc:
@@ -52,16 +57,53 @@ def _maybe_restart(service: str, cooldown_s: float = 600.0) -> bool:
 
 # ── 1. process liveness ───────────────────────────────────────────────────────
 
+
+async def _liveness_from_signals(cfg: dict) -> list[dict]:
+    """DB-driven liveness proxy: a node that is persisting signals is alive.
+
+    Used when no PID file is visible to the monitor (containerised deploy — the
+    node's PID namespace differs, so os.kill can't see it). A fresh paper.signals
+    row is unambiguous proof of life; staleness/emptiness is the alert.
+    """
+    stale_s: float = cfg.get("liveness_stale_seconds", 15 * 60)
+    try:
+        conn = await asyncpg.connect(DB_DSN)
+        row = await conn.fetchrow("SELECT MAX(ts) AS last_ts FROM paper.signals")
+        await conn.close()
+    except Exception as e:
+        return [
+            _alert("paper_node_pid", "high", f"DB error checking node liveness: {e}")
+        ]
+    if row is None or row["last_ts"] is None:
+        return [
+            _alert(
+                "paper_node_pid",
+                "critical",
+                "no PID file and paper.signals empty — node not started or never wrote",
+            )
+        ]
+    age = (datetime.now(timezone.utc) - row["last_ts"]).total_seconds()
+    if age > stale_s:
+        return [
+            _alert(
+                "paper_node_pid",
+                "critical",
+                f"no PID file and no signal in {age / 60:.0f}min "
+                f"(threshold {stale_s / 60:.0f}min) — node down or write path dead",
+            )
+        ]
+    return []
+
+
 async def eval_node_alive(*, config: dict | None = None) -> list[dict]:
-    """Check that paper/run.py PID is still alive."""
+    """Check that the paper node is alive — by PID when visible, else by DB writes."""
     cfg = config or {}
     pid_file = Path(cfg.get("pid_file", str(PAPER_PID_FILE)))
 
+    # No visible PID file (fresh /tmp, or monitor in a separate container/PID
+    # namespace): fall back to signal-freshness rather than false-alarm.
     if not pid_file.exists():
-        return [_alert(
-            "paper_node_pid", "critical",
-            f"PID file missing ({pid_file}) — node not started or crashed",
-        )]
+        return await _liveness_from_signals(cfg)
 
     try:
         pid = int(pid_file.read_text().strip())
@@ -72,15 +114,19 @@ async def eval_node_alive(*, config: dict | None = None) -> list[dict]:
         os.kill(pid, 0)
         return []  # alive
     except ProcessLookupError:
-        return [_alert(
-            "paper_node_pid", "critical",
-            f"Process PID={pid} not found — node has died",
-        )]
+        return [
+            _alert(
+                "paper_node_pid",
+                "critical",
+                f"Process PID={pid} not found — node has died",
+            )
+        ]
     except PermissionError:
         return []  # process exists (different uid) — treat as alive
 
 
 # ── 2. OKX WS tick flow ───────────────────────────────────────────────────────
+
 
 async def eval_ws_tick_flow(*, config: dict | None = None) -> list[dict]:
     """OKX WS liveness via signal recency.
@@ -99,22 +145,29 @@ async def eval_ws_tick_flow(*, config: dict | None = None) -> list[dict]:
         return [_alert("okx_ws_tick", "high", f"DB error checking tick flow: {e}")]
 
     if row is None or row["last_ts"] is None:
-        return [_alert(
-            "okx_ws_tick", "high",
-            "paper.signals is empty — node never connected to OKX WS or DB unavailable",
-        )]
+        return [
+            _alert(
+                "okx_ws_tick",
+                "high",
+                "paper.signals is empty — node never connected to OKX WS or DB unavailable",
+            )
+        ]
 
     age = (datetime.now(timezone.utc) - row["last_ts"]).total_seconds()
     if age > stale_s:
-        return [_alert(
-            "okx_ws_tick", "critical",
-            f"No OKX signal in {age / 60:.0f}min (threshold {stale_s / 60:.0f}min) "
-            f"— OKX WS disconnected?",
-        )]
+        return [
+            _alert(
+                "okx_ws_tick",
+                "critical",
+                f"No OKX signal in {age / 60:.0f}min (threshold {stale_s / 60:.0f}min) "
+                f"— OKX WS disconnected?",
+            )
+        ]
     return []
 
 
 # ── 3. audit chain integrity ──────────────────────────────────────────────────
+
 
 async def eval_audit_chain(*, config: dict | None = None) -> list[dict]:
     """Check that recent signals carry a non-empty Ed25519 sig_b64 (GOLD tier).
@@ -145,24 +198,31 @@ async def eval_audit_chain(*, config: dict | None = None) -> list[dict]:
         return []  # no signals yet
 
     unsigned = [r["strategy_id"] for r in rows if not r["sig_b64"]]
-    no_fp    = [r["strategy_id"] for r in rows if not r["fingerprint_hex"]]
+    no_fp = [r["strategy_id"] for r in rows if not r["fingerprint_hex"]]
 
     problems = []
     if unsigned:
         problems.append(
-            _alert("audit_chain", "high",
-                   f"GOLD tier but sig_b64 empty on {len(unsigned)} recent signals "
-                   f"({unsigned[:3]}) — Ed25519 signing degraded to STANDARD?")
+            _alert(
+                "audit_chain",
+                "high",
+                f"GOLD tier but sig_b64 empty on {len(unsigned)} recent signals "
+                f"({unsigned[:3]}) — Ed25519 signing degraded to STANDARD?",
+            )
         )
     if no_fp:
         problems.append(
-            _alert("audit_chain", "high",
-                   f"fingerprint_hex missing on {len(no_fp)} signals — audit record corrupt?")
+            _alert(
+                "audit_chain",
+                "high",
+                f"fingerprint_hex missing on {len(no_fp)} signals — audit record corrupt?",
+            )
         )
     return problems
 
 
 # ── 4. on_bar trigger timeliness ──────────────────────────────────────────────
+
 
 async def eval_on_bar_trigger(*, config: dict | None = None) -> list[dict]:
     """Check that on_bar fired within lag_budget seconds after the last 1H bar close.
@@ -195,22 +255,27 @@ async def eval_on_bar_trigger(*, config: dict | None = None) -> list[dict]:
         return [_alert("on_bar_trigger", "high", f"DB error checking on_bar: {e}")]
 
     if row["cnt"] == 0:
-        return [_alert(
-            "on_bar_trigger", "high",
-            f"on_bar not triggered since bar close at {last_bar_close.strftime('%H:%M')} UTC "
-            f"({seconds_since_close / 60:.0f}min ago, budget={lag_budget / 60:.0f}min) "
-            f"— NautilusTrader bar aggregation stalled?",
-        )]
+        return [
+            _alert(
+                "on_bar_trigger",
+                "high",
+                f"on_bar not triggered since bar close at {last_bar_close.strftime('%H:%M')} UTC "
+                f"({seconds_since_close / 60:.0f}min ago, budget={lag_budget / 60:.0f}min) "
+                f"— NautilusTrader bar aggregation stalled?",
+            )
+        ]
     return []
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
+
 
 def _alert(entity_id: str, severity: str, message: str) -> dict:
     return {"entity_id": entity_id, "severity": severity, "message": message}
 
 
 # ── dead-man's-switch heartbeat ────────────────────────────────────────────────
+
 
 async def eval_deadman_heartbeat(*, config: dict | None = None) -> list[dict]:
     """Ping an external uptime service every cycle (no-op unless HELIVEX_DEADMAN_URL
@@ -226,6 +291,7 @@ async def eval_deadman_heartbeat(*, config: dict | None = None) -> list[dict]:
 
     def _ping():
         import urllib.request
+
         try:
             urllib.request.urlopen(url, timeout=timeout).read()
         except Exception as exc:  # never let a heartbeat failure break the loop
@@ -237,6 +303,7 @@ async def eval_deadman_heartbeat(*, config: dict | None = None) -> list[dict]:
 
 # ── 5. gateway liveness ───────────────────────────────────────────────────────
 
+
 async def eval_gateway_alive(*, config: dict | None = None) -> list[dict]:
     """HTTP health check against FastAPI gateway :8765."""
     cfg = config or {}
@@ -247,8 +314,11 @@ async def eval_gateway_alive(*, config: dict | None = None) -> list[dict]:
 
     def _check() -> int | str:
         import urllib.request
+
         try:
-            resp = urllib.request.urlopen(f"http://localhost:{port}/health", timeout=timeout)
+            resp = urllib.request.urlopen(
+                f"http://localhost:{port}/health", timeout=timeout
+            )
             return resp.status
         except Exception as e:
             return str(e)
@@ -256,13 +326,17 @@ async def eval_gateway_alive(*, config: dict | None = None) -> list[dict]:
     result = await loop.run_in_executor(None, _check)
     if result == 200:
         return []
-    return [_alert(
-        "gateway_alive", "critical",
-        f"Gateway unreachable at :{port} — {result}. systemd will restart (Restart=always).",
-    )]
+    return [
+        _alert(
+            "gateway_alive",
+            "critical",
+            f"Gateway unreachable at :{port} — {result}. systemd will restart (Restart=always).",
+        )
+    ]
 
 
 # ── 6. frontend liveness ──────────────────────────────────────────────────────
+
 
 async def eval_web_alive(*, config: dict | None = None) -> list[dict]:
     """TCP port check for Next.js frontend :3400."""
@@ -278,13 +352,17 @@ async def eval_web_alive(*, config: dict | None = None) -> list[dict]:
         await writer.wait_closed()
         return []
     except Exception as e:
-        return [_alert(
-            "web_alive", "high",
-            f"Frontend unreachable at :{port} — {e}. systemd will restart (Restart=on-failure).",
-        )]
+        return [
+            _alert(
+                "web_alive",
+                "high",
+                f"Frontend unreachable at :{port} — {e}. systemd will restart (Restart=on-failure).",
+            )
+        ]
 
 
 # ── 7. L2 recorder data flow ──────────────────────────────────────────────────
+
 
 async def eval_l2_recorder_flow(*, config: dict | None = None) -> list[dict]:
     """L2 recorder liveness via row recency — catches a SILENT WS stall (process
@@ -298,29 +376,45 @@ async def eval_l2_recorder_flow(*, config: dict | None = None) -> list[dict]:
     try:
         conn = await asyncpg.connect(DB_DSN)
         row = await conn.fetchrow(
-            "SELECT MAX(ts) AS last_ts FROM market_data.orderbook_features")
+            "SELECT MAX(ts) AS last_ts FROM market_data.orderbook_features"
+        )
         await conn.close()
     except Exception as e:
         return [_alert("l2_recorder", "high", f"DB error checking L2 flow: {e}")]
 
     if row is None or row["last_ts"] is None:
-        return [_alert("l2_recorder", "high",
-                       "market_data.orderbook_features empty — recorder never wrote a row")]
+        return [
+            _alert(
+                "l2_recorder",
+                "high",
+                "market_data.orderbook_features empty — recorder never wrote a row",
+            )
+        ]
 
     age = (datetime.now(timezone.utc) - row["last_ts"]).total_seconds()
     if age > stale_s:
         # Auto-remediate: the recorder is data-only, so a bounce is safe. The
         # resilient DB pool (paper.db_pool) fixes the common cause, but this catches
         # any other silent stall. Rate-limited so it can't loop.
-        restarted = _maybe_restart("helivex-l2recorder") if cfg.get("auto_restart", True) else False
+        restarted = (
+            _maybe_restart("helivex-l2recorder")
+            if cfg.get("auto_restart", True)
+            else False
+        )
         suffix = " — auto-restarting recorder" if restarted else ""
-        return [_alert("l2_recorder", "critical",
-                       f"No L2 row in {age / 60:.1f}min (threshold {stale_s / 60:.0f}min) "
-                       f"— recorder WS stalled?{suffix}")]
+        return [
+            _alert(
+                "l2_recorder",
+                "critical",
+                f"No L2 row in {age / 60:.1f}min (threshold {stale_s / 60:.0f}min) "
+                f"— recorder WS stalled?{suffix}",
+            )
+        ]
     return []
 
 
 # ── 8. DB write freshness (silent persistence-death breaker) ───────────────────
+
 
 async def eval_write_freshness(*, config: dict | None = None) -> list[dict]:
     """Catch the SILENT persistence-death failure: node process ALIVE (PID up,
@@ -337,39 +431,142 @@ async def eval_write_freshness(*, config: dict | None = None) -> list[dict]:
     stale_s: float = cfg.get("stale_seconds", 15 * 60)  # 3× the 5-min scalp cadence
     pid_file = Path(cfg.get("pid_file", str(PAPER_PID_FILE)))
 
-    # Only meaningful while the node is actually running; a dead node is
-    # eval_node_alive's job.
-    if not pid_file.exists():
-        return []
-    try:
-        pid = int(pid_file.read_text().strip())
-        os.kill(pid, 0)
-    except PermissionError:
-        pass  # exists under another uid → alive
-    except (ValueError, OSError):
-        return []  # unreadable PID / process gone → not our concern
+    # The DB freshness check below IS the test, so we must NEVER silently
+    # disable it just because a PID file is absent (containerised deploy: the
+    # node's PID isn't visible here). Only skip when we can POSITIVELY confirm
+    # the process is dead — then eval_node_alive owns the alert and we avoid a
+    # duplicate. Missing/unreadable PID file → fall through and check writes.
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, 0)
+        except PermissionError:
+            pass  # exists under another uid → alive
+        except ProcessLookupError:
+            return []  # process confirmed gone → eval_node_alive's job
+        except (ValueError, OSError):
+            pass  # unreadable PID → still check write freshness
 
     try:
         conn = await asyncpg.connect(DB_DSN)
         row = await conn.fetchrow("SELECT MAX(ts) AS last_ts FROM paper.signals")
         await conn.close()
     except Exception as e:
-        return [_alert("write_freshness", "high", f"DB error checking write freshness: {e}")]
+        return [
+            _alert("write_freshness", "high", f"DB error checking write freshness: {e}")
+        ]
 
     if row is None or row["last_ts"] is None:
-        return [_alert("write_freshness", "critical",
-                       "node ALIVE but paper.signals empty — DB persistence never started")]
+        return [
+            _alert(
+                "write_freshness",
+                "critical",
+                "node ALIVE but paper.signals empty — DB persistence never started",
+            )
+        ]
 
     age = (datetime.now(timezone.utc) - row["last_ts"]).total_seconds()
     if age > stale_s:
-        return [_alert("write_freshness", "critical",
-                       f"node ALIVE but no signal persisted in {age / 60:.0f}min "
-                       f"(threshold {stale_s / 60:.0f}min) — DB write path dead (pool lost?), "
-                       f"trading is running BLIND")]
+        return [
+            _alert(
+                "write_freshness",
+                "critical",
+                f"node ALIVE but no signal persisted in {age / 60:.0f}min "
+                f"(threshold {stale_s / 60:.0f}min) — DB write path dead (pool lost?), "
+                f"trading is running BLIND",
+            )
+        ]
     return []
 
 
+# ── 8b. market-data ingestion freshness ───────────────────────────────────────
+
+
+async def eval_ingestion_freshness(*, config: dict | None = None) -> list[dict]:
+    """Alert when the OHLCV ingestion pipeline has stopped writing.
+
+    This is the exact gap that let market_data.* silently go EMPTY after the
+    2026-06-30 host rebuild with nothing noticing: the live node feeds off the
+    OKX WS and never touches these tables, so no other breaker watches them.
+    We check MAX(created_at) — the last time ANY row was ingested — across the
+    OHLCV tables. The 1H/5M refresh timers run hourly, so a healthy pipeline
+    writes at least once an hour; > max_age_hours since the last write means the
+    ingest timers are dead/uninstalled. Severity 'high' (research data — does not
+    halt live trading, but must not rot unseen)."""
+    cfg = config or {}
+    max_age_h: float = cfg.get("max_age_hours", 3.0)
+    tables = cfg.get("tables", ["market_data.ohlcv_1h", "market_data.ohlcv_5m"])
+
+    try:
+        conn = await asyncpg.connect(DB_DSN)
+        try:
+            out: list[dict] = []
+            for tbl in tables:
+                reg = await conn.fetchval("SELECT to_regclass($1)", tbl)
+                if reg is None:
+                    out.append(
+                        _alert(
+                            "ingestion_freshness",
+                            "high",
+                            f"{tbl} does not exist — ingestion never provisioned",
+                        )
+                    )
+                    continue
+                last = await conn.fetchval(f"SELECT MAX(created_at) FROM {tbl}")
+                if last is None:
+                    out.append(
+                        _alert(
+                            "ingestion_freshness",
+                            "high",
+                            f"{tbl} is EMPTY — ingestion pipeline not running",
+                        )
+                    )
+                    continue
+                age_h = (datetime.now(timezone.utc) - last).total_seconds() / 3600
+                if age_h > max_age_h:
+                    out.append(
+                        _alert(
+                            "ingestion_freshness",
+                            "high",
+                            f"{tbl} last written {age_h:.1f}h ago "
+                            f"(threshold {max_age_h:.0f}h) — ingest timer dead?",
+                        )
+                    )
+            return out
+        finally:
+            await conn.close()
+    except Exception as e:
+        return [
+            _alert("ingestion_freshness", "high", f"DB error checking ingestion: {e}")
+        ]
+
+
+# ── 8c. fidelity snapshot (persistence, not an alert) ─────────────────────────
+
+
+async def eval_persist_fidelity(*, config: dict | None = None) -> list[dict]:
+    """Snapshot execution fidelity into paper.fidelity_summary each cycle.
+
+    Not a health check — it returns no alerts. It piggybacks on the monitor's
+    120s loop to give the orphaned fidelity_summary table a writer (audit: it had
+    none), so slippage/latency/fill-rate drift is recorded over time. Failures are
+    swallowed to a single 'low' alert so a persistence hiccup never breaks the
+    health loop."""
+    try:
+        conn = await asyncpg.connect(DB_DSN)
+        try:
+            from paper.db import write_fidelity_summary
+
+            await write_fidelity_summary(conn)
+        finally:
+            await conn.close()
+        return []
+    except Exception as e:
+        return [_alert("fidelity_persist", "low", f"fidelity snapshot failed: {e}")]
+
+
 # ── 9. backup freshness ───────────────────────────────────────────────────────
+
 
 async def eval_backup_freshness(*, config: dict | None = None) -> list[dict]:
     """Alert if the newest pg_dump is older than max_age_hours — catches a missed
@@ -380,15 +577,25 @@ async def eval_backup_freshness(*, config: dict | None = None) -> list[dict]:
     max_age_h: float = cfg.get("max_age_hours", 26)
 
     dumps = (
-        sorted(backup_dir.glob("helivex_*.dump"), key=lambda p: p.stat().st_mtime, reverse=True)
-        if backup_dir.exists() else []
+        sorted(
+            backup_dir.glob("helivex_*.dump"),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if backup_dir.exists()
+        else []
     )
     if not dumps:
         return [_alert("backup_freshness", "high", f"no pg_dump found in {backup_dir}")]
 
     age_h = (time.time() - dumps[0].stat().st_mtime) / 3600
     if age_h > max_age_h:
-        return [_alert("backup_freshness", "high",
-                       f"newest pg_dump is {age_h:.1f}h old (threshold {max_age_h:.0f}h) "
-                       f"— nightly backup missed or failing")]
+        return [
+            _alert(
+                "backup_freshness",
+                "high",
+                f"newest pg_dump is {age_h:.1f}h old (threshold {max_age_h:.0f}h) "
+                f"— nightly backup missed or failing",
+            )
+        ]
     return []

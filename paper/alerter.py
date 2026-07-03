@@ -15,6 +15,7 @@ Usage (from paper/monitor.py):
   engine = build_alerter()
   engine.run()  # blocks; wrap in threading.Thread for background
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,7 +28,9 @@ from paper.evaluators import (
     eval_backup_freshness,
     eval_deadman_heartbeat,
     eval_gateway_alive,
+    eval_ingestion_freshness,
     eval_l2_recorder_flow,
+    eval_persist_fidelity,
     eval_node_alive,
     eval_on_bar_trigger,
     eval_web_alive,
@@ -41,12 +44,15 @@ log = logging.getLogger(__name__)
 
 # ── channels ──────────────────────────────────────────────────────────────────
 
+
 def log_channel(*, text: str, **_: object) -> None:
     """Always-on channel: emit alert to Python logger."""
     log.warning("[PAPER ALERT] %s", text)
 
 
-def tg_channel(*, text: str, bot_token: str = "", chat_id: str = "", **_: object) -> None:
+def tg_channel(
+    *, text: str, bot_token: str = "", chat_id: str = "", **_: object
+) -> None:
     """Telegram channel — active only when bot_token + chat_id are provided.
 
     The AlerterEngine invokes channels from within its running event loop, so
@@ -79,10 +85,11 @@ def tg_channel(*, text: str, bot_token: str = "", chat_id: str = "", **_: object
 
 # ── factory ───────────────────────────────────────────────────────────────────
 
+
 def build_alerter() -> AlerterEngine:
     """Build and return a configured AlerterEngine for helivex paper trading."""
-    tg_bot   = os.environ.get("TG_BOT_TOKEN", "")
-    tg_chat  = os.environ.get("TG_CHAT_ID", "")
+    tg_bot = os.environ.get("TG_BOT_TOKEN", "")
+    tg_chat = os.environ.get("TG_CHAT_ID", "")
 
     channels = [log_channel]
     if tg_bot and tg_chat:
@@ -104,18 +111,20 @@ def build_alerter() -> AlerterEngine:
             eval_daily_loss,
             eval_l2_recorder_flow,
             eval_write_freshness,
+            eval_ingestion_freshness,
+            eval_persist_fidelity,
             eval_backup_freshness,
             eval_deadman_heartbeat,
         ],
         channels=channels,
         trigger={"on_interval": 120},  # check every 2 minutes
         config={
-            "throttle_seconds":      600,   # same alert max once per 10 min
-            "dedup_bucket_seconds":  3600,  # same alert max once per hour
+            "throttle_seconds": 600,  # same alert max once per 10 min
+            "dedup_bucket_seconds": 3600,  # same alert max once per hour
             "channel_configs": {
                 "tg_channel": {
                     "bot_token": tg_bot,
-                    "chat_id":   tg_chat,
+                    "chat_id": tg_chat,
                 },
             },
             "evaluator_configs": {
@@ -154,6 +163,9 @@ def build_alerter() -> AlerterEngine:
                 },
                 "eval_backup_freshness": {
                     "max_age_hours": 26,
+                },
+                "eval_ingestion_freshness": {
+                    "max_age_hours": 3.0,  # 1H/5M timers run hourly → 3 missed = dead
                 },
             },
         },
