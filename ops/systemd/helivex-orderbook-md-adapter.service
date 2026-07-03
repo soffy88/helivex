@@ -1,0 +1,12 @@
+[Unit]
+Description=Helivex orderbook adapter — backfill orderbook_features(OKX LIVE) from md.orderbook_features (consolidation P3; DB->DB, no proxy). Replaces the DEMO l2recorder node.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/soffy/projects/helivex
+# 纯 DB->DB(md 与 helivex 同在 platform-postgres localhost:5434),无 OKX egress/creds/代理。
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/orderbook_from_md.py
+StandardOutput=append:/home/soffy/helivex_orderbook_adapter.log
+StandardError=append:/home/soffy/helivex_orderbook_adapter.log
