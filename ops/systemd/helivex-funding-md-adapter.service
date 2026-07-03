@@ -1,0 +1,12 @@
+[Unit]
+Description=Helivex funding adapter — backfill funding_rates(okx)/binance_funding_history from md.funding_settled (consolidation; DB->DB, no proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/soffy/projects/helivex
+# 纯 DB->DB(md 与 helivex 同在 platform-postgres localhost:5434),无 egress、不需 Clash 代理。
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/funding_from_md.py
+StandardOutput=append:/home/soffy/helivex_funding_adapter.log
+StandardError=append:/home/soffy/helivex_funding_adapter.log
