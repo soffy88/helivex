@@ -6,6 +6,7 @@ import { ConfigureTab } from './tabs/ConfigureTab';
 import { BacktestTab, ExecutionsTab, PnLTab, AuditTab } from './tabs/OtherTabs';
 import { PortfolioTab } from './tabs/PortfolioTab';
 import { RiskTab, MicrostructureTab } from './tabs/RiskMicroTabs';
+import { LerTab } from './tabs/LerTab';
 import { TabErrorBoundary } from './TabErrorBoundary';
 
 const TABS = [
@@ -13,6 +14,7 @@ const TABS = [
   { id: 'portfolio',  label: 'Portfolio' },
   { id: 'risk',       label: 'Risk' },
   { id: 'micro',      label: 'Microstructure' },
+  { id: 'ler',        label: 'LER' },
   { id: 'configure',  label: 'Configure' },
   { id: 'backtest',   label: 'Backtest' },
   { id: 'executions', label: 'Executions' },
@@ -42,6 +44,7 @@ export function HelivexShell() {
       case 'portfolio':  return <PortfolioTab />;
       case 'risk':       return <RiskTab />;
       case 'micro':      return <MicrostructureTab />;
+      case 'ler':        return <LerTab />;
       case 'configure':  return <ConfigureTab />;
       case 'backtest':   return <BacktestTab />;
       case 'executions': return <ExecutionsTab />;

@@ -258,3 +258,28 @@ export interface MicroLatest {
   latest: MicroFeatures[];
   series: Record<string, MicroSeriesPoint[]>;
 }
+
+// ── LER(HELIVEX-IMPL_SPEC-LER-001)数据积累进度 ───────────
+export interface LerSourceCoverage {
+  symbol: string;
+  rows: number;
+  first_ts: string | null;
+  last_ts: string | null;
+  days_covered: number;
+  freshness_minutes: number | null;
+}
+export interface LerCoverage {
+  as_of: string;
+  venue: string;
+  sources: {
+    liquidations: LerSourceCoverage[];
+    ohlcv_1m: LerSourceCoverage[];
+    funding: LerSourceCoverage[];
+    oi: LerSourceCoverage[];
+  };
+  v3_threshold: {
+    required_n_trades_per_config: number;
+    n_configs: number;
+    note: string;
+  };
+}

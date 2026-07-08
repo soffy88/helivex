@@ -33,7 +33,9 @@ from gateway.deps import (
     PROJECT_ROOT,
     STRATEGY_SIGNAL_PREFIX,
     STRATEGY_YAML_MAP,
+    close_md_pool,
     close_pool,
+    get_md_pool,
     get_pool,
     latest_verdict,
     load_trials,
@@ -98,6 +100,7 @@ async def _startup() -> None:
 @app.on_event("shutdown")
 async def _shutdown() -> None:
     await close_pool()
+    await close_md_pool()
 
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -1553,6 +1556,85 @@ async def get_microstructure_latest(series: int = Query(60, ge=1, le=1000)) -> d
             for r in latest
         ],
         "series": series_map,
+    }
+
+
+# ─── /research/ler (HELIVEX-IMPL_SPEC-LER-001, Phase R 后 — 数据积累进度) ─────
+
+
+async def _source_coverage(
+    conn: Any, table: str, ts_col: str, venue: str, extra_where: str = ""
+) -> list[dict]:
+    """每 symbol 的行数/时间跨度/新鲜度,来自 marketdata 库(md schema,iris 生产)。
+    extra_where 是字面量拼接的额外条件(如 timeframe 过滤),调用方硬编码传入,
+    不接受外部输入 —— 不是 SQL 注入面。"""
+    rows = await conn.fetch(
+        f"""SELECT symbol, COUNT(*) AS n, MIN({ts_col}) AS first_ts, MAX({ts_col}) AS last_ts
+            FROM {table} WHERE venue = $1 {extra_where} GROUP BY symbol ORDER BY symbol""",
+        venue,
+    )
+    now = datetime.now(timezone.utc)
+    out = []
+    for r in rows:
+        first_ts, last_ts = r["first_ts"], r["last_ts"]
+        out.append(
+            {
+                "symbol": r["symbol"],
+                "rows": int(r["n"]),
+                "first_ts": first_ts.isoformat() if first_ts else None,
+                "last_ts": last_ts.isoformat() if last_ts else None,
+                "days_covered": round((last_ts - first_ts).total_seconds() / 86400, 2)
+                if first_ts and last_ts
+                else 0.0,
+                "freshness_minutes": round((now - last_ts).total_seconds() / 60, 1)
+                if last_ts
+                else None,
+            }
+        )
+    return out
+
+
+@app.get("/research/ler/coverage")
+async def get_ler_coverage() -> dict:
+    """LER(HELIVEX-IMPL_SPEC-LER-001)数据积累进度面板 —— Phase R 后数据源改为 OKX
+    (docs/HELIVEX-IMPL_SPEC-LER-001.md §3/§12)。读 marketdata 库的 md schema(iris
+    直接生产),不是 helivex 自己的 market_data schema(那批 adapter 还没覆盖
+    liquidations/OI/1m OHLCV)。诚实展示原始覆盖 —— T1∧T2 触发 episode 计数需要
+    oskill 检测逻辑(尚未实现),不在此处伪造。
+    """
+    md_pool = await get_md_pool()
+    async with md_pool.acquire() as conn:
+        sources = {
+            "liquidations": await _source_coverage(
+                conn, "md.liquidations", "ts", "okx"
+            ),
+            # md.ohlcv 混了 h4/m5/m1 多个 timeframe;LER 信号层要 1m,单独按 timeframe 过滤。
+            "ohlcv_1m": await _source_coverage(
+                conn,
+                "md.ohlcv",
+                "bar_open_ts",
+                "okx",
+                extra_where="AND timeframe = 'm1' AND instrument_type = 'perp'",
+            ),
+            "funding": await _source_coverage(
+                conn, "md.funding_settled", "funding_time", "okx"
+            ),
+            "oi": await _source_coverage(conn, "md.oi", "ts", "okx"),
+        }
+
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "venue": "okx",
+        "sources": sources,
+        "v3_threshold": {
+            "required_n_trades_per_config": 100,
+            "n_configs": 8,
+            "note": (
+                "T1∧T2(爆仓瀑布)触发 episode 计数依赖 oskill 检测逻辑,尚未实现 —— "
+                "以上只是原始行情/强平/funding/OI 覆盖,不代表已有可用信号样本。"
+                "预期积累到统计意义上足够的 episode 数是月级时间尺度,见 spec §4/§12.3。"
+            ),
+        },
     }
 
 
