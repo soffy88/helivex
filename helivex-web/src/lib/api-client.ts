@@ -77,9 +77,10 @@ export const microApi = {
   latest: () => req<MicroLatest>('/microstructure/latest?series=60'),
 };
 
-// ── LER(HELIVEX-IMPL_SPEC-LER-001)数据积累进度 ───────────
-import type { LerCoverage } from '@/types/api';
+// ── LER(HELIVEX-IMPL_SPEC-LER-001)数据积累进度 + 策略参数 ───────────
+import type { LerCoverage, LerConfig } from '@/types/api';
 
 export const lerApi = {
   coverage: () => req<LerCoverage>('/research/ler/coverage'),
+  config: () => req<LerConfig>('/research/ler/config'),
 };

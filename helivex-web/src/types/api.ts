@@ -283,3 +283,24 @@ export interface LerCoverage {
     note: string;
   };
 }
+
+export interface LerConfigVariant { id: string; desc: string }
+export interface LerConfig {
+  strategy: string;
+  spec_ref: string;
+  spec_version: string;
+  status: string;
+  description: string;
+  instruments: string[];
+  timeframe: string;
+  trigger: Record<string, number>;
+  exhaustion: Record<string, number>;
+  regime_filters: Record<string, number>;
+  execution: Record<string, Record<string, string | number>>;
+  exit: Record<string, string | number>;
+  risk: Record<string, number>;
+  configs: LerConfigVariant[];
+  locked_params: string[];
+  changeable_params: string[];
+  already_amended: string[];
+}

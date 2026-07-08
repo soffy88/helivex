@@ -1,0 +1,82 @@
+# HELIVEX-IMPL_SPEC-LER-001 §5-§7 参数快照(机器可读,前端 LER tab 直接读)。
+#
+# status: research —— 明确不是 backtest/paper/live。此文件不放在 strategies/ 目录,
+# 不进 gateway.deps.STRATEGY_YAML_MAP,不接入 /strategies、Configure tab 的实盘调参 /
+# 重启节点流程。Phase 0(数据审计门)通过、8 配置 CPCV 判决 PASS 之前,禁止实盘/模拟盘下单
+# (spec §2 Out-of-scope)。
+
+strategy: ler_okx_swap
+spec_ref: HELIVEX-IMPL_SPEC-LER-001
+spec_version: v1.1
+status: research
+description: "爆仓衰竭回归(Liquidation Exhaustion Regression)——OKX BTC/ETH/SOL-USDT-SWAP, 1m"
+instruments:
+  - BTC-USDT-SWAP
+  - ETH-USDT-SWAP
+  - SOL-USDT-SWAP
+timeframe: 1m
+
+trigger:
+  t1_liquidation_notional_percentile: 99   # p99, 过去 30d 分布, 5m 滚动名义额
+  t2_atr_displacement_multiple: 2.0        # 瀑布窗峰谷位移 > 2×ATR(60,1m)
+  cascade_window_timeout_min: 60
+
+exhaustion:
+  e1_liquidation_decay_ratio: 0.30   # 最近 1m 额 < 瀑布峰值 1m 额的 30%
+  e2_oi_min_change: 0.0              # OI 5m 变化 >= 0(停止收缩)
+  confirmation_timeout_min: 60
+
+regime_filters:
+  f1_trend_aligned_skip_return_pct: 10.0   # |24h 收益| > 10% 且方向一致 → skip
+  f2_cascade_chain_max_count: 3            # 过去 6h 内已 >= 3 次触发 → skip
+
+execution:
+  c0_maker:
+    order_type: post_only_limit
+    ttl_seconds: 30
+    fill_rule: strict_cross   # 仅当后续 K 线价格严格穿越限价才判成交,触及不算
+  c1_taker_control:
+    slippage_model: half_spread_plus_2bp
+
+exit:
+  tp_displacement_retrace_pct: 50.0
+  tp_alt: session_vwap_utc_day
+  sl_atr_multiple: 0.25
+  time_stop_min: 90
+  same_bar_conflict: sl_wins   # 同一 1m 内 SL/TP 均可触 → 记 SL
+
+risk:
+  risk_per_trade_bps: 25
+  max_concurrent_positions: 1
+  daily_stop_consecutive_losses: 3
+  daily_stop_loss_pct: 1.5
+
+# 预注册配置预算(spec §6)—— 全集 = 8,DSR trials = 8,不得追加
+configs:
+  - { id: C0, desc: "基准(maker)" }
+  - { id: C1, desc: "taker 对照(降级测试用)" }
+  - { id: C2, desc: "触发分位 p99 → p97" }
+  - { id: C3, desc: "衰竭比例 30% → 50%" }
+  - { id: C4, desc: "TP 回撤 50% → 62%" }
+  - { id: C5, desc: "SL 0.25 → 0.5 × ATR" }
+  - { id: C6, desc: "时间止损 90m → 45m" }
+  - { id: C7, desc: "过滤器消融(F1、F2 关闭)" }
+
+# spec §11 决策标记,原样映射(单一事实来源是 spec 文档,这里只是给前端渲染用)
+locked_params:
+  - trigger.t1_liquidation_notional_percentile
+  - trigger.t2_atr_displacement_multiple
+  - exhaustion.e1_liquidation_decay_ratio
+  - exhaustion.e2_oi_min_change
+  - execution.c0_maker.fill_rule
+  - exit.tp_displacement_retrace_pct
+  - exit.sl_atr_multiple
+  - exit.time_stop_min
+  - exit.same_bar_conflict
+  - configs
+changeable_params:   # 可改,须 Wiki 批准并重新预注册
+  - execution.c1_taker_control.slippage_model
+  - risk.risk_per_trade_bps
+  - regime_filters.f1_trend_aligned_skip_return_pct
+already_amended:   # Wiki 已批准,2026-07-08(见 spec §11/§12)
+  - instruments   # Binance BTCUSDT → OKX BTC/ETH/SOL-USDT-SWAP

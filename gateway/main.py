@@ -1561,6 +1561,18 @@ async def get_microstructure_latest(series: int = Query(60, ge=1, le=1000)) -> d
 
 # ─── /research/ler (HELIVEX-IMPL_SPEC-LER-001, Phase R 后 — 数据积累进度) ─────
 
+LER_PARAMS_FILE = PROJECT_ROOT / "docs" / "ler_okx_swap.params.yaml"
+
+
+@app.get("/research/ler/config")
+async def get_ler_config() -> dict:
+    """LER 策略定义 + 预注册参数(只读)。刻意不进 STRATEGY_YAML_MAP —— 这是研究阶段
+    的 spec 快照,不是可实盘/模拟盘调参的策略配置,不接 /strategies、Configure tab
+    的实盘参数编辑与"保存并重启节点"流程(spec §2 明确禁止实盘/模拟盘下单)。"""
+    if not LER_PARAMS_FILE.exists():
+        raise HTTPException(404, "LER params file not found")
+    return _read_yaml(LER_PARAMS_FILE)
+
 
 async def _source_coverage(
     conn: Any, table: str, ts_col: str, venue: str, extra_where: str = ""
