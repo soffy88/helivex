@@ -137,6 +137,7 @@ STRATEGY_DISPLAY_NAMES = {
     "vwap_mr_dual": "VWAP 均值回归 (1H)",
     "spot_trend": "现货趋势 (日线)",
     "scalp_5m": "⚠ 剥头皮 (VWAP-MR 5M) [NO-GO 观察]",
+    "ler_okx": "⚗ 爆仓衰竭回归 (LER, OKX 1m) [研究中]",
 }
 
 # Hard-coded gate results for strategies with known permanent verdicts
@@ -149,6 +150,17 @@ _HARDCODED_GATE: dict[str, dict] = {
         "reason": (
             "R5: taker 307%/yr 成本碾死. gross Sharpe +1.33 but net OOS deeply negative. "
             "观察对象 — 测量真实 fill rate/滑点 vs backtest 假设, 非可部署策略."
+        ),
+    },
+    # LER: Phase R 完成(HELIVEX-IMPL_SPEC-LER-001 v1.1),数据源已切 OKX 正向采集,
+    # 尚在积累阶段——oskill/omodul 未实现,无信号可判决,不是"待跑 gate"而是"还没到能跑的量"。
+    "ler_okx": {
+        "verdict": "pending",
+        "dsr": None,
+        "pbo": None,
+        "reason": (
+            "研究阶段,非实盘/模拟盘策略。数据正从 OKX 正向采集(见 LER tab),"
+            "触发 episode 攒够 Phase 0/CPCV 判决前的样本量预期是月级时间尺度。"
         ),
     },
 }

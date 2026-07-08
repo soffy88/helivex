@@ -1,0 +1,28 @@
+# LER(爆仓衰竭回归,HELIVEX-IMPL_SPEC-LER-001)—— 研究阶段占位配置,仅供 Overview/
+# Portfolio 的策略选择器展示存在与状态,不是可实盘/模拟盘下单的策略配置。
+#
+# 真正的信号参数快照在 docs/ler_okx_swap.params.yaml(前端 LER tab 读),不是这个文件。
+# 这个文件只满足 gateway.deps.STRATEGY_YAML_MAP 的通用 schema(GET /strategies 需要
+# 的最小字段集),没有 `live` 块 —— Configure tab 因此展示"该策略无实盘参数",
+# 不会出现可用的"保存并重启节点"操作。
+strategy: ler_okx_swap
+description: "爆仓衰竭回归(LER)研究项目 — OKX BTC/ETH/SOL-USDT-SWAP, 1m — 数据积累中,未进 Phase 0/gate"
+timeframe: 1m
+instruments:
+  - BTC-USDT-SWAP
+  - ETH-USDT-SWAP
+  - SOL-USDT-SWAP
+signal_logic:
+  entry: "T1(爆仓 p99 强度)∧T2(ATR 位移)触发瀑布窗;E1(爆仓衰竭)∧E2(OI 止跌)确认入场"
+  exit: "TP 50%回撤/session VWAP,SL 0.25×ATR,90m 时间止损"
+  min_confluence: 1
+  direction_mode: dual
+risk:
+  risk_per_trade_bps: 25
+# gate 字段仅为满足 schema 占位 —— LER 判决走 helios_backtest_v51 的 CPCV/DSR
+# (spec §7.1/§10),不是 strategy_gate.py 的 walk-forward;这里不会被实际调用。
+gate:
+  embargo_bars: 1440   # 24h @ 1m bars,spec §7.1 的 embargo 下限
+mode: research
+spec_ref: HELIVEX-IMPL_SPEC-LER-001
+spec_params_file: docs/ler_okx_swap.params.yaml

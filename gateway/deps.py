@@ -40,6 +40,9 @@ STRATEGY_YAML_MAP = {
     "vwap_mr_dual": STRATEGIES_DIR / "vwap_mr_1h.yaml",
     "spot_trend": STRATEGIES_DIR / "spot_trend_1d.yaml",
     "scalp_5m": STRATEGIES_DIR / "scalp_5m.yaml",
+    # 研究阶段占位(LER,见 strategies/ler_okx_swap.yaml 顶部注释)——无 paper/
+    # strategies/*.py 实现,paper.signals 恒为 0 行,不是真在跑的策略。
+    "ler_okx": STRATEGIES_DIR / "ler_okx_swap.yaml",
 }
 
 # paper.signals strategy_id prefixes written by paper/strategies/*.py
@@ -48,6 +51,7 @@ STRATEGY_SIGNAL_PREFIX = {
     "vwap_mr_dual": "vwap_mr_1h_%",
     "spot_trend": "spot_trend_1d_%",
     "scalp_5m": "scalp_5m_%",
+    "ler_okx": "ler_okx_%",  # 保留位——无实现,恒为 0 行
 }
 
 _pool: asyncpg.Pool | None = None
