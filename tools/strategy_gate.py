@@ -83,6 +83,11 @@ STRATEGY_MAP = {
     "trend_dual": ("omodul.strategies.trend_dual", "trend_dual"),
     "vwap_mr_dual": ("omodul.strategies.vwap_mr_dual", "vwap_mr_dual"),
     "spot_trend": ("omodul.strategies.spot_trend", "spot_trend"),
+    # helixa 移植策略的回测信号(gate 用),live 逻辑见 paper/strategies/*_port.py
+    "trend_follower_port": (
+        "omodul.strategies.trend_follower_port",
+        "trend_follower_port",
+    ),
 }
 
 
