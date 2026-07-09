@@ -1,0 +1,13 @@
+[Unit]
+Description=Helivex regime adapter — 3O regime_workflow (crisis/trend/range, advisory), writes paper.regime_state (DB->DB, no proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/soffy/projects/helivex
+# 纯 DB->DB(market_data.ohlcv_5m 与 paper.* 同在 platform-postgres),无 egress。
+# 计算在 platform/3O 的 oskill.regime + omodul.regime_workflow。
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/regime_adapter.py --once
+StandardOutput=append:/home/soffy/helivex_regime_adapter.log
+StandardError=append:/home/soffy/helivex_regime_adapter.log

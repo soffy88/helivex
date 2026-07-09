@@ -1409,6 +1409,46 @@ async def get_portfolio_position_caps() -> dict:
     }
 
 
+# ─── /regime (3O Phase 2, advisory market-regime classification) ──────────────
+
+
+@app.get("/regime")
+async def get_regime() -> dict:
+    """Latest per-instrument market regime (crisis/trend/range) from
+    paper.regime_state. ADVISORY only — helivex research (646dc71) found HMM
+    regimes have no OOS persistence, so consumers treat this as one soft input,
+    never a hard gate."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval("SELECT to_regclass('paper.regime_state')")
+        if not exists:
+            return {"as_of": None, "advisory": True, "regimes": []}
+        rows = await conn.fetch(
+            """SELECT instrument, state, confidence, method_used, rows_used,
+                      advisory, detail, cycle_ts
+               FROM paper.regime_state
+               WHERE cycle_ts = (SELECT MAX(cycle_ts) FROM paper.regime_state)
+               ORDER BY instrument"""
+        )
+    return {
+        "as_of": rows[0]["cycle_ts"].isoformat() if rows else None,
+        "advisory": True,
+        "regimes": [
+            {
+                "instrument": r["instrument"],
+                "state": r["state"],
+                "confidence": float(r["confidence"])
+                if r["confidence"] is not None
+                else None,
+                "method_used": r["method_used"],
+                "rows_used": r["rows_used"],
+                "detail": json.loads(r["detail"]) if r["detail"] else {},
+            }
+            for r in rows
+        ],
+    }
+
+
 # ─── /portfolio/kill ──────────────────────────────────────────────────────────
 
 

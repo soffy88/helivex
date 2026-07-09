@@ -18,6 +18,7 @@ controlled; install with `bash ops/systemd/install.sh`.
 | helivex-funding-md-adapter.timer | funding from iris/md (DB→DB) | timer |
 | helivex-orderbook-md-adapter.timer | L2 features from iris/md, OKX LIVE (DB→DB) | timer |
 | helivex-cvar-risk-adapter.timer | CVaR 组合权重 + 3 层动态仓位上限(3O omodul,Stage A 仅观察,不接实盘)| timer |
+| helivex-regime-adapter.timer | 市场 regime 识别 crisis/trend/range(3O omodul,advisory soft input,每 30min)| timer |
 
 `helivex-l2recorder` (NautilusTrader L2 recorder, OKX DEMO) is **retired** —
 superseded by `helivex-orderbook-md-adapter.timer` above. Stopped via `docker stop`
