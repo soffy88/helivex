@@ -1449,6 +1449,46 @@ async def get_regime() -> dict:
     }
 
 
+# ─── /engines (3O Phase 4, per-engine directional signals) ────────────────────
+
+
+@app.get("/engines")
+async def get_engines() -> dict:
+    """Latest per-engine directional signals (paper.engine_signals). `promoted`
+    = passed the engine's own gate (ML: DSR; TA: rule-based always true; LLM:
+    disabled slot). Un-promoted engines are observe-only — unlike helixa, whose
+    DSR gate never fired so a 0.2315-accuracy model kept voting."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval("SELECT to_regclass('paper.engine_signals')")
+        if not exists:
+            return {"as_of": None, "engines": []}
+        rows = await conn.fetch(
+            """SELECT engine, instrument, direction, score, confidence, promoted,
+                      detail, cycle_ts
+               FROM paper.engine_signals
+               WHERE cycle_ts = (SELECT MAX(cycle_ts) FROM paper.engine_signals)
+               ORDER BY engine, instrument"""
+        )
+    return {
+        "as_of": rows[0]["cycle_ts"].isoformat() if rows else None,
+        "engines": [
+            {
+                "engine": r["engine"],
+                "instrument": r["instrument"],
+                "direction": r["direction"],
+                "score": float(r["score"]) if r["score"] is not None else None,
+                "confidence": float(r["confidence"])
+                if r["confidence"] is not None
+                else None,
+                "promoted": r["promoted"],
+                "detail": json.loads(r["detail"]) if r["detail"] else {},
+            }
+            for r in rows
+        ],
+    }
+
+
 # ─── /portfolio/kill ──────────────────────────────────────────────────────────
 
 
