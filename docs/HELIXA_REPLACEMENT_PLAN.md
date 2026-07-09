@@ -30,11 +30,12 @@ helivex **不照搬** helixa 的微服务 + RabbitMQ 架构,只复刻**能力**�
 | 执行 | nautilus 2 策略(trend_follower/scalper_v2)| 策略逻辑纯函数 | helivex paper 策略 | **7** | ⬜ 可选 |
 | API | 端点(regime/engines/consensus/risk_eval + P1)| gateway | 已随 P2-P6 建 | **8** | ✅ 核心完成 |
 | 前端 | Ensemble tab(regime/引擎/共识/风控全链路)| helivex-web | EnsembleTab | **8** | ✅ 完成 |
-| 运维 | watchdog 5 声明式检查 | (evaluator)| paper/alerter.py | **9** | ⬜ |
-| 运维 | tg-notifier 事件推送 | (service)| Telegram 事件推送 | **9** | ⬜ |
+| 运维 | 3O 管线健康检查 | evaluator | eval_ensemble_freshness | **9** | ✅ 完成 |
+| 运维 | regime 切换事件推送 | evaluator | eval_regime_switch | **9** | ✅ 完成 |
 | 运维 | 引擎权重/归因面板 | helivex-web | EnsembleTab 权重卡 | **8** | ✅ 权重已画(归因待成交)|
-| 安全 | edge Worker(白名单+脱敏代理)| (可选)| gateway 脱敏中间件 | **10** | ⬜ 可选 |
+| 安全 | edge 脱敏 | (可选)| — | **10** | ⏸ 评估非必需(见退役清单)|
 | — | RabbitMQ / redis-bridge | — | **不复刻**(表+轮询替代)| — | N/A |
+| 退役 | helixa 决策层停机 | — | HELIXA_DECOMMISSION.md | **10** | ✅ 已执行 |
 
 ## Phase 顺序与依赖
 
