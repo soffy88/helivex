@@ -120,7 +120,7 @@ class FuturesSignalPort(Strategy):
                 lambda conn: conn.fetch(
                     """SELECT high AS h, low AS l, close AS c, volume AS v
                      FROM market_data.ohlcv_1h
-                     WHERE instrument = $1
+                     WHERE instrument = $1 AND source = 'okx_swap_1h'
                      ORDER BY bar_close_ts DESC LIMIT $2""",
                     inst_db,
                     limit,

@@ -8,7 +8,9 @@ instruments:
 - ETH-USDT-SWAP
 - SOL-USDT-SWAP
 db_table: market_data.ohlcv_1h
-db_source: okx
+# okx_swap_1h = 真 1H SWAP bars(backfill_1h_swap.py 补齐)。此前误写 okx(现货源),
+# gate 对 SWAP 标的会查无数据。
+db_source: okx_swap_1h
 indicators:
   breakout:
     enabled: true

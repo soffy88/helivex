@@ -97,7 +97,7 @@ class Donchian4H(Strategy):
                                    TIMESTAMPTZ '2000-01-01') AS b,
                           (array_agg(close ORDER BY bar_close_ts DESC))[1] AS c
                      FROM market_data.ohlcv_1h
-                     WHERE instrument = $1
+                     WHERE instrument = $1 AND source = 'okx_swap'
                        AND bar_close_ts <= date_bin('4 hours', now(), TIMESTAMPTZ '2000-01-01')
                      GROUP BY 1 ORDER BY b DESC LIMIT $2""",
                     inst_db,

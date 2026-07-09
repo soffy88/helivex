@@ -8,7 +8,9 @@ instruments:
 - ETH-USDT-SWAP
 - SOL-USDT-SWAP
 db_table: market_data.ohlcv_1h
-db_source: okx_swap_5m
+# okx_swap = SWAP 4H bars(2 年+)→ resample_to_1d 给 gate 数百根日线。
+# 此前误写 okx_swap_5m 导致 gate 去读 5m 表,BTC 只剩 58 根日线报 insufficient。
+db_source: okx_swap
 resample_to_1d: true
 donchian:
   n_enter: 20

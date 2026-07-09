@@ -85,7 +85,7 @@ class SpotTrend1D(Strategy):
                     """SELECT date_trunc('day', bar_close_ts - interval '1 second') AS d,
                           (array_agg(close ORDER BY bar_close_ts DESC))[1] AS c
                      FROM market_data.ohlcv_1h
-                     WHERE instrument = $1
+                     WHERE instrument = $1 AND source = 'okx_swap'
                        AND bar_close_ts <= date_trunc('day', now())
                      GROUP BY 1 ORDER BY d DESC LIMIT $2""",
                     inst_db,

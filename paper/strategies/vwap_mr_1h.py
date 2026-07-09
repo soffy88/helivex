@@ -78,7 +78,8 @@ class VwapMR1H(Strategy):
             rows = await self._db.execute(
                 lambda conn: conn.fetch(
                     """SELECT close AS c, volume AS v FROM market_data.ohlcv_1h
-                     WHERE instrument = $1 AND bar_close_ts <= date_trunc('hour', now())
+                     WHERE instrument = $1 AND source = 'okx_swap_1h'
+                       AND bar_close_ts <= date_trunc('hour', now())
                      ORDER BY bar_close_ts DESC LIMIT $2""",
                     inst_db,
                     limit,

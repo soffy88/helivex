@@ -138,7 +138,7 @@ class TrendFollowerPort(Strategy):
                     """SELECT max(high) AS h, min(low) AS l,
                           (array_agg(close ORDER BY bar_close_ts DESC))[1] AS c
                      FROM market_data.ohlcv_1h
-                     WHERE instrument = $1
+                     WHERE instrument = $1 AND source = 'okx_swap'
                        AND bar_close_ts < date_trunc('day', now())
                      GROUP BY date_trunc('day', bar_close_ts)
                      ORDER BY date_trunc('day', bar_close_ts) DESC
