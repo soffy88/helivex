@@ -1786,6 +1786,33 @@ async def get_engines() -> dict:
     }
 
 
+@app.get("/engines/weights")
+async def get_engine_weights() -> dict:
+    """Per-engine EWMA-learned weights (paper.engine_weights): base vs dynamic +
+    rolling accuracy. Feeds the consensus; exposed for the TG control bot."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval("SELECT to_regclass('paper.engine_weights')")
+        if not exists:
+            return {"weights": []}
+        rows = await conn.fetch(
+            """SELECT engine, base_weight, accuracy, dyn_weight, updated_at
+               FROM paper.engine_weights ORDER BY dyn_weight DESC"""
+        )
+    return {
+        "weights": [
+            {
+                "engine": r["engine"],
+                "base_weight": float(r["base_weight"]),
+                "accuracy": float(r["accuracy"]) if r["accuracy"] is not None else None,
+                "dyn_weight": float(r["dyn_weight"]),
+                "updated_at": r["updated_at"].isoformat() if r["updated_at"] else None,
+            }
+            for r in rows
+        ],
+    }
+
+
 # ─── /consensus (3O Phase 5, multi-engine ensemble) ───────────────────────────
 
 

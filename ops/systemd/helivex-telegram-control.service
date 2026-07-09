@@ -1,0 +1,23 @@
+[Unit]
+Description=Helivex Telegram 双向控制机器人(3O Hermes 替代:查询 + 真实 pause/resume)
+After=network-online.target helivex-gw.service helivex-paper.service
+Wants=network-online.target
+Documentation=https://github.com/soffy88/helivex
+
+[Service]
+Type=simple
+WorkingDirectory=/home/soffy/projects/helivex
+# TG_BOT_TOKEN / TG_CHAT_ID 来自 .env(与 paper 节点同一对凭证)。
+EnvironmentFile=/home/soffy/projects/helivex/.env
+Environment=HELIVEX_GATEWAY_URL=http://127.0.0.1:8765
+Environment=HELIVEX_PAPER_CONTAINER=helivex-paper
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/telegram_control.py
+
+Restart=always
+RestartSec=10
+
+StandardOutput=append:/home/soffy/helivex_telegram_control.log
+StandardError=append:/home/soffy/helivex_telegram_control.log
+
+[Install]
+WantedBy=helivex.target
