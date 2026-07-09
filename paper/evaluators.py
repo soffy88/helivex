@@ -33,7 +33,7 @@ PAPER_PID_FILE = Path("/tmp/helivex_paper_node.pid")
 def _maybe_restart(service: str, cooldown_s: float = 600.0) -> bool:
     """Auto-remediation: `systemctl --user restart <service>`, rate-limited by a
     cooldown file so a persistent fault can't become a restart loop. Returns True
-    if a restart was issued. Used ONLY for the data-only L2 recorder — the trading
+    if a restart was issued. Used ONLY for data-only collectors — the trading
     node is left alert-only so a human decides on a disruptive bounce.
     """
     stamp = Path(f"/tmp/helivex_restart_{service}.stamp")
@@ -361,17 +361,22 @@ async def eval_web_alive(*, config: dict | None = None) -> list[dict]:
         ]
 
 
-# ── 7. L2 recorder data flow ──────────────────────────────────────────────────
+# ── 7. L2 orderbook data flow ─────────────────────────────────────────────────
 
 
 async def eval_l2_recorder_flow(*, config: dict | None = None) -> list[dict]:
-    """L2 recorder liveness via row recency — catches a SILENT WS stall (process
-    stays up, data stops), which Restart=always cannot detect.
+    """L2 orderbook feature flow liveness via row recency.
 
-    Recorder persists every ~10s × 3 instruments; stale > stale_seconds → WS dead.
+    market_data.orderbook_features is now populated by the iris/md adapter
+    (helivex-orderbook-md-adapter.timer, every 30s), not the retired
+    helivex-l2recorder — that recorder is stopped and must stay stopped (it wrote
+    OKX DEMO data into this same table; re-enabling it would mix DEMO into LIVE).
+    Stale > stale_seconds → the adapter timer likely stalled.
     """
     cfg = config or {}
-    stale_s: float = cfg.get("stale_seconds", 5 * 60)  # 5 min (30× the 10s cadence)
+    stale_s: float = cfg.get(
+        "stale_seconds", 5 * 60
+    )  # 5 min (10x the 30s adapter cadence)
 
     try:
         conn = await asyncpg.connect(DB_DSN)
@@ -393,21 +398,20 @@ async def eval_l2_recorder_flow(*, config: dict | None = None) -> list[dict]:
 
     age = (datetime.now(timezone.utc) - row["last_ts"]).total_seconds()
     if age > stale_s:
-        # Auto-remediate: the recorder is data-only, so a bounce is safe. The
-        # resilient DB pool (paper.db_pool) fixes the common cause, but this catches
-        # any other silent stall. Rate-limited so it can't loop.
+        # Auto-remediate by re-running the md adapter, not the retired recorder.
+        # Rate-limited so it can't loop.
         restarted = (
-            _maybe_restart("helivex-l2recorder")
+            _maybe_restart("helivex-orderbook-md-adapter")
             if cfg.get("auto_restart", True)
             else False
         )
-        suffix = " — auto-restarting recorder" if restarted else ""
+        suffix = " — auto-restarting md adapter" if restarted else ""
         return [
             _alert(
                 "l2_recorder",
                 "critical",
                 f"No L2 row in {age / 60:.1f}min (threshold {stale_s / 60:.0f}min) "
-                f"— recorder WS stalled?{suffix}",
+                f"— orderbook-md-adapter stalled?{suffix}",
             )
         ]
     return []
