@@ -17,13 +17,13 @@ helivex **不照搬** helixa 的微服务 + RabbitMQ 架构,只复刻**能力**�
 | 风控 | CVaR 组合优化 | oprim+oskill+omodul | cvar_risk_adapter | **1** | ✅ 完成(observe) |
 | 风控 | 3 层仓位裁剪 + 熔断 | oskill+omodul | 同上 | **1** | ✅ 完成 |
 | 风控 | crisis-override + fee/edge 过滤 | oskill | 扩展 P1 | **6** | ⬜ |
-| regime | GaussianHMM 3 态(有 bug)| oskill(已有 hmm_regime_detect)+omodul | regime_adapter | **2** | ⬜ |
+| regime | 市场状态 crisis/trend/range(确定性主+HMM可选)| oskill+omodul | regime_adapter | **2** | ✅ 完成(advisory) |
 | 数据 | 情绪 fear-greed(Alt.me FGI)| **iris collector**(数据层归 iris)| md.sentiment | **3** | ✅ 完成 |
 | 数据 | 链上(Coin Metrics 免费,BTC/ETH)| **iris collector** | md.onchain | **3** | ✅ 完成 |
 | 信号 | FGI→bull/bear 权重 + 链上→tanh signal | oskill(合成)| P5 共识消费 | 5 | ⬜ 留 P5 |
-| 信号 | tradingview 多周期 TA(自研指标)| oskill(纯 TA)+adapter | ta_engine_adapter | **4a** | ⬜ |
-| 信号 | qlib-v2 ML(LightGBM+三重障碍+WFV)| oskill+omodul | ml_engine_adapter | **4b** | ⬜ 建槽+接真门禁 |
-| 信号 | LLM 三件套(tradingagents/finrobot/aihedge)| omodul | llm_engine_adapter | **4c** | ⬜ 可选(付费,待定) |
+| 信号 | 多周期 TA(自研指标)| oskill(纯 TA)+adapter | signal_engines_adapter | **4a** | ✅ 完成 |
+| 信号 | ML(LightGBM+三重障碍+WFV+DSR门)| oprim+oskill+omodul | signal_engines_adapter | **4b** | ✅ 完成(门拒绝) |
+| 信号 | LLM 人格槽 | omodul | signal_engines_adapter | **4c** | ✅ 建槽(禁用零成本) |
 | 共识 | prob-engine 多引擎融合 | omodul | consensus_adapter | **5** | ⬜ |
 | 共识 | weight-learner(EWMA 在线权重)| oskill | 同上 | **5** | ⬜ |
 | 归因 | factor-analyzer 归因 + IC/ICIR | oskill | attribution_adapter | **5** | ⬜ |
