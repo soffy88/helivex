@@ -39,7 +39,7 @@ MD_DSN = os.environ.get(
 INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
 _ONCHAIN_ASSET = {"BTC-USDT-SWAP": "btc", "ETH-USDT-SWAP": "eth"}  # SOL 无链上
 # base weights(helixa 口径:qlib_v2=1.8, tv=1.0, llm=1.2)映射到 helivex 引擎
-BASE_WEIGHTS = {"ta_multi": 1.0, "ml_lgb": 1.8, "llm_persona": 1.2}
+BASE_WEIGHTS = {"ta_multi": 1.0, "tf_trend": 1.0, "tf_scalp": 1.0, "ml_lgb": 1.8, "llm_persona": 1.2}
 
 DDL = """
 CREATE TABLE IF NOT EXISTS paper.consensus_signals (

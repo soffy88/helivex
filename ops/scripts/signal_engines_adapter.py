@@ -68,6 +68,43 @@ async def _closes(md: asyncpg.Pool, symbol: str, tf: str) -> list[float]:
     return [float(r["close"]) for r in rows]
 
 
+async def _ohlcv(
+    md: asyncpg.Pool, symbol: str, tf: str
+) -> tuple[list[float], list[float], list[float]]:
+    rows = await md.fetch(
+        """SELECT high, low, close FROM md.ohlcv
+           WHERE venue='okx' AND instrument_type='perp' AND timeframe=$1 AND symbol=$2
+           ORDER BY bar_open_ts ASC""",
+        tf,
+        symbol,
+    )
+    return (
+        [float(r["high"]) for r in rows],
+        [float(r["low"]) for r in rows],
+        [float(r["close"]) for r in rows],
+    )
+
+
+def _tf_trend(highs: list, lows: list, closes: list) -> dict | None:
+    """helixa trend_follower(Donchian+ADX+Chandelier)。样本不足返回 None(诚实跳过)。"""
+    from oskill.signal.trend_follower_signal import trend_follower_signal
+
+    try:
+        return trend_follower_signal(highs, lows, closes)
+    except ValueError:
+        return None
+
+
+def _tf_scalp(closes: list, highs: list, lows: list) -> dict | None:
+    """helixa intraday_scalper_v2(ADX 双模 breakout/mean-reversion)。"""
+    from oskill.signal.intraday_scalper_signal import intraday_scalper_signal
+
+    try:
+        return intraday_scalper_signal(closes, highs, lows)
+    except ValueError:
+        return None
+
+
 def _ta_signal(closes_by_tf: dict[str, list[float]]) -> dict:
     """多周期 TA 对齐:各 tf 跑 ta_multi_indicator_signal,分数取均值。"""
     from oskill.signal.ta_multi_indicator_signal import ta_multi_indicator_signal
@@ -129,6 +166,30 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
                 json.dumps(ta["detail"], default=str),
             )
             written.append({"engine": "ta_multi", "inst": inst, **ta})
+
+            # trend_follower(P7,Donchian+ADX+Chandelier,h4)+ intraday_scalper(5m 双模)
+            h4, l4, c4 = await _ohlcv(md, sym, "h4")
+            h5, l5, c5 = await _ohlcv(md, sym, "m5")
+            for engine_name, fn in (
+                ("tf_trend", lambda: _tf_trend(h4, l4, c4)),
+                ("tf_scalp", lambda: _tf_scalp(c5, h5, l5)),
+            ):
+                sig = fn()
+                if sig is None:
+                    continue
+                await conn.execute(
+                    """INSERT INTO paper.engine_signals
+                       (cycle_ts, engine, instrument, direction, score, confidence, promoted, detail, fingerprint)
+                       VALUES ($1,$2,$3,$4,$5,$6,TRUE,$7,NULL)""",
+                    cycle_ts,
+                    engine_name,
+                    inst,
+                    sig["direction"],
+                    sig["score"],
+                    sig["confidence"],
+                    json.dumps(sig.get("votes", {}), default=str),
+                )
+                written.append({"engine": engine_name, "inst": inst, **sig})
 
             # ML(gated)
             if inst in ML_ENABLED and len(closes_5m) > 600:

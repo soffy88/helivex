@@ -40,7 +40,7 @@ CORRELATION_PAIRS = {
     "BTC-USDT-SWAP": {"ETH-USDT-SWAP": 0.85},
     "ETH-USDT-SWAP": {"BTC-USDT-SWAP": 0.85},
 }
-BASE_WEIGHTS = {"ta_multi": 1.0, "ml_lgb": 1.8, "llm_persona": 1.2}
+BASE_WEIGHTS = {"ta_multi": 1.0, "tf_trend": 1.0, "tf_scalp": 1.0, "ml_lgb": 1.8, "llm_persona": 1.2}
 ATR_PERIOD = 14
 
 DDL = """
