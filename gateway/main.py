@@ -1489,6 +1489,71 @@ async def get_engines() -> dict:
     }
 
 
+# ─── /consensus (3O Phase 5, multi-engine ensemble) ───────────────────────────
+
+
+@app.get("/consensus")
+async def get_consensus() -> dict:
+    """Latest multi-engine consensus per instrument (paper.consensus_signals).
+    Only `promoted` engines drive `should_execute` (helivex gate discipline);
+    consensus itself is observe-only until P6 wires enforcement."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval("SELECT to_regclass('paper.consensus_signals')")
+        if not exists:
+            return {"as_of": None, "consensus": [], "weights": []}
+        rows = await conn.fetch(
+            """SELECT instrument, final_direction, consensus_score, kelly_position,
+                      agreement_ratio, is_divergent, should_execute, n_promoted,
+                      regime_state, sentiment_bias, onchain_bias, detail, cycle_ts
+               FROM paper.consensus_signals
+               WHERE cycle_ts = (SELECT MAX(cycle_ts) FROM paper.consensus_signals)
+               ORDER BY instrument"""
+        )
+        wrows = await conn.fetch(
+            "SELECT engine, base_weight, accuracy, dyn_weight FROM paper.engine_weights ORDER BY engine"
+        )
+    return {
+        "as_of": rows[0]["cycle_ts"].isoformat() if rows else None,
+        "consensus": [
+            {
+                "instrument": r["instrument"],
+                "final_direction": r["final_direction"],
+                "consensus_score": float(r["consensus_score"])
+                if r["consensus_score"] is not None
+                else None,
+                "kelly_position": float(r["kelly_position"])
+                if r["kelly_position"] is not None
+                else None,
+                "agreement_ratio": float(r["agreement_ratio"])
+                if r["agreement_ratio"] is not None
+                else None,
+                "is_divergent": r["is_divergent"],
+                "should_execute": r["should_execute"],
+                "n_promoted": r["n_promoted"],
+                "regime_state": r["regime_state"],
+                "sentiment_bias": float(r["sentiment_bias"])
+                if r["sentiment_bias"] is not None
+                else None,
+                "onchain_bias": float(r["onchain_bias"])
+                if r["onchain_bias"] is not None
+                else None,
+                "detail": json.loads(r["detail"]) if r["detail"] else {},
+            }
+            for r in rows
+        ],
+        "weights": [
+            {
+                "engine": w["engine"],
+                "base_weight": float(w["base_weight"]),
+                "accuracy": float(w["accuracy"]) if w["accuracy"] is not None else None,
+                "dyn_weight": float(w["dyn_weight"]),
+            }
+            for w in wrows
+        ],
+    }
+
+
 # ─── /portfolio/kill ──────────────────────────────────────────────────────────
 
 
