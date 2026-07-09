@@ -45,6 +45,8 @@ STRATEGY_YAML_MAP = {
     "ler_okx": STRATEGIES_DIR / "ler_okx_swap.yaml",
     # helixa trend_follower 移植(补齐 L)——observe:只记录信号不下单,过 gate 前 NO-GO
     "trend_follower_port": STRATEGIES_DIR / "trend_follower_port.yaml",
+    "scalper_v2_port": STRATEGIES_DIR
+    / "scalper_v2_port.yaml",  # helixa intraday_scalper_v2 移植(observe)
 }
 
 # paper.signals strategy_id prefixes written by paper/strategies/*.py
@@ -55,6 +57,7 @@ STRATEGY_SIGNAL_PREFIX = {
     "scalp_5m": "scalp_5m_%",
     "ler_okx": "ler_okx_%",  # 保留位——无实现,恒为 0 行
     "trend_follower_port": "trend_follower_port_%",  # 移植:observe 信号(无 fills)
+    "scalper_v2_port": "scalper_v2_port_%",  # 移植:observe 信号(无 fills)
 }
 
 _pool: asyncpg.Pool | None = None

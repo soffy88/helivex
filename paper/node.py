@@ -41,6 +41,10 @@ from paper.strategies.trend_follower_port import (
     TrendFollowerPort,
     TrendFollowerPortConfig,
 )
+from paper.strategies.scalper_v2_port import (
+    ScalperV2Port,
+    ScalperV2PortConfig,
+)
 
 
 def _okx_env():
@@ -236,6 +240,33 @@ def build_node() -> TradingNode:
                     max_holding_days=int(tf.get("max_holding_days", 30)),
                     qty_usd=float(tf.get("qty_usd", 200.0)),
                     trade_enabled=_tf_enabled,
+                )
+            )
+        )
+
+    # Strategy 6 (ported) — helixa intraday_scalper_v2 (5m dual-mode ADX-hysteresis:
+    # RSI/BB mean-reversion ↔ BB-breakout + ATR×1.5 trailing + 4h time stop). OBSERVE
+    # ONLY: trade_enabled=False → logs signals for gating, submits NO orders.
+    sv = _live("scalper_v2_port.yaml")
+    _sv_enabled = bool(sv.get("trade_enabled", False))
+    for _sym in ("BTC", "ETH", "SOL"):
+        node.trader.add_strategy(
+            ScalperV2Port(
+                ScalperV2PortConfig(
+                    instrument_id=f"{_sym}-USDT-SWAP.OKX",
+                    bar_type=f"{_sym}-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
+                    bb_period=int(sv.get("bb_period", 20)),
+                    bb_k=float(sv.get("bb_k", 2.0)),
+                    rsi_period=int(sv.get("rsi_period", 14)),
+                    adx_period=int(sv.get("adx_period", 14)),
+                    adx_enter_breakout=float(sv.get("adx_enter_breakout", 22.0)),
+                    adx_exit_breakout=float(sv.get("adx_exit_breakout", 18.0)),
+                    cooldown_bars=int(sv.get("cooldown_bars", 4)),
+                    trailing_atr_mult=float(sv.get("trailing_atr_mult", 1.5)),
+                    breakout_exit_adx=float(sv.get("breakout_exit_adx", 15.0)),
+                    max_holding_bars=int(sv.get("max_holding_bars", 48)),
+                    qty_usd=float(sv.get("qty_usd", 50.0)),
+                    trade_enabled=_sv_enabled,
                 )
             )
         )

@@ -1,31 +1,28 @@
-"""Strategy 5 (ported): helixa trend_follower → helivex 3O paper node.
+"""Strategy 6 (ported): helixa intraday_scalper_v2 → helivex 3O paper node.
 
-Faithful reimplementation of helixa services/nautilus-trader/strategies/trend_follower
-(HELIXA_FUTURES_DESIGN_V1) — the *algorithm*, in helivex's own scaffolding:
+Faithful reimplementation of helixa services/nautilus-trader/strategies/intraday_scalper_v2
+(HELIXA V1.5 §6.6) — a dual-mode ADX-hysteresis scalper on 5m bars:
 
-  ENTER LONG:  close > Donchian(20) upper  AND  ADX(14) >= adx_entry(20)
-               AND  atr_health_min <= ATR/close <= atr_health_max
-  ENTER SHORT: close < Donchian(20) lower  AND  ADX(14) >= adx_entry
-               AND  health ok
-  EXIT LONG:   close < Chandelier long stop (HH(22) - ATR*3)  OR  ADX < adx_exit(15)
-               OR  held >= max_holding_days(30)
-  EXIT SHORT:  close > Chandelier short stop (LL(22) + ATR*3)  OR  ADX < adx_exit
-               OR  held >= max_holding_days
+  Mode switch (hysteresis + cooldown):
+    mean_reversion → breakout  when ADX(14) >= adx_enter_breakout(22)
+    breakout → mean_reversion  when ADX(14) <  adx_exit_breakout(18)
+    no re-switch within mode_switch_cooldown_bars(4)
 
-Differences from helixa (documented, honest):
-  - helixa read an external regime flag + risk-futures allow flag from Redis. helivex
-    has an advisory regime layer (paper.regime_state) that research (646dc71) found
-    has no OOS persistence, so it is NOT hard-wired here (kept as one soft input at
-    the consensus layer, not an in-strategy hard gate). The load-bearing entry/exit
-    (Donchian + ADX gate + ATR health + Chandelier trailing + time stop) is faithful.
-  - Indicators are hand-rolled (Wilder ATR/ADX) so the live node has no dependency on
-    a specific NautilusTrader indicator API version.
+  Entry (flat, ATR-health ok):
+    mean_reversion:  RSI(14) <= rsi_oversold(30) → long ; >= rsi_overbought(70) → short
+    breakout:        close > BB(20,2) upper → long ; close < BB lower → short
 
-**Gating discipline** (per session rule): DEFAULT `trade_enabled=False` → the strategy
-computes + logs signals for measurement/gating but submits NO orders. It does not
-touch the paper book until it passes helivex's DSR/PBO gate and a human flips the flag.
-This is the "NO-GO → observe only, no orders" contract — distinct from the existing 4
-strategies which trade on paper regardless.
+  Exit (by the mode the position was ENTERED in):
+    mean_reversion long:  close >= BB mid  OR  RSI >= rsi_neutral_low(45)
+    mean_reversion short: close <= BB mid  OR  RSI <= rsi_neutral_high(55)
+    breakout long:  close < (trailing high - ATR*1.5)  OR  ADX < breakout_exit_adx(15)
+    breakout short: close > (trailing low  + ATR*1.5)  OR  ADX < breakout_exit_adx
+    both: held >= max_holding_bars (4h / 5m = 48)
+
+Same gating discipline as trend_follower_port: trade_enabled=False → OBSERVE, logs
+signals only, submits NO orders until a gate PASS + human flip. helixa's external
+Redis regime/risk gates are not hard-wired (advisory regime lives at the consensus
+layer). RSI is [0,100] here (helixa's Nautilus RSI was [0,1] — thresholds converted).
 """
 
 from __future__ import annotations
@@ -44,43 +41,51 @@ from paper.risk import RISK, log_risk_event
 from paper.db import DB_DSN, DDL, log_signal, log_fill
 from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
+from paper.strategies._indicators import wilder_atr, wilder_adx, wilder_rsi, bollinger
 
 
-from paper.strategies._indicators import wilder_atr, wilder_adx
-
-
-class TrendFollowerPortConfig(StrategyConfig, frozen=True):
+class ScalperV2PortConfig(StrategyConfig, frozen=True):
     instrument_id: str
     bar_type: str
-    donchian_period: int = 20
+    bb_period: int = 20
+    bb_k: float = 2.0
+    rsi_period: int = 14
     adx_period: int = 14
-    adx_entry: float = 20.0
-    adx_exit: float = 15.0
-    chandelier_period: int = 22
-    chandelier_mult: float = 3.0
-    atr_health_min: float = 0.005
-    atr_health_max: float = 0.10
-    max_holding_days: int = 30
-    qty_usd: float = 200.0
+    adx_enter_breakout: float = 22.0
+    adx_exit_breakout: float = 18.0
+    cooldown_bars: int = 4
+    rsi_overbought: float = 70.0
+    rsi_oversold: float = 30.0
+    rsi_neutral_high: float = 55.0
+    rsi_neutral_low: float = 45.0
+    trailing_atr_mult: float = 1.5
+    breakout_exit_adx: float = 15.0
+    max_holding_bars: int = 48  # 4h / 5m
+    atr_health_min: float = 0.0005
+    atr_health_max: float = 0.05
+    qty_usd: float = 50.0
     trade_enabled: bool = False  # NO-GO → observe only; flip True only after gate pass
 
 
-class TrendFollowerPort(Strategy):
-    """helixa trend_follower ported to helivex (observe-gated by default)."""
+class ScalperV2Port(Strategy):
+    """helixa intraday_scalper_v2 ported to helivex (observe-gated by default)."""
 
-    STRATEGY_BASE = "trend_follower_port"
+    STRATEGY_BASE = "scalper_v2_port"
 
-    def __init__(self, config: TrendFollowerPortConfig) -> None:
+    def __init__(self, config: ScalperV2PortConfig) -> None:
         super().__init__(config)
-        maxn = (
-            max(config.donchian_period, config.chandelier_period, 2 * config.adx_period)
-            + 5
-        )
+        maxn = max(config.bb_period, config.rsi_period, 2 * config.adx_period) + 5
         self._highs: deque[float] = deque(maxlen=maxn + 2)
         self._lows: deque[float] = deque(maxlen=maxn + 2)
         self._closes: deque[float] = deque(maxlen=maxn + 2)
         self._position: int = 0
+        self._mode: str = "mr"  # mr = mean_reversion, bo = breakout
+        self._entry_mode: str = "mr"  # mode the current position was entered in
+        self._cooldown: int = 0
         self._bars_held: int = 0
+        self._trail_extreme: float | None = (
+            None  # trailing high(long)/low(short) for bo exit
+        )
         self._signal_price: float | None = None
         self._signal_ts: int | None = None
         self._pending_signal_id: int | None = None
@@ -101,10 +106,6 @@ class TrendFollowerPort(Strategy):
             f"[{self._strategy_id()}] started [{mode}], bars={self._bar_type}"
         )
         self._db = ResilientPool(DB_DSN, DDL, name=self._strategy_id(), logger=self.log)
-        # Warm up ADX/ATR/Donchian from helivex's own daily OHLC (resampled from
-        # market_data.ohlcv_1h) instead of a ~45-bar live wait. OKX doesn't serve
-        # daily history via internal tick aggregation, so request_bars is a no-op
-        # here; a DB seed is the reliable path. Best-effort — never crashes the node.
         asyncio.ensure_future(self._boot())
 
     async def _boot(self) -> None:
@@ -115,21 +116,15 @@ class TrendFollowerPort(Strategy):
 
     async def _seed_warmup(self) -> None:
         sid = self._strategy_id()
-        inst_db = self.config.instrument_id.split(".")[
-            0
-        ]  # BTC-USDT-SWAP.OKX -> BTC-USDT-SWAP
-        limit = self._highs.maxlen or 60
+        inst_db = self.config.instrument_id.split(".")[0]
+        limit = self._highs.maxlen or 80
         try:
             rows = await self._db.execute(
                 lambda conn: conn.fetch(
-                    """SELECT max(high) AS h, min(low) AS l,
-                          (array_agg(close ORDER BY bar_close_ts DESC))[1] AS c
-                     FROM market_data.ohlcv_1h
-                     WHERE instrument = $1
-                       AND bar_close_ts < date_trunc('day', now())
-                     GROUP BY date_trunc('day', bar_close_ts)
-                     ORDER BY date_trunc('day', bar_close_ts) DESC
-                     LIMIT $2""",
+                    """SELECT high AS h, low AS l, close AS c
+                     FROM market_data.ohlcv_5m
+                     WHERE instrument = $1 AND source = 'okx_swap_5m'
+                     ORDER BY bar_close_ts DESC LIMIT $2""",
                     inst_db,
                     limit,
                 )
@@ -138,34 +133,21 @@ class TrendFollowerPort(Strategy):
             self.log.warning(f"[{sid}] warmup seed skipped: {exc}")
             return
         if not rows:
-            self.log.warning(f"[{sid}] warmup seed: no daily bars for {inst_db}")
+            self.log.warning(f"[{sid}] warmup seed: no 5m bars for {inst_db}")
             return
-        for r in reversed(rows):  # chronological order into the deques
+        for r in reversed(rows):
             self._highs.append(float(r["h"]))
             self._lows.append(float(r["l"]))
             self._closes.append(float(r["c"]))
-        self.log.info(f"[{sid}] warmup seeded {len(rows)} daily bars from ohlcv_1h")
-        # Log the current signal snapshot immediately (on last completed daily bar) so
-        # the strategy is measurable now — rather than waiting for the next 00:00 UTC
-        # live close. observe mode → this logs a signal, never an order.
+        self.log.info(f"[{sid}] warmup seeded {len(rows)} 5m bars from ohlcv_5m")
         self._evaluate(self.clock.timestamp_ns())
 
-    def on_historical_data(self, data: Any) -> None:
-        if isinstance(data, Bar):
-            self._ingest_bar(data, historical=True)
-
     def on_bar(self, bar: Bar) -> None:
-        self._ingest_bar(bar, historical=False)
-
-    def _ingest_bar(self, bar: Bar, *, historical: bool) -> None:
         self._highs.append(float(bar.high))
         self._lows.append(float(bar.low))
         self._closes.append(float(bar.close))
         if self._position != 0:
             self._bars_held += 1
-        # do not fire live signals while replaying history — just warm indicators
-        if historical:
-            return
         self._evaluate(int(bar.ts_event))
 
     def _evaluate(self, ts_event: int) -> None:
@@ -175,60 +157,85 @@ class TrendFollowerPort(Strategy):
         close = float(self._closes[-1])
         highs, lows, closes = list(self._highs), list(self._lows), list(self._closes)
 
-        need = max(c.donchian_period, c.chandelier_period, 2 * c.adx_period) + 1
+        need = max(c.bb_period, c.rsi_period, 2 * c.adx_period) + 1
         if len(closes) < need:
             self._fire(
                 ts_event, "NEUTRAL", close, {"warmup": True, "n_bars": len(closes)}
             )
             return
 
-        # Donchian channel over prior `donchian_period` bars (exclude current)
-        don_hi = max(highs[-(c.donchian_period + 1) : -1])
-        don_lo = min(lows[-(c.donchian_period + 1) : -1])
         adx = wilder_adx(highs, lows, closes, c.adx_period)
         atr = wilder_atr(highs, lows, closes, c.adx_period)
-        if adx is None or atr is None:
+        rsi = wilder_rsi(closes, c.rsi_period)
+        bb = bollinger(closes, c.bb_period, c.bb_k)
+        if adx is None or atr is None or rsi is None or bb is None:
             self._fire(ts_event, "NEUTRAL", close, {"warmup": True})
             return
+        mid, upper, lower = bb
         atr_pct = atr / close if close else 0.0
-        # Chandelier trailing stops over prior `chandelier_period` bars
-        hh = max(highs[-(c.chandelier_period + 1) : -1])
-        ll = min(lows[-(c.chandelier_period + 1) : -1])
-        chand_long = hh - atr * c.chandelier_mult
-        chand_short = ll + atr * c.chandelier_mult
         health_ok = c.atr_health_min <= atr_pct <= c.atr_health_max
+
+        # ADX-hysteresis mode switch with cooldown
+        if self._cooldown > 0:
+            self._cooldown -= 1
+        else:
+            if self._mode == "mr" and adx >= c.adx_enter_breakout:
+                self._mode, self._cooldown = "bo", c.cooldown_bars
+            elif self._mode == "bo" and adx < c.adx_exit_breakout:
+                self._mode, self._cooldown = "mr", c.cooldown_bars
 
         action: str | None = None
         if self._position == 0:
-            if close > don_hi and adx >= c.adx_entry and health_ok:
-                action = "enter_long"
-            elif close < don_lo and adx >= c.adx_entry and health_ok:
-                action = "enter_short"
+            if health_ok:
+                if self._mode == "mr":
+                    if rsi <= c.rsi_oversold:
+                        action = "enter_long"
+                    elif rsi >= c.rsi_overbought:
+                        action = "enter_short"
+                else:  # breakout
+                    if close > upper:
+                        action = "enter_long"
+                    elif close < lower:
+                        action = "enter_short"
         elif self._position == 1:
-            if (
-                close < chand_long
-                or adx < c.adx_exit
-                or self._bars_held >= c.max_holding_days
-            ):
+            if self._entry_mode == "mr":
+                if close >= mid or rsi >= c.rsi_neutral_low:
+                    action = "exit_long"
+            else:
+                self._trail_extreme = max(self._trail_extreme or close, close)
+                if (
+                    close < self._trail_extreme - atr * c.trailing_atr_mult
+                    or adx < c.breakout_exit_adx
+                ):
+                    action = "exit_long"
+            if action is None and self._bars_held >= c.max_holding_bars:
                 action = "exit_long"
         elif self._position == -1:
-            if (
-                close > chand_short
-                or adx < c.adx_exit
-                or self._bars_held >= c.max_holding_days
-            ):
+            if self._entry_mode == "mr":
+                if close <= mid or rsi <= c.rsi_neutral_high:
+                    action = "exit_short"
+            else:
+                self._trail_extreme = min(self._trail_extreme or close, close)
+                if (
+                    close > self._trail_extreme + atr * c.trailing_atr_mult
+                    or adx < c.breakout_exit_adx
+                ):
+                    action = "exit_short"
+            if action is None and self._bars_held >= c.max_holding_bars:
                 action = "exit_short"
 
         indic = {
-            "don_hi": round(don_hi, 4),
-            "don_lo": round(don_lo, 4),
+            "mode": self._mode,
             "adx": round(adx, 2),
+            "rsi": round(rsi, 1),
             "atr_pct": round(atr_pct, 5),
-            "chand_long": round(chand_long, 4),
-            "chand_short": round(chand_short, 4),
+            "bb_mid": round(mid, 4),
+            "bb_up": round(upper, 4),
+            "bb_lo": round(lower, 4),
             "health_ok": health_ok,
             "bars_held": self._bars_held,
             "position": self._position,
+            "entry_mode": self._entry_mode,
             "n_bars": len(closes),
         }
         self._fire(ts_event, action or "NEUTRAL", close, indic)
@@ -241,12 +248,7 @@ class TrendFollowerPort(Strategy):
         inst = self.config.instrument_id
         strat = self._strategy_id()
         rec = sign_signal(
-            {
-                "strategy": strat,
-                "action": action,
-                "price": price,
-                "bar_ts": ts_event,
-            }
+            {"strategy": strat, "action": action, "price": price, "bar_ts": ts_event}
         )
 
         if self._db is not None:
@@ -275,21 +277,31 @@ class TrendFollowerPort(Strategy):
 
         self._signal_price = price
         self._signal_ts = ts_event
-        self.log.info(f"[{strat}] SIGNAL {action} @ {price:.2f} tier={rec['tier']}")
+        self.log.info(
+            f"[{strat}] SIGNAL {action} @ {price:.2f} mode={self._mode} tier={rec['tier']}"
+        )
 
         if action == "NEUTRAL":
             return
 
-        # OBSERVE gate: without trade_enabled the ported strategy never submits an
-        # order — it only records signals so its edge can be measured/gated first.
         if not self.config.trade_enabled:
-            # keep logical position state in sync so exits/time-stops still evaluate
+            # keep logical state coherent so exits/time-stops still evaluate
             if action == "enter_long":
-                self._position, self._bars_held = 1, 0
+                (
+                    self._position,
+                    self._bars_held,
+                    self._entry_mode,
+                    self._trail_extreme,
+                ) = 1, 0, self._mode, price
             elif action == "enter_short":
-                self._position, self._bars_held = -1, 0
+                (
+                    self._position,
+                    self._bars_held,
+                    self._entry_mode,
+                    self._trail_extreme,
+                ) = -1, 0, self._mode, price
             elif action in ("exit_long", "exit_short"):
-                self._position, self._bars_held = 0, 0
+                self._position, self._bars_held, self._trail_extreme = 0, 0, None
             self.log.info(f"[{strat}] OBSERVE — no order submitted for {action}")
             return
 
@@ -331,11 +343,19 @@ class TrendFollowerPort(Strategy):
 
         if action == "enter_long":
             side, self._position, self._bars_held = OrderSide.BUY, 1, 0
+            self._entry_mode, self._trail_extreme = (
+                self._mode,
+                float(str(self._closes[-1])),
+            )
         elif action == "enter_short":
             side, self._position, self._bars_held = OrderSide.SELL, -1, 0
+            self._entry_mode, self._trail_extreme = (
+                self._mode,
+                float(str(self._closes[-1])),
+            )
         elif action in ("exit_long", "exit_short"):
             side = OrderSide.SELL if self._position == 1 else OrderSide.BUY
-            self._position, self._bars_held = 0, 0
+            self._position, self._bars_held, self._trail_extreme = 0, 0, None
         else:
             return
 
