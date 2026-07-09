@@ -329,3 +329,34 @@ export interface LerConfig {
   changeable_params: string[];
   already_amended: string[];
 }
+
+// ── 3O 共识大脑(P2-P6)—— regime / engines / consensus / consensus-risk ──────
+export interface RegimeItem {
+  instrument: string; state: string; confidence: number | null;
+  method_used: string; rows_used: number; detail: Record<string, unknown>;
+}
+export interface RegimeResp { as_of: string | null; advisory: boolean; regimes: RegimeItem[]; }
+
+export interface EngineSignalItem {
+  engine: string; instrument: string; direction: string;
+  score: number | null; confidence: number | null; promoted: boolean;
+  detail: Record<string, unknown>;
+}
+export interface EnginesResp { as_of: string | null; engines: EngineSignalItem[]; }
+
+export interface ConsensusItem {
+  instrument: string; final_direction: string; consensus_score: number | null;
+  kelly_position: number | null; agreement_ratio: number | null;
+  is_divergent: boolean; should_execute: boolean; n_promoted: number;
+  regime_state: string; sentiment_bias: number | null; onchain_bias: number | null;
+  detail: Record<string, unknown>;
+}
+export interface EngineWeight { engine: string; base_weight: number; accuracy: number | null; dyn_weight: number; }
+export interface ConsensusResp { as_of: string | null; consensus: ConsensusItem[]; weights: EngineWeight[]; }
+
+export interface ConsensusRiskItem {
+  instrument: string; direction: string; should_execute: boolean; approved: boolean;
+  final_notional: number | null; blocking_stage: string | null; crisis_scaled: boolean;
+  reasons: string[];
+}
+export interface ConsensusRiskResp { as_of: string | null; enforce_mode: string; evals: ConsensusRiskItem[]; }

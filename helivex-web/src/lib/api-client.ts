@@ -86,3 +86,13 @@ export const lerApi = {
   coverage: () => req<LerCoverage>('/research/ler/coverage'),
   config: () => req<LerConfig>('/research/ler/config'),
 };
+
+// ── 3O 共识大脑(P2-P6)──────────
+import type { RegimeResp, EnginesResp, ConsensusResp, ConsensusRiskResp } from '@/types/api';
+
+export const ensembleApi = {
+  regime:   () => req<RegimeResp>('/regime'),
+  engines:  () => req<EnginesResp>('/engines'),
+  consensus: () => req<ConsensusResp>('/consensus'),
+  riskEval: () => req<ConsensusRiskResp>('/consensus/risk_eval'),
+};
