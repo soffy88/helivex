@@ -87,7 +87,12 @@ KILL_SWITCH_FILE = Path(
 # recomputed from current realized P&L every call, so it could NEVER show a
 # drawdown from a prior equity high (a +500 peak that fell to +300 reported dd=0).
 # A ratcheting HWM on disk fixes that and survives restarts.
-HWM_FILE = Path(os.environ.get("HELIVEX_HWM_FILE", "/tmp/helivex_paper_hwm"))
+# Same shared-mount rationale as KILL_SWITCH_FILE: the paper node ratchets the HWM
+# and the gateway's /risk/status reads it to report drawdown. A container-local
+# /tmp gave the gateway no HWM (peak fell back to base), under-reporting drawdown.
+HWM_FILE = Path(
+    os.environ.get("HELIVEX_HWM_FILE", str(_REPO_ROOT / "run" / "helivex_paper_hwm"))
+)
 
 
 def _read_hwm(default: float) -> float:
@@ -99,6 +104,7 @@ def _read_hwm(default: float) -> float:
 
 def _write_hwm(value: float) -> None:
     try:
+        HWM_FILE.parent.mkdir(parents=True, exist_ok=True)
         HWM_FILE.write_text(f"{value:.6f}\n")
     except OSError:
         pass
