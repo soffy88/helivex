@@ -646,7 +646,11 @@ async def eval_ensemble_freshness(*, config: dict | None = None) -> list[dict]:
         finally:
             await conn.close()
     except Exception as e:
-        return [_alert("ensemble_freshness", "high", f"ensemble freshness check failed: {e}")]
+        return [
+            _alert(
+                "ensemble_freshness", "high", f"ensemble freshness check failed: {e}"
+            )
+        ]
 
 
 # ── 11. regime-switch event notifier (helixa tg-notifier regime-switch 等价) ────
@@ -687,4 +691,162 @@ async def eval_regime_switch(*, config: dict | None = None) -> list[dict]:
                 )
             )
         _last_regime[inst] = state
+    return out
+
+
+# ── 12. 运维补齐(helixa watchdog 剩余检查 + tg-notifier 事件推送)──────────────
+
+_last_fill_id: int = 0
+_last_cb_event_id: int = 0
+_burst_seeded = False
+
+
+async def eval_burst_recurrence(*, config: dict | None = None) -> list[dict]:
+    """Detect duplicate (ts, price, side) fills recurring within 24h — a replay /
+    double-fire signature. Mirrors helixa watchdog's burst_recurrence (S16).
+    Severity 'high' — data integrity, not a trading halt."""
+    cfg = config or {}
+    window_h: float = cfg.get("window_hours", 24.0)
+    min_dupes: int = cfg.get("min_duplicates", 2)
+    try:
+        conn = await asyncpg.connect(DB_DSN)
+        try:
+            # replay signature = IDENTICAL (ts, instrument, side, price) rows.
+            # Grouping by (ts, ...) avoids false-positives on legitimate repeated
+            # same-price fills at different times (helixa keyed on traded_at too).
+            rows = await conn.fetch(
+                """SELECT instrument, side, actual_fill_price, ts, COUNT(*) AS n
+                   FROM paper.fills
+                   WHERE ts >= now() - ($1 || ' hours')::interval
+                   GROUP BY instrument, side, actual_fill_price, ts
+                   HAVING COUNT(*) >= $2
+                   ORDER BY n DESC LIMIT 5""",
+                str(window_h),
+                min_dupes,
+            )
+        finally:
+            await conn.close()
+    except Exception as e:
+        return [_alert("burst_recurrence", "high", f"burst check failed: {e}")]
+    return [
+        _alert(
+            "burst_recurrence",
+            "high",
+            f"{r['instrument']} {r['side']} @ {r['actual_fill_price']} at {r['ts']} "
+            f"appears {r['n']}× (identical ts) — replay/double-fire",
+        )
+        for r in rows
+    ]
+
+
+async def eval_trading_allowed_heartbeat(*, config: dict | None = None) -> list[dict]:
+    """Alert if the consensus→risk enforce-readiness pipeline (consensus_risk_eval)
+    has gone stale, i.e. the observe/enforce decision surface isn't updating.
+    Mirrors helixa watchdog's trading_allowed_heartbeat. Severity 'high'."""
+    cfg = config or {}
+    max_age_m: float = cfg.get("max_age_minutes", 45.0)
+    try:
+        conn = await asyncpg.connect(DB_DSN)
+        try:
+            reg = await conn.fetchval("SELECT to_regclass('paper.consensus_risk_eval')")
+            if reg is None:
+                return []
+            last = await conn.fetchval(
+                "SELECT MAX(cycle_ts) FROM paper.consensus_risk_eval"
+            )
+        finally:
+            await conn.close()
+    except Exception as e:
+        return [
+            _alert("trading_allowed_heartbeat", "high", f"heartbeat check failed: {e}")
+        ]
+    if last is None:
+        return []
+    age_m = (datetime.now(timezone.utc) - last).total_seconds() / 60
+    if age_m > max_age_m:
+        return [
+            _alert(
+                "trading_allowed_heartbeat",
+                "high",
+                f"consensus_risk_eval last {age_m:.0f}min ago (threshold "
+                f"{max_age_m:.0f}min) — enforce-readiness surface stale",
+            )
+        ]
+    return []
+
+
+async def eval_trade_events(*, config: dict | None = None) -> list[dict]:
+    """Emit an INFO event for each new paper fill since last check (tg-notifier
+    trade-event equivalent). First run seeds silently. Severity 'low'."""
+    global _last_fill_id, _burst_seeded
+    try:
+        conn = await asyncpg.connect(DB_DSN)
+        try:
+            if not _burst_seeded:
+                _last_fill_id = (
+                    await conn.fetchval("SELECT COALESCE(MAX(id),0) FROM paper.fills")
+                    or 0
+                )
+                _burst_seeded = True
+                return []
+            rows = await conn.fetch(
+                """SELECT id, strategy_id, instrument, side, quantity, actual_fill_price
+                   FROM paper.fills WHERE id > $1 ORDER BY id ASC LIMIT 20""",
+                _last_fill_id,
+            )
+        finally:
+            await conn.close()
+    except Exception as e:
+        return [_alert("trade_event", "low", f"trade event check failed: {e}")]
+    out: list[dict] = []
+    for r in rows:
+        _last_fill_id = max(_last_fill_id, r["id"])
+        out.append(
+            _alert(
+                "trade_event",
+                "low",
+                f"成交 {r['strategy_id']} {r['instrument']} {r['side']} "
+                f"{float(r['quantity']):.4f} @ {float(r['actual_fill_price']):.2f}",
+            )
+        )
+    return out
+
+
+async def eval_circuit_breaker_events(*, config: dict | None = None) -> list[dict]:
+    """Emit an event for each new kill-switch trip/reset in paper.risk_events
+    (tg-notifier circuit-breaker equivalent). First run seeds silently."""
+    global _last_cb_event_id
+    try:
+        conn = await asyncpg.connect(DB_DSN)
+        try:
+            reg = await conn.fetchval("SELECT to_regclass('paper.risk_events')")
+            if reg is None:
+                return []
+            if _last_cb_event_id == 0:
+                _last_cb_event_id = (
+                    await conn.fetchval(
+                        "SELECT COALESCE(MAX(id),0) FROM paper.risk_events WHERE kind IN ('trip','reset','auto_reset')"
+                    )
+                    or 0
+                )
+                return []
+            rows = await conn.fetch(
+                """SELECT id, kind, entity_id, message FROM paper.risk_events
+                   WHERE id > $1 AND kind IN ('trip','reset','auto_reset')
+                   ORDER BY id ASC LIMIT 10""",
+                _last_cb_event_id,
+            )
+        finally:
+            await conn.close()
+    except Exception as e:
+        return [_alert("cb_event", "low", f"cb event check failed: {e}")]
+    out: list[dict] = []
+    for r in rows:
+        _last_cb_event_id = max(_last_cb_event_id, r["id"])
+        sev = "critical" if r["kind"] == "trip" else "low"
+        out.append(
+            _alert(
+                "cb_event", sev, f"熔断 {r['kind']} [{r['entity_id']}]: {r['message']}"
+            )
+        )
     return out
