@@ -1451,6 +1451,152 @@ async def get_consensus_risk_eval() -> dict:
     }
 
 
+# ─── 补齐 B: helixa internal-endpoint parity(decision-trail 等)──────────────
+
+
+@app.get("/decision-trail/recent")
+async def get_decision_trail_recent(limit: int = Query(20, ge=1, le=100)) -> dict:
+    """Recent 3O decision trails across consensus / regime / portfolio-weights.
+    STRONGER than helixa's decision-trail: every entry is fingerprinted (64-hex,
+    reproducible) with step-by-step layer/callable provenance, not just a
+    free-text reasoning string."""
+    pool = await get_pool()
+    out: list[dict] = []
+    async with pool.acquire() as conn:
+        for tbl, kind in [
+            ("paper.consensus_signals", "consensus"),
+            ("paper.regime_state", "regime"),
+            ("paper.portfolio_weights", "portfolio_weight"),
+        ]:
+            reg = await conn.fetchval("SELECT to_regclass($1)", tbl)
+            if not reg:
+                continue
+            has_trail = await conn.fetchval(
+                "SELECT 1 FROM information_schema.columns WHERE table_schema='paper' "
+                "AND table_name=$1 AND column_name='decision_trail'",
+                tbl.split(".")[1],
+            )
+            trail_col = "decision_trail" if has_trail else "detail"
+            rows = await conn.fetch(
+                f"""SELECT instrument, fingerprint, {trail_col} AS trail, cycle_ts
+                    FROM {tbl} ORDER BY cycle_ts DESC LIMIT $1""",
+                limit,
+            )
+            for r in rows:
+                trail = json.loads(r["trail"]) if r["trail"] else {}
+                out.append(
+                    {
+                        "kind": kind,
+                        "instrument": r["instrument"],
+                        "fingerprint": r["fingerprint"],
+                        "ts": r["cycle_ts"].isoformat(),
+                        "steps": trail.get("steps")
+                        if isinstance(trail, dict)
+                        else None,
+                        "trail": trail,
+                    }
+                )
+    out.sort(key=lambda x: x["ts"], reverse=True)
+    return {"decision_trail": out[:limit]}
+
+
+@app.get("/cross-exposure")
+async def get_cross_exposure() -> dict:
+    """Cross-strategy net exposure per instrument (helixa cross_strategy_net
+    equivalent), from paper.fills FIFO round-trips + open lots."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT instrument, strategy_id,
+                      SUM(CASE WHEN side='BUY' THEN quantity ELSE -quantity END) AS net_qty
+               FROM paper.fills GROUP BY instrument, strategy_id"""
+        )
+    from collections import defaultdict
+
+    by_inst: dict[str, dict] = defaultdict(lambda: {"net": 0.0, "by_strategy": {}})
+    for r in rows:
+        q = float(r["net_qty"] or 0.0)
+        if abs(q) < 1e-9:
+            continue
+        by_inst[r["instrument"]]["net"] += q
+        by_inst[r["instrument"]]["by_strategy"][r["strategy_id"]] = round(q, 8)
+    return {
+        "cross_exposure": [
+            {
+                "instrument": k,
+                "net_qty": round(v["net"], 8),
+                "by_strategy": v["by_strategy"],
+            }
+            for k, v in by_inst.items()
+        ]
+    }
+
+
+@app.get("/derivatives/{symbol}")
+async def get_derivatives(symbol: str) -> dict:
+    """Latest funding + OI for a symbol (helixa derivatives/{symbol} equivalent)
+    from the iris/md schema (funding_rates / oi)."""
+    md = await get_md_pool()
+    swap = symbol if symbol.endswith("-SWAP") else f"{symbol}-SWAP"
+    async with md.acquire() as conn:
+        funding = await conn.fetchrow(
+            """SELECT funding_rate, realized_rate, funding_time FROM md.funding_settled
+               WHERE venue='okx' AND inst_id=$1 ORDER BY funding_time DESC LIMIT 1""",
+            swap,
+        )
+        oi = await conn.fetchrow(
+            """SELECT oi_contracts, oi_coin, oi_usd, ts FROM md.oi
+               WHERE venue='okx' AND inst_id=$1 ORDER BY ts DESC LIMIT 1""",
+            swap,
+        )
+    return {
+        "symbol": swap,
+        "funding": {
+            "rate": float(funding["funding_rate"]) if funding else None,
+            "realized_rate": float(funding["realized_rate"])
+            if funding and funding["realized_rate"] is not None
+            else None,
+            "ts": funding["funding_time"].isoformat() if funding else None,
+        },
+        "open_interest": {
+            "contracts": float(oi["oi_contracts"])
+            if oi and oi["oi_contracts"] is not None
+            else None,
+            "coin": float(oi["oi_coin"]) if oi and oi["oi_coin"] is not None else None,
+            "usd": float(oi["oi_usd"]) if oi and oi["oi_usd"] is not None else None,
+            "ts": oi["ts"].isoformat() if oi else None,
+        },
+    }
+
+
+@app.get("/multitime-trend/{symbol}")
+async def get_multitime_trend(symbol: str) -> dict:
+    """Multi-timeframe TA trend for a symbol (helixa multitime-trend equivalent)
+    from the latest ta_multi engine signal's per-timeframe detail."""
+    pool = await get_pool()
+    inst = symbol if symbol.endswith("-SWAP") else f"{symbol}-SWAP"
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval("SELECT to_regclass('paper.engine_signals')")
+        if not exists:
+            return {"symbol": inst, "per_timeframe": {}, "as_of": None}
+        row = await conn.fetchrow(
+            """SELECT detail, score, direction, cycle_ts FROM paper.engine_signals
+               WHERE engine='ta_multi' AND instrument=$1
+               ORDER BY cycle_ts DESC LIMIT 1""",
+            inst,
+        )
+    if not row:
+        return {"symbol": inst, "per_timeframe": {}, "as_of": None}
+    detail = json.loads(row["detail"]) if row["detail"] else {}
+    return {
+        "symbol": inst,
+        "combined_direction": row["direction"],
+        "combined_score": float(row["score"]) if row["score"] is not None else None,
+        "per_timeframe": detail.get("per_tf", {}),
+        "as_of": row["cycle_ts"].isoformat(),
+    }
+
+
 # ─── /regime (3O Phase 2, advisory market-regime classification) ──────────────
 
 
