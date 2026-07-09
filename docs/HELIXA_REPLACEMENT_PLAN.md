@@ -28,11 +28,11 @@ helivex **不照搬** helixa 的微服务 + RabbitMQ 架构,只复刻**能力**�
 | 共识 | weight-learner(EWMA)| oskill | consensus_adapter | **5** | ✅ 机制就位 |
 | 归因 | 引擎 round-trip P&L 归因 + 权重学习闭环 | oskill | consensus_risk_adapter | **6** | ✅ 机制就位(待标签成交)|
 | 执行 | nautilus 2 策略(trend_follower/scalper_v2)| 策略逻辑纯函数 | helivex paper 策略 | **7** | ⬜ 可选 |
-| API | public-api 13 公开 + ~13 内部端点 | (service)| gateway 补端点 | **8** | ⬜ |
-| 前端 | dashboard 3 路由 17 组件 | (前端)| helivex-web 补视图 | **8** | ⬜ |
+| API | 端点(regime/engines/consensus/risk_eval + P1)| gateway | 已随 P2-P6 建 | **8** | ✅ 核心完成 |
+| 前端 | Ensemble tab(regime/引擎/共识/风控全链路)| helivex-web | EnsembleTab | **8** | ✅ 完成 |
 | 运维 | watchdog 5 声明式检查 | (evaluator)| paper/alerter.py | **9** | ⬜ |
 | 运维 | tg-notifier 事件推送 | (service)| Telegram 事件推送 | **9** | ⬜ |
-| 运维 | Grafana 引擎归因面板 | (前端)| helivex-web 归因视图 | **8** | ⬜ |
+| 运维 | 引擎权重/归因面板 | helivex-web | EnsembleTab 权重卡 | **8** | ✅ 权重已画(归因待成交)|
 | 安全 | edge Worker(白名单+脱敏代理)| (可选)| gateway 脱敏中间件 | **10** | ⬜ 可选 |
 | — | RabbitMQ / redis-bridge | — | **不复刻**(表+轮询替代)| — | N/A |
 
