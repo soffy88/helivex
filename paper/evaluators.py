@@ -603,3 +603,88 @@ async def eval_backup_freshness(*, config: dict | None = None) -> list[dict]:
             )
         ]
     return []
+
+
+# ── 10. 3O ensemble pipeline freshness (helixa→helivex 替换 P9 watchdog 等价) ──
+
+
+async def eval_ensemble_freshness(*, config: dict | None = None) -> list[dict]:
+    """Alert when a 3O ensemble adapter (regime / signal-engines / consensus) has
+    stopped writing. Each runs on a 15-30min timer, so a healthy pipeline writes
+    within `max_age_minutes`. Severity 'high' — observe-only research pipeline,
+    does not halt live paper trading, but must not rot unseen (same posture as
+    eval_ingestion_freshness). Replaces helixa watchdog's signal_log_alive /
+    attribution_daemon_alive / hmm_regime_ttl checks."""
+    cfg = config or {}
+    max_age_m: float = cfg.get("max_age_minutes", 45.0)
+    tables = cfg.get(
+        "tables",
+        ["paper.regime_state", "paper.engine_signals", "paper.consensus_signals"],
+    )
+    try:
+        conn = await asyncpg.connect(DB_DSN)
+        try:
+            out: list[dict] = []
+            for tbl in tables:
+                reg = await conn.fetchval("SELECT to_regclass($1)", tbl)
+                if reg is None:
+                    continue  # not provisioned yet — not an alert (may be pre-P2/P4/P5)
+                last = await conn.fetchval(f"SELECT MAX(cycle_ts) FROM {tbl}")
+                if last is None:
+                    continue
+                age_m = (datetime.now(timezone.utc) - last).total_seconds() / 60
+                if age_m > max_age_m:
+                    out.append(
+                        _alert(
+                            "ensemble_freshness",
+                            "high",
+                            f"{tbl} last write {age_m:.0f}min ago (threshold "
+                            f"{max_age_m:.0f}min) — 3O ensemble adapter stalled?",
+                        )
+                    )
+            return out
+        finally:
+            await conn.close()
+    except Exception as e:
+        return [_alert("ensemble_freshness", "high", f"ensemble freshness check failed: {e}")]
+
+
+# ── 11. regime-switch event notifier (helixa tg-notifier regime-switch 等价) ────
+
+_last_regime: dict[str, str] = {}
+
+
+async def eval_regime_switch(*, config: dict | None = None) -> list[dict]:
+    """Emit an INFO event when an instrument's market regime changes vs. the last
+    observed state (crisis/trend/range). Mirrors helixa tg-notifier's
+    regime-switch push. Not a fault — an event notification through the same
+    alert channels; severity 'low'. First observation seeds silently."""
+    try:
+        conn = await asyncpg.connect(DB_DSN)
+        try:
+            reg = await conn.fetchval("SELECT to_regclass('paper.regime_state')")
+            if reg is None:
+                return []
+            rows = await conn.fetch(
+                """SELECT DISTINCT ON (instrument) instrument, state
+                   FROM paper.regime_state ORDER BY instrument, cycle_ts DESC"""
+            )
+        finally:
+            await conn.close()
+    except Exception as e:
+        return [_alert("regime_switch", "low", f"regime switch check failed: {e}")]
+
+    out: list[dict] = []
+    for r in rows:
+        inst, state = r["instrument"], r["state"]
+        prev = _last_regime.get(inst)
+        if prev is not None and prev != state:
+            out.append(
+                _alert(
+                    "regime_switch",
+                    "low",
+                    f"{inst} regime {prev} → {state} (advisory)",
+                )
+            )
+        _last_regime[inst] = state
+    return out
