@@ -214,6 +214,38 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 @media (max-width: 900px) { .hv-grid-2 { grid-template-columns: 1fr; } .hv-sel-row { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .hv-sel-row { grid-template-columns: 1fr; } .hv-bar { gap: 12px; } .hv-bar-note { margin-left: 0; } }
 
+/* ── 首页(helixa 版式)清爽布局 ── */
+.hv-home { display: flex; flex-direction: column; gap: 18px; }
+.hv-home__group { display: flex; flex-direction: column; gap: 10px; }
+/* 状态条:细、干净,不用告警黄 */
+.hv-status { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 11px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); font-size: var(--text-sm); }
+.hv-status__dot { width: 8px; height: 8px; border-radius: 99px; flex: none; }
+.hv-status__name { font-weight: 700; }
+.hv-status__meta { color: var(--muted-foreground); }
+.hv-status__meta strong { color: var(--foreground); font-weight: 600; }
+/* 60/40 hero:资金曲线 + 持仓 */
+.hv-hero { display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; align-items: start; }
+@media (max-width: 900px) { .hv-hero { grid-template-columns: 1fr; } }
+/* 面板卡:统一卡片外观 */
+.hv-panel { border: 1px solid var(--border); border-radius: 12px; background: var(--card); padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.hv-panel__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.hv-panel__title { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); }
+.hv-panel__link { font-size: var(--text-xs); color: var(--muted-foreground); }
+/* 市场速览小卡(FGI/regime/共识) */
+.hv-mini { display: flex; flex-direction: column; gap: 5px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--background); }
+.hv-mini__k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); }
+.hv-mini__v { font-size: var(--text-base); font-weight: 600; font-variant-numeric: tabular-nums; }
+/* 事件流 feed(细行,不用表格边框) */
+.hv-feed { display: flex; flex-direction: column; }
+.hv-feed__row { display: flex; align-items: baseline; gap: 12px; padding: 7px 2px; border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent); font-size: var(--text-sm); }
+.hv-feed__row:first-child { border-top: none; }
+.hv-feed__t { font-variant-numeric: tabular-nums; color: var(--muted-foreground); font-size: var(--text-xs); flex: none; width: 64px; }
+.hv-feed__cat { flex: none; font-size: var(--text-xs); }
+.hv-feed__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 可折叠明细 */
+.hv-collapse { align-self: flex-start; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); font-size: var(--text-sm); cursor: pointer; }
+.hv-collapse:hover { background: var(--muted); }
+
 /* ── 健壮性:Tab 错误边界 ── */
 .hv-tab-error { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 16px; gap: 8px; }
 .hv-tab-error__text { font-size: var(--text-base); font-weight: 600; color: var(--foreground); }
