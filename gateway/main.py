@@ -1813,6 +1813,94 @@ async def get_engine_weights() -> dict:
     }
 
 
+@app.put("/engines/weights", dependencies=[Depends(require_token)])
+async def put_engine_weights(body: dict = Body(...)) -> dict:
+    """Retune per-engine base weights (helixa /strategy 的引擎权重编辑器等价物,更强:
+    只调共识层观测权重,不碰实盘)。写 paper.engine_weights.base_weight;dyn_weight 立即
+    跟随(当前无归因数据→dyn=base),EWMA 有归因后再自适应。仅编辑已存在的引擎行。"""
+    updates = body.get("weights") or []
+    if not isinstance(updates, list) or not updates:
+        raise HTTPException(status_code=422, detail="weights: non-empty list required")
+    clean: list[tuple[str, float]] = []
+    for w in updates:
+        eng = str(w.get("engine", "")).strip()
+        try:
+            bw = float(w.get("base_weight"))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=422, detail=f"bad base_weight for {eng!r}")
+        if not eng or not (0.0 <= bw <= 5.0):
+            raise HTTPException(
+                status_code=422, detail=f"engine/base_weight out of range: {eng!r}={bw}"
+            )
+        clean.append((eng, bw))
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        applied = []
+        for eng, bw in clean:
+            # only update rows that already exist (don't invent engines); dyn=base now
+            res = await conn.execute(
+                "UPDATE paper.engine_weights SET base_weight=$2, dyn_weight=$2, updated_at=now() WHERE engine=$1",
+                eng,
+                bw,
+            )
+            if res.endswith("1"):
+                applied.append({"engine": eng, "base_weight": bw})
+    return {"ok": True, "applied": applied}
+
+
+# ─── /consensus/config (3O Phase 5 tuning — consensus threshold) ──────────────
+
+_CONSENSUS_CONFIG_DDL = """
+CREATE TABLE IF NOT EXISTS paper.consensus_config (
+    id             INT PRIMARY KEY DEFAULT 1,
+    base_threshold NUMERIC NOT NULL DEFAULT 0.45,
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT consensus_config_singleton CHECK (id = 1)
+);
+"""
+
+
+@app.get("/consensus/config")
+async def get_consensus_config() -> dict:
+    """Current consensus tuning (base_threshold). Default 0.45 when unset."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(_CONSENSUS_CONFIG_DDL)
+        row = await conn.fetchrow(
+            "SELECT base_threshold, updated_at FROM paper.consensus_config WHERE id=1"
+        )
+    return {
+        "base_threshold": float(row["base_threshold"]) if row else 0.45,
+        "updated_at": row["updated_at"].isoformat()
+        if row and row["updated_at"]
+        else None,
+    }
+
+
+@app.put("/consensus/config", dependencies=[Depends(require_token)])
+async def put_consensus_config(body: dict = Body(...)) -> dict:
+    """Retune the consensus execution threshold (helixa /strategy 阈值编辑器等价物).
+    consensus_adapter 下一轮读取生效。observe-only:仅改"若执行需多强共识"的判据,不下单。"""
+    try:
+        bt = float(body.get("base_threshold"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="base_threshold: float required")
+    if not (0.1 <= bt <= 0.9):
+        raise HTTPException(
+            status_code=422, detail="base_threshold must be in [0.1, 0.9]"
+        )
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(_CONSENSUS_CONFIG_DDL)
+        await conn.execute(
+            """INSERT INTO paper.consensus_config (id, base_threshold, updated_at)
+               VALUES (1, $1, now())
+               ON CONFLICT (id) DO UPDATE SET base_threshold=$1, updated_at=now()""",
+            bt,
+        )
+    return {"ok": True, "base_threshold": bt}
+
+
 # ─── /consensus (3O Phase 5, multi-engine ensemble) ───────────────────────────
 
 

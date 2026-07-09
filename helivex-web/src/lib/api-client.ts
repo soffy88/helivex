@@ -90,11 +90,20 @@ export const lerApi = {
 // ── 3O 共识大脑(P2-P6)──────────
 import type { RegimeResp, EnginesResp, ConsensusResp, ConsensusRiskResp } from '@/types/api';
 
+import type { EngineWeightsResp, ConsensusConfigResp } from '@/types/api';
+
 export const ensembleApi = {
   regime:   () => req<RegimeResp>('/regime'),
   engines:  () => req<EnginesResp>('/engines'),
   consensus: () => req<ConsensusResp>('/consensus'),
   riskEval: () => req<ConsensusRiskResp>('/consensus/risk_eval'),
+  // 补齐 G: 共识层在线调参(observe-only,只调判据不下单)
+  weights:  () => req<EngineWeightsResp>('/engines/weights'),
+  consensusConfig: () => req<ConsensusConfigResp>('/consensus/config'),
+  putConsensusConfig: (base_threshold: number) =>
+    req<{ ok: boolean; base_threshold: number }>('/consensus/config', { method: 'PUT', body: JSON.stringify({ base_threshold }) }),
+  putEngineWeights: (weights: { engine: string; base_weight: number }[]) =>
+    req<{ ok: boolean; applied: { engine: string; base_weight: number }[] }>('/engines/weights', { method: 'PUT', body: JSON.stringify({ weights }) }),
 };
 
 // ── 补齐 C: K线 + 决策轨迹 ──────────

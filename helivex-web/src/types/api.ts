@@ -372,3 +372,10 @@ export interface DecisionTrailItem {
   steps: { layer: string; callable: string; status: string }[] | null;
 }
 export interface DecisionTrailResp { decision_trail: DecisionTrailItem[]; }
+
+// 补齐 G: 共识层在线调参
+export interface EngineWeightItem {
+  engine: string; base_weight: number; accuracy: number | null; dyn_weight: number; updated_at: string | null;
+}
+export interface EngineWeightsResp { weights: EngineWeightItem[]; }
+export interface ConsensusConfigResp { base_threshold: number; updated_at: string | null; }

@@ -103,6 +103,22 @@ async def _latest_engine_signals(hv: asyncpg.Pool, inst: str) -> list[dict]:
     ]
 
 
+async def _base_threshold(hv: asyncpg.Pool) -> float:
+    """Consensus execution threshold, live-tunable via gateway PUT /consensus/config.
+    Falls back to the omodul default (0.45) when unset."""
+    async with hv.acquire() as conn:
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS paper.consensus_config ("
+            "id INT PRIMARY KEY DEFAULT 1, base_threshold NUMERIC NOT NULL DEFAULT 0.45,"
+            "updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),"
+            "CONSTRAINT consensus_config_singleton CHECK (id = 1))"
+        )
+        v = await conn.fetchval(
+            "SELECT base_threshold FROM paper.consensus_config WHERE id=1"
+        )
+    return float(v) if v is not None else 0.45
+
+
 async def _regime(hv: asyncpg.Pool, inst: str) -> str:
     async with hv.acquire() as conn:
         st = await conn.fetchval(
@@ -190,6 +206,9 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
         await conn.execute(DDL)
 
     weights = await _weights(hv)
+    base_threshold = await _base_threshold(
+        hv
+    )  # 在线可调(gateway PUT /consensus/config)
     tradfi = await _tradfi(md)  # 宏观 risk-on/off,全标的共享
     cycle_ts = datetime.now(timezone.utc)
     out_dir = Path("/tmp/helivex_consensus_reports")
@@ -203,7 +222,7 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
             regime_state = await _regime(hv, inst)
             fgi, onchain = await _sentiment_onchain(md, inst)
             r = consensus_workflow(
-                ConsensusConfig(instrument=inst),
+                ConsensusConfig(instrument=inst, base_threshold=base_threshold),
                 {
                     "signals": signals,
                     "weights": weights,

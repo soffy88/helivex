@@ -40,7 +40,13 @@ CORRELATION_PAIRS = {
     "BTC-USDT-SWAP": {"ETH-USDT-SWAP": 0.85},
     "ETH-USDT-SWAP": {"BTC-USDT-SWAP": 0.85},
 }
-BASE_WEIGHTS = {"ta_multi": 1.0, "tf_trend": 1.0, "tf_scalp": 1.0, "ml_lgb": 1.8, "llm_persona": 1.2}
+BASE_WEIGHTS = {
+    "ta_multi": 1.0,
+    "tf_trend": 1.0,
+    "tf_scalp": 1.0,
+    "ml_lgb": 1.8,
+    "llm_persona": 1.2,
+}
 ATR_PERIOD = 14
 
 DDL = """
@@ -117,12 +123,22 @@ async def _update_weights(hv: asyncpg.Pool) -> None:
     round_trips: list[dict] = []  # 引擎标签成交出现前为空(见 docstring)
     attrib = engine_attribution(round_trips)
     async with hv.acquire() as conn:
-        for eng, base in BASE_WEIGHTS.items():
+        for eng, seed in BASE_WEIGHTS.items():
             a = attrib.get(eng)
-            prior = await conn.fetchval(
-                "SELECT accuracy FROM paper.engine_weights WHERE engine=$1", eng
+            row = await conn.fetchrow(
+                "SELECT base_weight, accuracy FROM paper.engine_weights WHERE engine=$1",
+                eng,
             )
-            prior = float(prior) if prior is not None else 0.5
+            # DB base_weight 是权威源(可经 gateway PUT /engines/weights 在线调),
+            # 不存在才用硬编码 seed。EWMA 从这个 base 起算,故手动改的权重不被覆盖。
+            base = (
+                float(row["base_weight"])
+                if row and row["base_weight"] is not None
+                else seed
+            )
+            prior = (
+                float(row["accuracy"]) if row and row["accuracy"] is not None else 0.5
+            )
             upd = ewma_weight_update(prior, a["results"] if a else [], base_weight=base)
             await conn.execute(
                 """INSERT INTO paper.engine_weights (engine, base_weight, accuracy, dyn_weight, updated_at)

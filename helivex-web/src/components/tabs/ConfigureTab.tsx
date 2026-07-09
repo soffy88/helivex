@@ -7,9 +7,9 @@
 
 import { useEffect, useState } from 'react';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
-import { helivexApi } from '@/lib/api-client';
+import { helivexApi, ensembleApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
-import type { StrategyState } from '@/types/api';
+import type { StrategyState, EngineWeightsResp, ConsensusConfigResp } from '@/types/api';
 
 type Cfg = Record<string, unknown> & {
   description?: string; timeframe?: string; instruments?: string[];
@@ -165,6 +165,82 @@ export function ConfigureTab() {
           )}
         </>
       )}
+
+      <ConsensusTuner />
+    </div>
+  );
+}
+
+/**
+ * ConsensusTuner — 共识层在线调参(补齐 G,helixa /strategy 页等价物,更强)。
+ * 全局(非 per-strategy):共识执行阈值 + 每引擎 base 权重。observe-only:只改"若执行
+ * 需多强共识/各引擎多大话语权"的判据,adapter 下一轮(~2min)读库生效,永不下单。
+ */
+function ConsensusTuner() {
+  const cfg = useApi<ConsensusConfigResp>(() => ensembleApi.consensusConfig(), [], 30000, 'cons-cfg');
+  const w = useApi<EngineWeightsResp>(() => ensembleApi.weights(), [], 30000, 'cons-w');
+
+  const [thr, setThr] = useState<number | null>(null);
+  const [wDraft, setWDraft] = useState<Record<string, number>>({});
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => { if (cfg.data) setThr(cfg.data.base_threshold); setMsg(null); }, [cfg.data]);
+  useEffect(() => {
+    if (w.data) setWDraft(Object.fromEntries(w.data.weights.map(x => [x.engine, x.base_weight])));
+  }, [w.data]);
+
+  if ((cfg.loading && !cfg.data) || (w.loading && !w.data)) return <div style={{ marginTop: 24 }}><Skeleton /></div>;
+  const engines = w.data?.weights ?? [];
+  const thrDirty = thr != null && cfg.data != null && thr !== cfg.data.base_threshold;
+  const wChanged = engines.filter(e => wDraft[e.engine] != null && wDraft[e.engine] !== e.base_weight);
+  const dirty = thrDirty || wChanged.length > 0;
+
+  const save = async () => {
+    setSaving(true); setMsg(null);
+    try {
+      if (thrDirty && thr != null) await ensembleApi.putConsensusConfig(thr);
+      if (wChanged.length > 0)
+        await ensembleApi.putEngineWeights(wChanged.map(e => ({ engine: e.engine, base_weight: wDraft[e.engine] })));
+      setMsg({ ok: true, text: '已保存 — 共识 adapter 下一轮(≤2min)生效' });
+      cfg.refetch?.(); w.refetch?.();
+    } catch (e) {
+      setMsg({ ok: false, text: `保存失败:${String((e as Error)?.message ?? e)}` });
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div className="hv-section-title">共识层在线调参(observe · 全局,不分策略)</div>
+      <div className="hv-grid-3">
+        <div className="hv-metric-card" style={{ gap: 6 }}>
+          <span className="hv-metric-label">共识执行阈值 base_threshold (0.1–0.9)</span>
+          <input className="hv-param-input" type="number" step={0.01} min={0.1} max={0.9}
+            aria-label="共识执行阈值"
+            value={thr ?? ''} onChange={e => setThr(Number(e.target.value))} />
+        </div>
+        {engines.map(e => (
+          <div key={e.engine} className="hv-metric-card" style={{ gap: 6 }}>
+            <span className="hv-metric-label">
+              {e.engine} base 权重 (0–5) · dyn {e.dyn_weight.toFixed(2)} · acc {e.accuracy != null ? (e.accuracy * 100).toFixed(0) + '%' : '—'}
+            </span>
+            <input className="hv-param-input" type="number" step={0.1} min={0} max={5}
+              aria-label={`${e.engine} base 权重`}
+              value={wDraft[e.engine] ?? ''} onChange={ev => setWDraft(d => ({ ...d, [e.engine]: Number(ev.target.value) }))} />
+          </div>
+        ))}
+      </div>
+      <div className="hv-cfg-actions">
+        <button className="hv-run-gate" onClick={save} disabled={saving || !dirty}>
+          {saving ? '保存中…' : dirty ? '保存共识调参' : '无改动'}
+        </button>
+        {msg && <span className="hv-gate-reason" style={{ color: msg.ok ? 'var(--success,#3fb950)' : 'var(--destructive)' }}>{msg.text}</span>}
+      </div>
+      <div className="hv-honest-note">
+        阈值 = 「共识分需多强才算可执行」;引擎 base 权重 = 各引擎在共识里的话语权(有归因数据后
+        EWMA 会在此基础上按胜率自适应 dyn 权重)。<strong>observe-only</strong>:只改判据,共识本身
+        不下单;写库后由共识 adapter 下一轮读取生效。
+      </div>
     </div>
   );
 }
