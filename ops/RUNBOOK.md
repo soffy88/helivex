@@ -21,6 +21,7 @@ controlled; install with `bash ops/systemd/install.sh`.
 | helivex-regime-adapter.timer | 市场 regime 识别 crisis/trend/range(3O omodul,advisory soft input,每 30min)| timer |
 | helivex-signal-engines-adapter.timer | TA/ML/LLM 三引擎信号(3O,ML 带 DSR 门,每 15min)| timer |
 | helivex-consensus-adapter.timer | 多引擎共识大脑(3O,只 promoted 引擎驱动,observe,每 15min)| timer |
+| helivex-consensus-risk-adapter.timer | 共识→全套风控管线 observe 桥 + 权重学习(3O,每 15min)| timer |
 
 `helivex-l2recorder` (NautilusTrader L2 recorder, OKX DEMO) is **retired** —
 superseded by `helivex-orderbook-md-adapter.timer` above. Stopped via `docker stop`

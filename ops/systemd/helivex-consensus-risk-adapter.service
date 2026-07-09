@@ -1,0 +1,13 @@
+[Unit]
+Description=Helivex consensus->risk adapter — 共识过全套风控管线(3O,observe),写 paper.consensus_risk_eval + 权重学习
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/soffy/projects/helivex
+# 纯 DB->DB。计算在 platform/3O(oskill.risk.consensus_risk_size + oprim.risk.fee_edge_filter
+# + oskill.consensus.{engine_attribution,ewma_weight_update})。默认 observe(不下单)。
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/consensus_risk_adapter.py --once
+StandardOutput=append:/home/soffy/helivex_consensus_risk_adapter.log
+StandardError=append:/home/soffy/helivex_consensus_risk_adapter.log

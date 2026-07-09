@@ -1409,6 +1409,48 @@ async def get_portfolio_position_caps() -> dict:
     }
 
 
+# ─── /consensus/risk_eval (3O Phase 6, consensus→risk pipeline, observe) ──────
+
+
+@app.get("/consensus/risk_eval")
+async def get_consensus_risk_eval() -> dict:
+    """Latest consensus→risk pipeline evaluation (paper.consensus_risk_eval).
+    Shows, per instrument, whether a consensus signal WOULD pass the full risk
+    pipeline (crisis override + 3-tier clip + fee/edge) and at what size —
+    observe-only, no orders placed. `enforce_mode` is HELIVEX_CONSENSUS_ENFORCE."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval("SELECT to_regclass('paper.consensus_risk_eval')")
+        if not exists:
+            return {"as_of": None, "enforce_mode": "observe", "evals": []}
+        rows = await conn.fetch(
+            """SELECT instrument, direction, should_execute, approved, final_notional,
+                      blocking_stage, crisis_scaled, enforce_mode, reasons, cycle_ts
+               FROM paper.consensus_risk_eval
+               WHERE cycle_ts = (SELECT MAX(cycle_ts) FROM paper.consensus_risk_eval)
+               ORDER BY instrument"""
+        )
+    return {
+        "as_of": rows[0]["cycle_ts"].isoformat() if rows else None,
+        "enforce_mode": rows[0]["enforce_mode"] if rows else "observe",
+        "evals": [
+            {
+                "instrument": r["instrument"],
+                "direction": r["direction"],
+                "should_execute": r["should_execute"],
+                "approved": r["approved"],
+                "final_notional": float(r["final_notional"])
+                if r["final_notional"] is not None
+                else None,
+                "blocking_stage": r["blocking_stage"],
+                "crisis_scaled": r["crisis_scaled"],
+                "reasons": json.loads(r["reasons"]) if r["reasons"] else [],
+            }
+            for r in rows
+        ],
+    }
+
+
 # ─── /regime (3O Phase 2, advisory market-regime classification) ──────────────
 
 
