@@ -39,7 +39,13 @@ MD_DSN = os.environ.get(
 INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
 _ONCHAIN_ASSET = {"BTC-USDT-SWAP": "btc", "ETH-USDT-SWAP": "eth"}  # SOL 无链上
 # base weights(helixa 口径:qlib_v2=1.8, tv=1.0, llm=1.2)映射到 helivex 引擎
-BASE_WEIGHTS = {"ta_multi": 1.0, "tf_trend": 1.0, "tf_scalp": 1.0, "ml_lgb": 1.8, "llm_persona": 1.2}
+BASE_WEIGHTS = {
+    "ta_multi": 1.0,
+    "tf_trend": 1.0,
+    "tf_scalp": 1.0,
+    "ml_lgb": 1.8,
+    "llm_persona": 1.2,
+}
 
 DDL = """
 CREATE TABLE IF NOT EXISTS paper.consensus_signals (
@@ -146,6 +152,35 @@ async def _sentiment_onchain(
     return (float(fgi) if fgi is not None else None), onchain
 
 
+async def _tradfi(md: asyncpg.Pool) -> dict | None:
+    """宏观 risk-on/off 输入:QQQ+SPY 日收益(equity)+ DXY 日收益。全标的共享。"""
+    async with md.acquire() as conn:
+        reg = await conn.fetchval("SELECT to_regclass('md.tradfi')")
+        if not reg:
+            return None
+        eq_rows = await conn.fetch(
+            """SELECT close FROM md.tradfi WHERE source='yahoo' AND symbol IN ('QQQ','SPY')
+               AND ts >= now() - interval '10 days' ORDER BY ts ASC"""
+        )
+        dx_rows = await conn.fetch(
+            """SELECT close FROM md.tradfi WHERE source='yahoo' AND symbol='DX-Y.NYB'
+               AND ts >= now() - interval '10 days' ORDER BY ts ASC"""
+        )
+
+    def _rets(closes: list[float]) -> list[float]:
+        return [
+            (closes[i] / closes[i - 1] - 1.0)
+            for i in range(1, len(closes))
+            if closes[i - 1]
+        ]
+
+    eq = [float(r["close"]) for r in eq_rows]
+    dx = [float(r["close"]) for r in dx_rows]
+    if len(eq) < 3 or len(dx) < 3:
+        return None
+    return {"equity_returns": _rets(eq), "dxy_returns": _rets(dx)}
+
+
 async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
     from omodul.consensus_workflow import ConsensusConfig, consensus_workflow
 
@@ -153,6 +188,7 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
         await conn.execute(DDL)
 
     weights = await _weights(hv)
+    tradfi = await _tradfi(md)  # 宏观 risk-on/off,全标的共享
     cycle_ts = datetime.now(timezone.utc)
     out_dir = Path("/tmp/helivex_consensus_reports")
     results = []
@@ -172,6 +208,7 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
                     "regime_state": regime_state,
                     "fgi": fgi,
                     "onchain": onchain,
+                    "tradfi": tradfi,
                 },
                 out_dir,
             )
