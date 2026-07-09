@@ -1335,6 +1335,80 @@ async def get_portfolio_summary() -> dict:
     }
 
 
+# ─── /portfolio/cvar_weights, /portfolio/position_caps (3O CVaR risk phase 1) ──
+# Stage A: observe-only. See ops/scripts/cvar_risk_adapter.py + paper/risk.py's
+# DYNAMIC_RISK_ENFORCE / gate_entry_dynamic for the enforcement rollout.
+
+
+@app.get("/portfolio/cvar_weights")
+async def get_portfolio_cvar_weights() -> dict:
+    """Latest CVaR-Sharpe portfolio weights cycle (paper.portfolio_weights)."""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT instrument, weight, method, fallback_reason,
+                      portfolio_cvar_95, lookback_days, n_obs, cycle_ts
+               FROM paper.portfolio_weights
+               WHERE cycle_ts = (SELECT MAX(cycle_ts) FROM paper.portfolio_weights)
+               ORDER BY instrument"""
+        )
+    if not rows:
+        return {
+            "as_of": None,
+            "method": None,
+            "fallback_reason": None,
+            "portfolio_cvar_95": None,
+            "lookback_days": None,
+            "n_obs": None,
+            "weights": [],
+        }
+    return {
+        "as_of": rows[0]["cycle_ts"].isoformat(),
+        "method": rows[0]["method"],
+        "fallback_reason": rows[0]["fallback_reason"],
+        "portfolio_cvar_95": float(rows[0]["portfolio_cvar_95"])
+        if rows[0]["portfolio_cvar_95"] is not None
+        else None,
+        "lookback_days": rows[0]["lookback_days"],
+        "n_obs": rows[0]["n_obs"],
+        "weights": [
+            {"instrument": r["instrument"], "weight": float(r["weight"])} for r in rows
+        ],
+    }
+
+
+@app.get("/portfolio/position_caps")
+async def get_portfolio_position_caps() -> dict:
+    """Latest 3-tier position-cap cycle (paper.position_caps) + current enforce mode."""
+    from paper.risk import DYNAMIC_RISK_ENFORCE
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT instrument, tier1_headroom, tier2_atr_cap, tier3_corr_clip,
+                      effective_cap_usd, binding_tier, reasons, cycle_ts
+               FROM paper.position_caps
+               WHERE cycle_ts = (SELECT MAX(cycle_ts) FROM paper.position_caps)
+               ORDER BY instrument"""
+        )
+    return {
+        "as_of": rows[0]["cycle_ts"].isoformat() if rows else None,
+        "enforce_mode": DYNAMIC_RISK_ENFORCE,
+        "caps": [
+            {
+                "instrument": r["instrument"],
+                "tier1_headroom": float(r["tier1_headroom"]),
+                "tier2_atr_cap": float(r["tier2_atr_cap"]),
+                "tier3_corr_clip": float(r["tier3_corr_clip"]),
+                "effective_cap_usd": float(r["effective_cap_usd"]),
+                "binding_tier": r["binding_tier"],
+                "reasons": json.loads(r["reasons"]) if r["reasons"] else [],
+            }
+            for r in rows
+        ],
+    }
+
+
 # ─── /portfolio/kill ──────────────────────────────────────────────────────────
 
 

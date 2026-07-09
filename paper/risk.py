@@ -61,6 +61,17 @@ MAX_DRAWDOWN_PCT = float(
 )  # of peak NAV
 DAILY_LOSS_LIMIT_USD = float(os.environ.get("HELIVEX_DAILY_LOSS_LIMIT_USD", "250"))
 
+# CVaR/dynamic-risk phase 1 (3O port, see docs plan curried-mixing-crab.md):
+# 0 = manual reset only (default, unchanged behavior). >0 = auto-clear the
+# kill-switch after this many hours untouched, matching helixa's circuit-breaker
+# auto-reset. Its own independent rollout stage — off until enabled deliberately.
+KILL_SWITCH_AUTO_RESET_HOURS = float(
+    os.environ.get("HELIVEX_KILL_SWITCH_AUTO_RESET_HOURS", "0")
+)
+# observe (default, Stage A) = compute + log only, never tightens gate_entry's
+# real decision. tier1 / tier1+2 / all = Stage B sub-stages (see gate_entry_dynamic).
+DYNAMIC_RISK_ENFORCE = os.environ.get("HELIVEX_DYNAMIC_RISK_ENFORCE", "observe")
+
 KILL_SWITCH_FILE = Path(
     os.environ.get("HELIVEX_KILL_SWITCH_FILE", "/tmp/helivex_paper_killswitch")
 )
@@ -89,13 +100,38 @@ def _write_hwm(value: float) -> None:
 class RiskDecision:
     allowed: bool
     reason: str = ""
+    tiers: dict | None = None
 
 
 # ── kill-switch (cross-process via file flag) ───────────────────────────────────
 
 
 def is_tripped() -> bool:
-    return KILL_SWITCH_FILE.exists()
+    if not KILL_SWITCH_FILE.exists():
+        return False
+    if KILL_SWITCH_AUTO_RESET_HOURS > 0 and _auto_reset_due():
+        reset()
+        log.warning(
+            "kill-switch auto-reset after %.1fh (HELIVEX_KILL_SWITCH_AUTO_RESET_HOURS)",
+            KILL_SWITCH_AUTO_RESET_HOURS,
+        )
+        return False
+    return True
+
+
+def _auto_reset_due() -> bool:
+    """True if the kill-switch has been tripped longer than the auto-reset window.
+    Reads the trip timestamp already written by trip() — no new file format."""
+    try:
+        raw = KILL_SWITCH_FILE.read_text().strip()
+        ts_str = raw.split("\t", 1)[0]
+        tripped_at = _dt.datetime.fromisoformat(ts_str)
+        elapsed_hours = (
+            _dt.datetime.now(_dt.timezone.utc) - tripped_at
+        ).total_seconds() / 3600
+        return elapsed_hours >= KILL_SWITCH_AUTO_RESET_HOURS
+    except (OSError, ValueError, IndexError):
+        return False
 
 
 def trip(reason: str) -> None:
@@ -233,6 +269,92 @@ def _agg(exp: dict[tuple[str, str], float], idx: int) -> dict[str, float]:
 
 # module-level singleton — one paper book per process
 RISK = PortfolioRiskManager()
+
+
+# ── dynamic risk caps (CVaR/ATR/correlation, from cvar_risk_adapter.py) ─────────
+# Phase 1 of the 3O helixa-capability port (see plan curried-mixing-crab.md).
+# Populated hourly by ops/scripts/cvar_risk_adapter.py into paper.position_caps;
+# refreshed here into an in-process cache by eval_refresh_dynamic_caps
+# (paper/alerter.py). Stage A (DYNAMIC_RISK_ENFORCE="observe", default): computed
+# and logged only — gate_entry_dynamic always defers to gate_entry's real
+# allow/deny and never tightens it. Stage B sub-stages ("tier1"/"tier1+2"/"all")
+# progressively let the dynamic caps additionally restrict new entries.
+
+DYNAMIC_CAPS: dict[str, dict] = {}
+_dynamic_caps_lock = threading.Lock()
+
+
+async def refresh_dynamic_caps(conn: asyncpg.Connection) -> None:
+    """Load the latest paper.position_caps cycle into the in-process cache."""
+    rows = await conn.fetch(
+        """
+        SELECT instrument, tier1_headroom, tier2_atr_cap, tier3_corr_clip,
+               effective_cap_usd, binding_tier, cycle_ts
+        FROM paper.position_caps
+        WHERE cycle_ts = (SELECT MAX(cycle_ts) FROM paper.position_caps)
+        """
+    )
+    caps = {
+        r["instrument"]: {
+            "tier1_headroom": float(r["tier1_headroom"]),
+            "tier2_atr_cap": float(r["tier2_atr_cap"]),
+            "tier3_corr_clip": float(r["tier3_corr_clip"]),
+            "effective_cap_usd": float(r["effective_cap_usd"]),
+            "binding_tier": r["binding_tier"],
+            "cycle_ts": r["cycle_ts"],
+        }
+        for r in rows
+    }
+    with _dynamic_caps_lock:
+        DYNAMIC_CAPS.clear()
+        DYNAMIC_CAPS.update(caps)
+
+
+def gate_entry_dynamic(
+    strategy_id: str, instrument: str, notional_usd: float
+) -> RiskDecision:
+    """Static gate_entry, optionally tightened further by the dynamic caps cache.
+
+    Never loosens the static decision — if gate_entry already rejects, that
+    decision is final. Only when it allows does this consult DYNAMIC_CAPS,
+    and only actually shrinks the effective size when
+    HELIVEX_DYNAMIC_RISK_ENFORCE opts into a tier (Stage B). In the default
+    "observe" mode it computes what it WOULD have decided (visible via
+    `tiers` on the returned RiskDecision) without changing `allowed`.
+    """
+    static = RISK.gate_entry(strategy_id, instrument, notional_usd)
+    if not static.allowed:
+        return static
+
+    try:
+        with _dynamic_caps_lock:
+            caps = DYNAMIC_CAPS.get(instrument)
+        if caps is None:
+            return static  # no cycle yet (cold start) — static gate stands alone
+
+        enforce = DYNAMIC_RISK_ENFORCE
+        tiers_to_check = {
+            "tier1": {"tier1_headroom"},
+            "tier1+2": {"tier1_headroom", "tier2_atr_cap"},
+            "all": {"tier1_headroom", "tier2_atr_cap", "tier3_corr_clip"},
+        }.get(enforce, set())
+
+        active_caps = [caps[t] for t in tiers_to_check if t in caps]
+        effective_cap = min(active_caps) if active_caps else float("inf")
+
+        would_allow = abs(notional_usd) <= effective_cap
+        if enforce == "observe" or would_allow:
+            return RiskDecision(static.allowed, static.reason, tiers=caps)
+
+        return RiskDecision(
+            False,
+            f"dynamic cap ({enforce}): {abs(notional_usd):.0f} > "
+            f"effective {effective_cap:.0f} (binding_tier={caps['binding_tier']})",
+            tiers=caps,
+        )
+    except Exception as e:  # fail-open, same posture as gate_entry itself
+        log.error("gate_entry_dynamic internal error (failing open): %s", e)
+        return static
 
 
 # ── realized P&L (avg-cost round-trip matching) for the breakers ────────────────
@@ -481,6 +603,34 @@ async def eval_daily_loss(*, config: dict | None = None) -> list[dict]:
             await conn.close()
     except Exception as e:
         return [_alert("daily_loss", "high", f"breaker eval failed: {e}")]
+
+
+_last_dynamic_caps_refresh: _dt.datetime | None = None
+
+
+async def eval_refresh_dynamic_caps(*, config: dict | None = None) -> list[dict]:
+    """Refresh DYNAMIC_CAPS from paper.position_caps, self-throttled against the
+    adapter's own ~hourly cadence (this evaluator runs every 120s like the rest
+    of AlerterEngine, but re-querying that often would be wasted work)."""
+    global _last_dynamic_caps_refresh
+    cfg = config or {}
+    min_interval_s = float(cfg.get("min_interval_seconds", 300))
+    now = _dt.datetime.now(_dt.timezone.utc)
+    if (
+        _last_dynamic_caps_refresh is not None
+        and (now - _last_dynamic_caps_refresh).total_seconds() < min_interval_s
+    ):
+        return []
+    try:
+        conn = await asyncpg.connect(DB_DSN)
+        try:
+            await refresh_dynamic_caps(conn)
+        finally:
+            await conn.close()
+        _last_dynamic_caps_refresh = now
+        return []
+    except Exception as e:
+        return [_alert("dynamic_caps_refresh", "low", f"refresh failed: {e}")]
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────────────

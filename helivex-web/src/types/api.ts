@@ -217,6 +217,31 @@ export interface PortfolioSummary {
   available: number;
 }
 
+// ── 3O CVaR 组合风险 Phase 1(观察期,见 paper/risk.py DYNAMIC_RISK_ENFORCE)──
+export interface CvarWeights {
+  as_of: string | null;
+  method: string | null;
+  fallback_reason: string | null;
+  portfolio_cvar_95: number | null;
+  lookback_days: number | null;
+  n_obs: number | null;
+  weights: { instrument: string; weight: number }[];
+}
+export interface PositionCap {
+  instrument: string;
+  tier1_headroom: number;
+  tier2_atr_cap: number;
+  tier3_corr_clip: number;
+  effective_cap_usd: number;
+  binding_tier: string;
+  reasons: string[];
+}
+export interface PositionCaps {
+  as_of: string | null;
+  enforce_mode: string;
+  caps: PositionCap[];
+}
+
 // ── R14 risk layer ──────────────────────────────────────────────
 export interface RiskStatus {
   kill_switch: { tripped: boolean; reason: string };

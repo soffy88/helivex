@@ -37,7 +37,11 @@ from paper.evaluators import (
     eval_write_freshness,
     eval_ws_tick_flow,
 )
-from paper.risk import eval_daily_loss, eval_portfolio_drawdown
+from paper.risk import (
+    eval_daily_loss,
+    eval_portfolio_drawdown,
+    eval_refresh_dynamic_caps,
+)
 
 log = logging.getLogger(__name__)
 
@@ -109,6 +113,7 @@ def build_alerter() -> AlerterEngine:
             eval_web_alive,
             eval_portfolio_drawdown,
             eval_daily_loss,
+            eval_refresh_dynamic_caps,
             eval_l2_recorder_flow,
             eval_write_freshness,
             eval_ingestion_freshness,
