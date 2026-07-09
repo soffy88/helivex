@@ -10,6 +10,7 @@ Strategies:
 
 All use OKXEnvironment.DEMO. Real OKX keys are only read from env; never hardcoded.
 """
+
 from __future__ import annotations
 
 import os
@@ -32,24 +33,31 @@ from nautilus_trader.config import (
 )
 from nautilus_trader.live.node import TradingNode
 
-from paper.strategies.donchian_4h   import Donchian4H,   Donchian4HConfig
-from paper.strategies.vwap_mr_1h    import VwapMR1H,    VwapMR1HConfig
+from paper.strategies.donchian_4h import Donchian4H, Donchian4HConfig
+from paper.strategies.vwap_mr_1h import VwapMR1H, VwapMR1HConfig
 from paper.strategies.spot_trend_1d import SpotTrend1D, SpotTrend1DConfig
-from paper.strategies.scalp_5m      import Scalp5M,     Scalp5MConfig
+from paper.strategies.scalp_5m import Scalp5M, Scalp5MConfig
+from paper.strategies.trend_follower_port import (
+    TrendFollowerPort,
+    TrendFollowerPortConfig,
+)
 
 
 def _okx_env():
     from nautilus_trader.adapters.okx.config import OKXEnvironment
+
     return OKXEnvironment.DEMO
 
 
 def _okx_instrument_type_swap():
     from nautilus_trader.adapters.okx.config import OKXInstrumentType
+
     return OKXInstrumentType.SWAP
 
 
 def _okx_instrument_type_spot():
     from nautilus_trader.adapters.okx.config import OKXInstrumentType
+
     return OKXInstrumentType.SPOT
 
 
@@ -67,11 +75,11 @@ def _live(yaml_name: str) -> dict:
 
 
 def build_node() -> TradingNode:
-    api_key     = os.environ["OKX_API_KEY"]
-    api_secret  = os.environ["OKX_API_SECRET"]
-    passphrase  = os.environ["OKX_PASSPHRASE"]
+    api_key = os.environ["OKX_API_KEY"]
+    api_secret = os.environ["OKX_API_SECRET"]
+    passphrase = os.environ["OKX_PASSPHRASE"]
     # NT's Rust WS client bypasses shell proxy env vars; wire it explicitly.
-    proxy_url   = os.environ.get("OKX_WS_PROXY") or None
+    proxy_url = os.environ.get("OKX_WS_PROXY") or None
 
     # Single unified client for both SWAP and SPOT — eliminates venue routing
     # overwrite bug where two OKX clients both register venue=OKX and the second
@@ -105,39 +113,51 @@ def build_node() -> TradingNode:
     donchian_btc = Donchian4HConfig(
         instrument_id="BTC-USDT-SWAP.OKX",
         bar_type="BTC-USDT-SWAP.OKX-4-HOUR-LAST-INTERNAL",
-        n_enter=int(td.get("n_enter", 20)), n_exit=int(td.get("n_exit", 10)), qty_usd=float(td.get("qty_usd", 200.0)),
+        n_enter=int(td.get("n_enter", 20)),
+        n_exit=int(td.get("n_exit", 10)),
+        qty_usd=float(td.get("qty_usd", 200.0)),
     )
     donchian_eth = Donchian4HConfig(
         instrument_id="ETH-USDT-SWAP.OKX",
         bar_type="ETH-USDT-SWAP.OKX-4-HOUR-LAST-INTERNAL",
-        n_enter=int(td.get("n_enter", 20)), n_exit=int(td.get("n_exit", 10)), qty_usd=float(td.get("qty_usd", 200.0)),
+        n_enter=int(td.get("n_enter", 20)),
+        n_exit=int(td.get("n_exit", 10)),
+        qty_usd=float(td.get("qty_usd", 200.0)),
     )
     donchian_sol = Donchian4HConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
         bar_type="SOL-USDT-SWAP.OKX-4-HOUR-LAST-INTERNAL",
-        n_enter=int(td.get("n_enter", 20)), n_exit=int(td.get("n_exit", 10)), qty_usd=float(td.get("qty_usd", 200.0)),
+        n_enter=int(td.get("n_enter", 20)),
+        n_exit=int(td.get("n_exit", 10)),
+        qty_usd=float(td.get("qty_usd", 200.0)),
     )
 
     # Strategy 2 — VWAP-MR 1H SWAP (SOL)
     vwap_sol = VwapMR1HConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
         bar_type="SOL-USDT-SWAP.OKX-1-HOUR-LAST-INTERNAL",
-        vwap_n=int(vw.get("vwap_n", 4)), z_thr=float(vw.get("z_thr", 2.0)),
-        hold=int(vw.get("hold", 6)), qty_usd=float(vw.get("qty_usd", 200.0)),
+        vwap_n=int(vw.get("vwap_n", 4)),
+        z_thr=float(vw.get("z_thr", 2.0)),
+        hold=int(vw.get("hold", 6)),
+        qty_usd=float(vw.get("qty_usd", 200.0)),
     )
 
     # Strategy 3 — Daily Donchian Spot (BTC, ETH)
     spot_btc = SpotTrend1DConfig(
         instrument_id="BTC-USDT.OKX",
         bar_type="BTC-USDT.OKX-1-DAY-LAST-INTERNAL",
-        n_enter=int(sp.get("n_enter", 20)), n_exit=int(sp.get("n_exit", 10)),
-        bear_ma=int(sp.get("bear_ma", 200)), qty_usd=float(sp.get("qty_usd", 200.0)),
+        n_enter=int(sp.get("n_enter", 20)),
+        n_exit=int(sp.get("n_exit", 10)),
+        bear_ma=int(sp.get("bear_ma", 200)),
+        qty_usd=float(sp.get("qty_usd", 200.0)),
     )
     spot_eth = SpotTrend1DConfig(
         instrument_id="ETH-USDT.OKX",
         bar_type="ETH-USDT.OKX-1-DAY-LAST-INTERNAL",
-        n_enter=int(sp.get("n_enter", 20)), n_exit=int(sp.get("n_exit", 10)),
-        bear_ma=int(sp.get("bear_ma", 200)), qty_usd=float(sp.get("qty_usd", 200.0)),
+        n_enter=int(sp.get("n_enter", 20)),
+        n_exit=int(sp.get("n_exit", 10)),
+        bear_ma=int(sp.get("bear_ma", 200)),
+        qty_usd=float(sp.get("qty_usd", 200.0)),
     )
 
     node_config = TradingNodeConfig(
@@ -164,20 +184,26 @@ def build_node() -> TradingNode:
     scalp_btc = Scalp5MConfig(
         instrument_id="BTC-USDT-SWAP.OKX",
         bar_type="BTC-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
-        vwap_n=int(sc.get("vwap_n", 12)), z_thr=float(sc.get("z_thr", 2.0)),
-        hold=int(sc.get("hold", 6)), qty_usd=float(sc.get("qty_usd", 50.0)),
+        vwap_n=int(sc.get("vwap_n", 12)),
+        z_thr=float(sc.get("z_thr", 2.0)),
+        hold=int(sc.get("hold", 6)),
+        qty_usd=float(sc.get("qty_usd", 50.0)),
     )
     scalp_eth = Scalp5MConfig(
         instrument_id="ETH-USDT-SWAP.OKX",
         bar_type="ETH-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
-        vwap_n=int(sc.get("vwap_n", 12)), z_thr=float(sc.get("z_thr", 2.0)),
-        hold=int(sc.get("hold", 6)), qty_usd=float(sc.get("qty_usd", 50.0)),
+        vwap_n=int(sc.get("vwap_n", 12)),
+        z_thr=float(sc.get("z_thr", 2.0)),
+        hold=int(sc.get("hold", 6)),
+        qty_usd=float(sc.get("qty_usd", 50.0)),
     )
     scalp_sol = Scalp5MConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
         bar_type="SOL-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
-        vwap_n=int(sc.get("vwap_n", 12)), z_thr=float(sc.get("z_thr", 2.0)),
-        hold=int(sc.get("hold", 6)), qty_usd=float(sc.get("qty_usd", 50.0)),
+        vwap_n=int(sc.get("vwap_n", 12)),
+        z_thr=float(sc.get("z_thr", 2.0)),
+        hold=int(sc.get("hold", 6)),
+        qty_usd=float(sc.get("qty_usd", 50.0)),
     )
 
     node.trader.add_strategy(Donchian4H(donchian_btc))
@@ -190,7 +216,32 @@ def build_node() -> TradingNode:
     node.trader.add_strategy(Scalp5M(scalp_eth))
     node.trader.add_strategy(Scalp5M(scalp_sol))
 
+    # Strategy 5 (ported) — helixa trend_follower (Donchian20 + ADX gate + Chandelier
+    # ATR×3 trailing + 30d time stop). OBSERVE ONLY: trade_enabled=False → logs signals
+    # for gating, submits NO orders until it passes DSR/PBO gate + a human flips it.
+    tf = _live("trend_follower_port.yaml")
+    _tf_enabled = bool(tf.get("trade_enabled", False))
+    for _sym in ("BTC", "ETH", "SOL"):
+        node.trader.add_strategy(
+            TrendFollowerPort(
+                TrendFollowerPortConfig(
+                    instrument_id=f"{_sym}-USDT-SWAP.OKX",
+                    bar_type=f"{_sym}-USDT-SWAP.OKX-1-DAY-LAST-INTERNAL",
+                    donchian_period=int(tf.get("donchian_period", 20)),
+                    adx_period=int(tf.get("adx_period", 14)),
+                    adx_entry=float(tf.get("adx_entry", 20.0)),
+                    adx_exit=float(tf.get("adx_exit", 15.0)),
+                    chandelier_period=int(tf.get("chandelier_period", 22)),
+                    chandelier_mult=float(tf.get("chandelier_mult", 3.0)),
+                    max_holding_days=int(tf.get("max_holding_days", 30)),
+                    qty_usd=float(tf.get("qty_usd", 200.0)),
+                    trade_enabled=_tf_enabled,
+                )
+            )
+        )
+
     from paper.sdwatchdog import attach_watchdog
-    attach_watchdog(node)   # systemd WatchdogSec keep-alive (no-op outside systemd)
+
+    attach_watchdog(node)  # systemd WatchdogSec keep-alive (no-op outside systemd)
 
     return node

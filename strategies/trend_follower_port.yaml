@@ -1,0 +1,46 @@
+strategy: trend_follower_port
+description: "helixa trend_follower 移植 — Donchian20 + ADX 门 + Chandelier ATR×3 移动止损 + 30d 时间止损(SWAP,多空)"
+timeframe: 1D
+instruments:
+- BTC-USDT-SWAP
+- ETH-USDT-SWAP
+- SOL-USDT-SWAP
+db_table: market_data.ohlcv_1h
+db_source: okx_swap_5m
+resample_to_1d: true
+# 源自 helixa HELIXA_FUTURES_DESIGN_V1(trend_follower/config.py)
+donchian:
+  n_enter: 20
+  n_exit: 20
+indicators:
+  adx:
+    enabled: true
+    period: 14
+    entry: 20
+    exit: 15
+  atr:
+    enabled: true
+    chandelier_period: 22
+    chandelier_mult: 3.0
+    health_min: 0.005
+    health_max: 0.10
+signal_logic:
+  min_confluence: 3
+  direction: dual
+# live paper params(read by paper/node.py → TrendFollowerPort;可经 Configure tab 改)
+# trade_enabled=false → NO-GO 观察:只记录信号、不下单;过 gate + 人工放行后才置 true
+live:
+  donchian_period: 20
+  adx_period: 14
+  adx_entry: 20
+  adx_exit: 15
+  chandelier_period: 22
+  chandelier_mult: 3.0
+  max_holding_days: 30
+  qty_usd: 200
+  trade_enabled: false
+mode: paper
+status: ported-observe
+gate:
+  n_splits: 6
+  embargo_bars: 50
