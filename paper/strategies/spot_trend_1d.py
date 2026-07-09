@@ -58,8 +58,51 @@ class SpotTrend1D(Strategy):
         self._bar_type = BarType.from_str(self.config.bar_type)
         self.subscribe_bars(self._bar_type)
         self._db = ResilientPool(DB_DSN, DDL, name=self._strategy_id(), logger=self.log)
-        asyncio.ensure_future(self._db.ensure())
+        asyncio.ensure_future(self._boot())
         asyncio.ensure_future(self._rehydrate_position())
+
+    async def _boot(self) -> None:
+        await self._db.ensure()
+        await self._seed_warmup()
+
+    async def _seed_warmup(self) -> None:
+        # Seed daily closes from market_data.ohlcv_1h resampled to 1D. Without this
+        # the 200d bear-MA + 21-bar Donchian would need ~7 MONTHS of uninterrupted
+        # node uptime before the first entry decision. Uses SWAP history as proxy for
+        # the spot instrument (this strategy is already documented as a SWAP proxy;
+        # DB spot history only goes back ~1 month, SWAP has 2 years). Seeds HISTORY
+        # ONLY — no evaluation, no order can fire from stale data; the next live
+        # daily close makes the first real decision.
+        sid = self._strategy_id()
+        if self._closes:  # live bars already arrived — don't splice history under them
+            return
+        spot = self.config.instrument_id.split(".")[0]  # e.g. BTC-USDT
+        inst_db = spot if spot.endswith("-SWAP") else f"{spot}-SWAP"
+        limit = self._closes.maxlen or 202
+        try:
+            rows = await self._db.execute(
+                lambda conn: conn.fetch(
+                    """SELECT date_trunc('day', bar_close_ts - interval '1 second') AS d,
+                          (array_agg(close ORDER BY bar_close_ts DESC))[1] AS c
+                     FROM market_data.ohlcv_1h
+                     WHERE instrument = $1
+                       AND bar_close_ts <= date_trunc('day', now())
+                     GROUP BY 1 ORDER BY d DESC LIMIT $2""",
+                    inst_db,
+                    limit,
+                )
+            )
+        except Exception as exc:
+            self.log.warning(f"[{sid}] warmup seed skipped: {exc}")
+            return
+        if not rows:
+            self.log.warning(f"[{sid}] warmup seed: no daily history for {inst_db}")
+            return
+        for r in reversed(rows):  # chronological
+            self._closes.append(float(r["c"]))
+        self.log.info(
+            f"[{sid}] warmup seeded {len(rows)} daily closes from ohlcv_1h ({inst_db} proxy)"
+        )
 
     async def _rehydrate_position(self) -> None:
         # After a restart the venue may hold a position this strategy opened before

@@ -82,8 +82,42 @@ class Scalp5M(Strategy):
             f"subscribing to {self._bar_type}"
         )
         self._db = ResilientPool(DB_DSN, DDL, name=self._strategy_id(), logger=self.log)
-        asyncio.ensure_future(self._db.ensure())
+        asyncio.ensure_future(self._boot())
         asyncio.ensure_future(self._rehydrate_position())
+
+    async def _boot(self) -> None:
+        await self._db.ensure()
+        await self._seed_warmup()
+
+    async def _seed_warmup(self) -> None:
+        # Seed closes+volumes from market_data.ohlcv_5m so a node restart doesn't
+        # reset the VWAP window. Seeds HISTORY ONLY — no evaluation; the next live
+        # 5m close makes the first real decision.
+        sid = self._strategy_id()
+        if self._closes:  # live bars already arrived — don't splice history under them
+            return
+        inst_db = self.config.instrument_id.split(".")[0]
+        limit = self._closes.maxlen or 16
+        try:
+            rows = await self._db.execute(
+                lambda conn: conn.fetch(
+                    """SELECT close AS c, volume AS v FROM market_data.ohlcv_5m
+                     WHERE instrument = $1 AND source = 'okx_swap_5m'
+                     ORDER BY bar_close_ts DESC LIMIT $2""",
+                    inst_db,
+                    limit,
+                )
+            )
+        except Exception as exc:
+            self.log.warning(f"[{sid}] warmup seed skipped: {exc}")
+            return
+        if not rows:
+            self.log.warning(f"[{sid}] warmup seed: no 5m history for {inst_db}")
+            return
+        for r in reversed(rows):  # chronological
+            self._closes.append(float(r["c"]))
+            self._volumes.append(float(r["v"]) if r["v"] is not None else 0.0)
+        self.log.info(f"[{sid}] warmup seeded {len(rows)} 5m bars from ohlcv_5m")
 
     async def _rehydrate_position(self) -> None:
         # After a restart the venue may hold a position this strategy opened before

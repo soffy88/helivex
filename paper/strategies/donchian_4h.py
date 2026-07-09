@@ -73,8 +73,46 @@ class Donchian4H(Strategy):
         )
         # Resilient pool: retries the boot race + self-heals on container restart.
         self._db = ResilientPool(DB_DSN, DDL, name=self._strategy_id(), logger=self.log)
-        asyncio.ensure_future(self._db.ensure())
+        asyncio.ensure_future(self._boot())
         asyncio.ensure_future(self._rehydrate_position())
+
+    async def _boot(self) -> None:
+        await self._db.ensure()
+        await self._seed_warmup()
+
+    async def _seed_warmup(self) -> None:
+        # Seed the close deque from market_data.ohlcv_1h resampled to 4H so a node
+        # restart no longer resets the 21-bar (~3.5 day) live warmup to zero. Seeds
+        # HISTORY ONLY — no evaluation here, so no order can fire from stale data;
+        # the next live bar close does the first real entry/exit decision.
+        sid = self._strategy_id()
+        if self._closes:  # live bars already arrived — don't splice history under them
+            return
+        inst_db = self.config.instrument_id.split(".")[0]
+        limit = self._closes.maxlen or 24
+        try:
+            rows = await self._db.execute(
+                lambda conn: conn.fetch(
+                    """SELECT date_bin('4 hours', bar_close_ts - interval '1 second',
+                                   TIMESTAMPTZ '2000-01-01') AS b,
+                          (array_agg(close ORDER BY bar_close_ts DESC))[1] AS c
+                     FROM market_data.ohlcv_1h
+                     WHERE instrument = $1
+                       AND bar_close_ts <= date_bin('4 hours', now(), TIMESTAMPTZ '2000-01-01')
+                     GROUP BY 1 ORDER BY b DESC LIMIT $2""",
+                    inst_db,
+                    limit,
+                )
+            )
+        except Exception as exc:
+            self.log.warning(f"[{sid}] warmup seed skipped: {exc}")
+            return
+        if not rows:
+            self.log.warning(f"[{sid}] warmup seed: no 4H history for {inst_db}")
+            return
+        for r in reversed(rows):  # chronological
+            self._closes.append(float(r["c"]))
+        self.log.info(f"[{sid}] warmup seeded {len(rows)} 4H closes from ohlcv_1h")
 
     async def _rehydrate_position(self) -> None:
         # After a restart the venue may hold a position this strategy opened before
