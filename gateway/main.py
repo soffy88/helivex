@@ -1353,6 +1353,101 @@ async def get_portfolio_attribution() -> dict:
     }
 
 
+# ─── 补齐 I: FGI 情绪 + 统一事件时间线 ────────────────────────────────────────
+
+
+@app.get("/sentiment/fgi")
+async def get_sentiment_fgi() -> dict:
+    """Fear & Greed index + contrarian bias (helixa KpiStrip/Regime 的 FGI「反转」等价物).
+    读 iris md.sentiment(Alternative.me)。极度恐惧→逆向看多(bias>0),极度贪婪→看空。"""
+    md = await get_md_pool()
+    async with md.acquire() as conn:
+        reg = await conn.fetchval("SELECT to_regclass('md.sentiment')")
+        if not reg:
+            return {
+                "value": None,
+                "classification": None,
+                "contrarian_bias": 0.0,
+                "ts": None,
+            }
+        row = await conn.fetchrow(
+            """SELECT value, classification, ts FROM md.sentiment
+               WHERE metric='fear_greed_index' ORDER BY ts DESC LIMIT 1"""
+        )
+    if not row:
+        return {
+            "value": None,
+            "classification": None,
+            "contrarian_bias": 0.0,
+            "ts": None,
+        }
+    v = float(row["value"])
+    bias = max(-1.0, min(1.0, (50.0 - v) / 50.0))  # contrarian: low FGI → bullish
+    stance = "看多(逆向)" if bias > 0.15 else "看空(逆向)" if bias < -0.15 else "中性"
+    return {
+        "value": v,
+        "classification": row["classification"],
+        "contrarian_bias": round(bias, 3),
+        "contrarian_stance": stance,
+        "ts": row["ts"].isoformat() if row["ts"] else None,
+    }
+
+
+@app.get("/events/timeline")
+async def get_events_timeline(limit: int = Query(40, ge=1, le=200)) -> dict:
+    """Unified event stream (helixa StrategyStream 等价物):成交 + 风控事件 + 共识轮次,
+    按时间倒序合并成一条时间线。"""
+    pool = await get_pool()
+    out: list[dict] = []
+    async with pool.acquire() as conn:
+        fills = await conn.fetch(
+            """SELECT ts, strategy_id, instrument, side, actual_fill_price
+               FROM paper.fills ORDER BY ts DESC LIMIT $1""",
+            limit,
+        )
+        for f in fills:
+            out.append(
+                {
+                    "ts": f["ts"].isoformat(),
+                    "category": "fill",
+                    "label": f"{f['side']} {str(f['instrument']).split('.')[0].split('-')[0]} @ {float(f['actual_fill_price'])}",
+                    "detail": f["strategy_id"],
+                }
+            )
+        if await conn.fetchval("SELECT to_regclass('paper.risk_events')"):
+            revs = await conn.fetch(
+                "SELECT ts, kind, entity_id, severity, message FROM paper.risk_events ORDER BY id DESC LIMIT $1",
+                limit,
+            )
+            for r in revs:
+                out.append(
+                    {
+                        "ts": r["ts"].isoformat(),
+                        "category": f"risk:{r['kind']}",
+                        "label": r["message"] or r["kind"],
+                        "detail": f"{r['entity_id'] or ''} ({r['severity'] or ''})",
+                    }
+                )
+        if await conn.fetchval("SELECT to_regclass('paper.consensus_signals')"):
+            cons = await conn.fetch(
+                """SELECT cycle_ts, instrument, final_direction, should_execute
+                   FROM paper.consensus_signals ORDER BY cycle_ts DESC LIMIT $1""",
+                limit,
+            )
+            for c in cons:
+                out.append(
+                    {
+                        "ts": c["cycle_ts"].isoformat(),
+                        "category": "consensus",
+                        "label": f"{str(c['instrument']).split('-')[0]} {c['final_direction']}"
+                        + (" ✅可执行" if c["should_execute"] else " (观察)"),
+                        "detail": "共识轮次",
+                    }
+                )
+    out.sort(key=lambda e: e["ts"], reverse=True)
+    return {"events": out[:limit]}
+
+
 # ─── /portfolio/correlation ───────────────────────────────────────────────────
 
 
@@ -1730,6 +1825,9 @@ async def get_ohlcv(symbol: str, limit: int = Query(120, ge=10, le=500)) -> dict
                 inst,
                 first_ts,
             )
+    from collections import Counter
+
+    _ts_counts = Counter(m["ts"] for m in fills)
     return {
         "instrument": inst,
         "candles": [
@@ -1748,6 +1846,9 @@ async def get_ohlcv(symbol: str, limit: int = Query(120, ge=10, le=500)) -> dict
                 "side": m["side"].lower(),
                 "price": float(m["actual_fill_price"]),
                 "strategy": m["strategy_id"],
+                # burst = identical-ts duplicate fills (the replay-burst signature the
+                # eval_burst_recurrence watcher flags); shown as ⚠ on the chart.
+                "burst": _ts_counts[m["ts"]] > 1,
             }
             for m in fills
         ],

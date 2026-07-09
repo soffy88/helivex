@@ -114,3 +114,11 @@ export const chartApi = {
   ohlcv: (symbol: string, limit = 120) => req<OhlcvResp>(`/ohlcv/${encodeURIComponent(symbol)}?limit=${limit}`),
   decisionTrail: (limit = 20) => req<DecisionTrailResp>(`/decision-trail/recent?limit=${limit}`),
 };
+
+// ── 补齐 I: FGI 情绪 + 统一事件时间线 ──────────
+import type { FgiResp, TimelineResp } from '@/types/api';
+
+export const streamApi = {
+  fgi: () => req<FgiResp>('/sentiment/fgi'),
+  timeline: (limit = 40) => req<TimelineResp>(`/events/timeline?limit=${limit}`),
+};

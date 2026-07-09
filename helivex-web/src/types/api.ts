@@ -365,7 +365,7 @@ export interface ConsensusRiskResp { as_of: string | null; enforce_mode: string;
 export interface OhlcvResp {
   instrument: string;
   candles: { ts: string; o: number; h: number; l: number; c: number }[];
-  markers: { ts: string; side: string; price: number; strategy: string }[];
+  markers: { ts: string; side: string; price: number; strategy: string; burst?: boolean }[];
 }
 export interface DecisionTrailItem {
   kind: string; instrument: string; fingerprint: string | null; ts: string;
@@ -386,3 +386,11 @@ export interface AttributionItem {
   win_rate: number | null; avg_pnl: number | null; best: number | null; worst: number | null; pct_of_gross: number;
 }
 export interface PortfolioAttributionResp { as_of: string; total_realized: number; by_strategy: AttributionItem[]; }
+
+// 补齐 I: FGI + 统一事件时间线
+export interface FgiResp {
+  value: number | null; classification: string | null;
+  contrarian_bias: number; contrarian_stance?: string; ts: string | null;
+}
+export interface TimelineEvent { ts: string; category: string; label: string; detail: string; }
+export interface TimelineResp { events: TimelineEvent[]; }

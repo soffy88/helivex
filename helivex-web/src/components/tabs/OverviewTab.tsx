@@ -8,10 +8,10 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { SafeGateBadge } from '../SafeBadges';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
-import { helivexApi, detailApi } from '@/lib/api-client';
+import { helivexApi, detailApi, streamApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import { Sparkline } from '../charts';
-import type { StrategyState, PaperAccount, StrategyEquity } from '@/types/api';
+import type { StrategyState, PaperAccount, StrategyEquity, TimelineResp } from '@/types/api';
 import {
   EquityView, StatsView, ExecutionView, PositionsView, TradesView, SignalsView,
 } from '../StrategyViews';
@@ -106,6 +106,38 @@ export function OverviewTab() {
           <Block title="信号历史(真实 signal + indicator)"><SignalsView id={id} /></Block>
         </div>
       )}
+
+      <EventTimeline />
     </div>
+  );
+}
+
+/** 统一事件时间线(补齐 I,helixa StrategyStream 等价物):成交+风控+共识合并倒序。 */
+function EventTimeline() {
+  const { data, loading } = useApi<TimelineResp>(() => streamApi.timeline(30), [], 15000, 'timeline');
+  if (loading && !data) return null;
+  const evts = data?.events ?? [];
+  if (evts.length === 0) return null;
+  const color = (cat: string) =>
+    cat.startsWith('risk:trip') || cat.startsWith('risk:breach') ? 'var(--destructive)'
+    : cat.startsWith('risk:reset') ? 'var(--success,#3fb950)'
+    : cat === 'fill' ? 'var(--muted-foreground)' : 'oklch(0.70 0.12 240)';
+  return (
+    <>
+      <div className="hv-section-title">事件时间线(成交 · 风控 · 共识)</div>
+      <table className="hv-table" aria-label="事件时间线">
+        <thead><tr><th>时间</th><th>类型</th><th>事件</th><th>来源</th></tr></thead>
+        <tbody>
+          {evts.map((e, i) => (
+            <tr key={i}>
+              <td className="hv-num">{new Date(e.ts).toLocaleTimeString()}</td>
+              <td style={{ color: color(e.category) }}>{e.category}</td>
+              <td>{e.label}</td>
+              <td style={{ color: 'var(--muted-foreground)', fontSize: 'var(--text-xs)' }}>{e.detail}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </>
   );
 }

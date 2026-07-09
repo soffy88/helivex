@@ -7,10 +7,10 @@
 'use client';
 
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
-import { ensembleApi, chartApi } from '@/lib/api-client';
+import { ensembleApi, chartApi, streamApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import { Candlestick } from '../charts';
-import type { RegimeResp, EnginesResp, ConsensusResp, ConsensusRiskResp, OhlcvResp, DecisionTrailResp } from '@/types/api';
+import type { RegimeResp, EnginesResp, ConsensusResp, ConsensusRiskResp, OhlcvResp, DecisionTrailResp, FgiResp } from '@/types/api';
 
 const dirColor = (d: string) =>
   d === 'long' ? 'var(--success, oklch(0.62 0.18 145))' : d === 'short' ? 'var(--destructive)' : 'var(--muted-foreground)';
@@ -22,13 +22,13 @@ export function EnsembleTab() {
   const { data, loading, error, stale } = useApi(
     () => Promise.all([
       ensembleApi.regime(), ensembleApi.engines(), ensembleApi.consensus(), ensembleApi.riskEval(),
-      chartApi.ohlcv('BTC-USDT', 120), chartApi.decisionTrail(12),
+      chartApi.ohlcv('BTC-USDT', 120), chartApi.decisionTrail(12), streamApi.fgi(),
     ]),
     [], 15000, 'ensemble',
   );
   if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
   if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
-  const [regime, engines, consensus, risk, ohlcv, trail] = data as [RegimeResp, EnginesResp, ConsensusResp, ConsensusRiskResp, OhlcvResp, DecisionTrailResp];
+  const [regime, engines, consensus, risk, ohlcv, trail, fgi] = data as [RegimeResp, EnginesResp, ConsensusResp, ConsensusRiskResp, OhlcvResp, DecisionTrailResp, FgiResp];
 
   // group engine signals by instrument
   const byInst: Record<string, typeof engines.engines> = {};
@@ -44,6 +44,28 @@ export function EnsembleTab() {
         → 全套风控。全部 <strong>observe-only</strong>,不接实盘;当前 enforce_mode = <strong>{risk.enforce_mode}</strong>。
         与 helixa 关键区别:未过门引擎记录但不投票(helixa 什么都投,含 0.2315 准确率的模型)。
       </div>
+
+      {/* FGI 恐惧贪婪 + 反转乘数(P3 情绪)*/}
+      {fgi.value != null && (
+        <div className="hv-grid-3">
+          <div className="hv-metric-card">
+            <span className="hv-metric-label">Fear & Greed 指数</span>
+            <span className="hv-metric-value" style={{ color: fgi.value <= 25 ? 'var(--destructive)' : fgi.value >= 75 ? 'oklch(0.72 0.16 70)' : 'var(--muted-foreground)' }}>
+              {fgi.value.toFixed(0)} · {fgi.classification}
+            </span>
+          </div>
+          <div className="hv-metric-card">
+            <span className="hv-metric-label">逆向情绪偏置(contrarian)</span>
+            <span className="hv-metric-value" style={{ color: fgi.contrarian_bias > 0 ? 'var(--success,#3fb950)' : fgi.contrarian_bias < 0 ? 'var(--destructive)' : 'var(--muted-foreground)' }}>
+              {fgi.contrarian_bias > 0 ? '+' : ''}{fgi.contrarian_bias.toFixed(2)} · {fgi.contrarian_stance ?? '—'}
+            </span>
+          </div>
+          <div className="hv-metric-card">
+            <span className="hv-metric-label">数据时间</span>
+            <span className="hv-metric-value">{fgi.ts ? new Date(fgi.ts).toLocaleDateString() : '—'}</span>
+          </div>
+        </div>
+      )}
 
       {/* Regime(P2)*/}
       <div className="hv-section-title">市场 Regime(P2,advisory)· {regime.as_of ? new Date(regime.as_of).toLocaleString() : '—'}</div>
@@ -146,7 +168,8 @@ export function EnsembleTab() {
         <>
           <Candlestick candles={ohlcv.candles} markers={ohlcv.markers} />
           <div className="hv-honest-note">
-            绿涨红跌;三角 = 成交标记({ohlcv.markers.length} 笔,买绿卖红)。
+            绿涨红跌;三角 = 成交标记({ohlcv.markers.length} 笔,买绿卖红);
+            <span style={{ color: 'oklch(0.72 0.16 70)' }}>⚠ 琥珀点 = 重放爆发(同 ts 重复成交)</span>。
             {ohlcv.markers.length === 0 && ' 该标的暂无 paper 成交(策略交易其它标的)。'}
           </div>
         </>

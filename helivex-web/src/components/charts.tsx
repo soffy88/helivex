@@ -78,7 +78,7 @@ export function DivergingBars({ items, unit = '' }: {
 
 /** 手写 SVG K 线蜡烛图 + 成交标记(无图表库)。 */
 export interface Candle { ts: string; o: number; h: number; l: number; c: number; }
-export interface CandleMarker { ts: string; side: string; price: number; strategy?: string; }
+export interface CandleMarker { ts: string; side: string; price: number; strategy?: string; burst?: boolean; }
 export function Candlestick({ candles, markers = [], w = 640, h = 260 }: {
   candles: Candle[]; markers?: CandleMarker[]; w?: number; h?: number;
 }) {
@@ -115,6 +115,13 @@ export function Candlestick({ candles, markers = [], w = 640, h = 260 }: {
         const x = pad + idx * cw + cw / 2;
         const my = y(m.price);
         const buy = m.side === 'buy';
+        // replay-burst fills get an amber warning dot instead of a directional triangle
+        if (m.burst) return (
+          <g key={'m' + i}>
+            <circle cx={x} cy={my} r={3.5} fill="oklch(0.72 0.16 70)" stroke="var(--background)" strokeWidth="0.5" />
+            <text x={x} y={my - 6} fontSize="8" textAnchor="middle" fill="oklch(0.72 0.16 70)">⚠</text>
+          </g>
+        );
         return (
           <polygon key={'m' + i}
             points={buy ? `${x},${my + 8} ${x - 4},${my + 14} ${x + 4},${my + 14}` : `${x},${my - 8} ${x - 4},${my - 14} ${x + 4},${my - 14}`}
