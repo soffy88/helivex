@@ -1305,6 +1305,54 @@ async def get_portfolio_equity() -> dict:
     return {"combined": combined, "by_strategy": by_strategy}
 
 
+@app.get("/portfolio/attribution")
+async def get_portfolio_attribution() -> dict:
+    """Per-STRATEGY realized-P&L attribution (helixa Grafana signal-attribution 的等价物,
+    诚实修正:helixa 归因到 engine 因为 engine 直接驱动实盘;helivex 是 4 个策略在成交、
+    共识仍 observe,所以归因到策略才有意义。引擎级归因要等 enforce 后引擎驱动执行才成立)。
+    每策略:realized P&L、占毛额比例、成交数、胜率、单笔均益、最佳/最差。"""
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT ts, strategy_id, instrument, side, quantity, actual_fill_price
+               FROM paper.fills ORDER BY ts ASC"""
+        )
+    from collections import defaultdict
+
+    by_strat: dict[str, list] = defaultdict(list)
+    for r in rows:
+        by_strat[r["strategy_id"]].append(r)
+
+    strat_stats: list[dict] = []
+    for sid, fills in by_strat.items():
+        trades = _round_trips(fills)
+        pnls = [t["realized_pnl"] for t in trades]
+        n = len(pnls)
+        realized = sum(pnls)
+        wins = sum(1 for p in pnls if p > 0)
+        strat_stats.append(
+            {
+                "strategy_id": sid,
+                "realized_pnl": round(realized, 2),
+                "n_trades": n,
+                "win_rate": round(wins / n, 4) if n else None,
+                "avg_pnl": round(realized / n, 4) if n else None,
+                "best": round(max(pnls), 2) if pnls else None,
+                "worst": round(min(pnls), 2) if pnls else None,
+            }
+        )
+
+    gross = sum(abs(s["realized_pnl"]) for s in strat_stats) or 1.0
+    for s in strat_stats:
+        s["pct_of_gross"] = round(abs(s["realized_pnl"]) / gross, 4)
+    strat_stats.sort(key=lambda s: s["realized_pnl"], reverse=True)
+    return {
+        "as_of": datetime.now(timezone.utc).isoformat(),
+        "total_realized": round(sum(s["realized_pnl"] for s in strat_stats), 2),
+        "by_strategy": strat_stats,
+    }
+
+
 # ─── /portfolio/correlation ───────────────────────────────────────────────────
 
 

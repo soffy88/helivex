@@ -379,3 +379,10 @@ export interface EngineWeightItem {
 }
 export interface EngineWeightsResp { weights: EngineWeightItem[]; }
 export interface ConsensusConfigResp { base_threshold: number; updated_at: string | null; }
+
+// 补齐 H: 每策略 P&L 归因
+export interface AttributionItem {
+  strategy_id: string; realized_pnl: number; n_trades: number;
+  win_rate: number | null; avg_pnl: number | null; best: number | null; worst: number | null; pct_of_gross: number;
+}
+export interface PortfolioAttributionResp { as_of: string; total_realized: number; by_strategy: AttributionItem[]; }

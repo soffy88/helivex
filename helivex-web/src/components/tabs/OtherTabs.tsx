@@ -12,7 +12,7 @@ import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
 import { DivergingBars } from '../charts';
 import { helivexApi, portfolioApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
-import type { ExecutionsResponse, PortfolioEquity } from '@/types/api';
+import type { ExecutionsResponse, PortfolioEquity, PortfolioAttributionResp } from '@/types/api';
 
 const fmt = (v: number | null | undefined, d = 1, suffix = '') =>
   v === null || v === undefined ? '—' : `${v.toFixed(d)}${suffix}`;
@@ -174,9 +174,12 @@ export function ExecutionsTab() {
 // ── P&L Tab (真实合并资金曲线 /portfolio/equity) ────────────────────
 export function PnLTab() {
   const { data, loading, error, stale } = useApi<PortfolioEquity>(() => portfolioApi.equity(), [], 30000, 'pnl');
+  const attr = useApi<PortfolioAttributionResp>(() => portfolioApi.attribution(), [], 30000, 'pnl-attr');
   if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
   if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const pts = data?.combined ?? [];
+  const strat = attr.data?.by_strategy ?? [];
+  const short = (s: string) => s.replace(/_usdt_swap_okx$/, '').replace(/_/g, ' ');
   return (
     <div className="hv-tab">
       {stale && <StaleBanner error={error!} />}
@@ -186,7 +189,38 @@ export function PnLTab() {
           <OEquityCurveChart points={pts.map(p => ({ date: p.date, equity: p.equity, drawdown: p.drawdown }))} showDrawdown />
         </div>
       )}
-      <div className="hv-honest-note">⚠️ Paper 短期 P&L ≠ 策略有效。当前 gate 全 FAIL/NO-GO,此曲线含运气成分,不代表可上 live。</div>
+
+      {/* ── 补齐 H: 每策略 P&L 归因 ── */}
+      <div className="hv-section-title">
+        P&L 归因(按策略)· 合计已实现 {attr.data ? `$${attr.data.total_realized.toFixed(2)}` : '—'}
+      </div>
+      {strat.length === 0 ? <EmptyState text="暂无归因数据" sub="需已平仓的回合(round-trip)" /> : (
+        <>
+          <DivergingBars items={strat.map(s => ({ label: short(s.strategy_id), value: s.realized_pnl, ok: s.realized_pnl >= 0 }))} unit="$" />
+          <table className="hv-table" aria-label="P&L 归因">
+            <thead><tr><th>策略</th><th>已实现 P&L</th><th>占毛额</th><th>成交数</th><th>胜率</th><th>单笔均益</th><th>最佳/最差</th></tr></thead>
+            <tbody>
+              {strat.map(s => (
+                <tr key={s.strategy_id}>
+                  <td>{short(s.strategy_id)}</td>
+                  <td style={{ color: s.realized_pnl >= 0 ? 'var(--success,#3fb950)' : 'var(--destructive)' }}>${s.realized_pnl.toFixed(2)}</td>
+                  <td>{(s.pct_of_gross * 100).toFixed(1)}%</td>
+                  <td>{s.n_trades}</td>
+                  <td>{s.win_rate != null ? (s.win_rate * 100).toFixed(0) + '%' : '—'}</td>
+                  <td>{s.avg_pnl != null ? '$' + s.avg_pnl.toFixed(3) : '—'}</td>
+                  <td className="hv-num">{s.best != null ? `+${s.best}` : '—'} / {s.worst != null ? s.worst : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+
+      <div className="hv-honest-note">
+        ⚠️ Paper 短期 P&L ≠ 策略有效。当前 gate 全 FAIL/NO-GO,含运气成分,不代表可上 live。
+        归因按<strong>策略</strong>(helivex 是 4 策略在成交、共识仍 observe);引擎级归因要等
+        enforce 后引擎驱动执行才成立——现在归因到引擎会是假数据,故不做。
+      </div>
     </div>
   );
 }

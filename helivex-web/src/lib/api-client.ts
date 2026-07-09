@@ -44,7 +44,7 @@ export const helivexApi = {
 // ── V2 策略详情 + Portfolio endpoint(§4)──────────
 import type {
   Position, Trade, StrategyEquity, SignalLog, StrategyStats, StrategyExecution,
-  PortfolioEquity, CorrelationMatrix, PortfolioSummary, CvarWeights, PositionCaps,
+  PortfolioEquity, CorrelationMatrix, PortfolioSummary, CvarWeights, PositionCaps, PortfolioAttributionResp,
 } from '@/types/api';
 
 export const detailApi = {
@@ -63,6 +63,7 @@ export const portfolioApi = {
   kill:        () => req<void>('/portfolio/kill', { method: 'POST' }),
   cvarWeights: () => req<CvarWeights>('/portfolio/cvar_weights'),
   positionCaps: () => req<PositionCaps>('/portfolio/position_caps'),
+  attribution: () => req<PortfolioAttributionResp>('/portfolio/attribution'),
 };
 
 // ── R14 risk layer + R16 L2 microstructure ──────────────
