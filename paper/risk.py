@@ -72,8 +72,16 @@ KILL_SWITCH_AUTO_RESET_HOURS = float(
 # real decision. tier1 / tier1+2 / all = Stage B sub-stages (see gate_entry_dynamic).
 DYNAMIC_RISK_ENFORCE = os.environ.get("HELIVEX_DYNAMIC_RISK_ENFORCE", "observe")
 
+# Default lives in the repo (mounted at /app in BOTH the paper node and gateway
+# containers), so a trip from the gateway's /risk/kill and a trip from the paper
+# node write the SAME physical file the node's gate_entry reads. The old /tmp
+# default was container-local — /tmp is not shared — so the dashboard kill button
+# wrote a file the node never read (a silent no-op). Env override still honored.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 KILL_SWITCH_FILE = Path(
-    os.environ.get("HELIVEX_KILL_SWITCH_FILE", "/tmp/helivex_paper_killswitch")
+    os.environ.get(
+        "HELIVEX_KILL_SWITCH_FILE", str(_REPO_ROOT / "run" / "helivex_paper_killswitch")
+    )
 )
 # Persistent high-water-mark for drawdown. The old peak proxy `max(base, nav)`
 # recomputed from current realized P&L every call, so it could NEVER show a
@@ -139,6 +147,7 @@ def trip(reason: str) -> None:
     if KILL_SWITCH_FILE.exists():
         return
     ts = _dt.datetime.now(_dt.timezone.utc).isoformat()
+    KILL_SWITCH_FILE.parent.mkdir(parents=True, exist_ok=True)
     KILL_SWITCH_FILE.write_text(f"{ts}\t{reason}\n")
     log.critical("KILL-SWITCH TRIPPED: %s", reason)
 

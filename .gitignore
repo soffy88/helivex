@@ -12,3 +12,6 @@ venv/
 
 # generated backtest/smoke artifacts
 data/
+
+# runtime cross-container kill-switch state (dir tracked via run/.gitkeep)
+/run/helivex_paper_killswitch
