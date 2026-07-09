@@ -45,6 +45,10 @@ from paper.strategies.scalper_v2_port import (
     ScalperV2Port,
     ScalperV2PortConfig,
 )
+from paper.strategies.futures_signal_port import (
+    FuturesSignalPort,
+    FuturesSignalPortConfig,
+)
 
 
 def _okx_env():
@@ -267,6 +271,26 @@ def build_node() -> TradingNode:
                     max_holding_bars=int(sv.get("max_holding_bars", 48)),
                     qty_usd=float(sv.get("qty_usd", 50.0)),
                     trade_enabled=_sv_enabled,
+                )
+            )
+        )
+
+    # Strategy 7 (ported) — helixa futures-signal-engine (1H breakout + volume surge +
+    # RSI band). OBSERVE ONLY: trade_enabled=False → logs signals, submits NO orders.
+    fs = _live("futures_signal_port.yaml")
+    _fs_enabled = bool(fs.get("trade_enabled", False))
+    for _sym in ("BTC", "ETH", "SOL"):
+        node.trader.add_strategy(
+            FuturesSignalPort(
+                FuturesSignalPortConfig(
+                    instrument_id=f"{_sym}-USDT-SWAP.OKX",
+                    bar_type=f"{_sym}-USDT-SWAP.OKX-1-HOUR-LAST-INTERNAL",
+                    breakout_period=int(fs.get("breakout_period", 20)),
+                    vol_ma_period=int(fs.get("vol_ma_period", 20)),
+                    vol_surge_mult=float(fs.get("vol_surge_mult", 1.5)),
+                    rsi_period=int(fs.get("rsi_period", 14)),
+                    qty_usd=float(fs.get("qty_usd", 100.0)),
+                    trade_enabled=_fs_enabled,
                 )
             )
         )

@@ -1,0 +1,42 @@
+strategy: futures_signal_port
+description: "helixa futures-signal-engine 移植 — 1H 突破 + 成交量激增(≥1.5×) + RSI 区间(多 45-75 / 空 25-55)"
+timeframe: 1H
+instruments:
+- BTC-USDT-SWAP
+- ETH-USDT-SWAP
+- SOL-USDT-SWAP
+db_table: market_data.ohlcv_1h
+db_source: okx
+# 源自 helixa futures-signal-engine/config.py
+indicators:
+  breakout:
+    enabled: true
+    period: 20
+  volume:
+    enabled: true
+    ma_period: 20
+    surge_mult: 1.5
+  rsi:
+    enabled: true
+    period: 14
+    long_min: 45
+    long_max: 75
+    short_min: 25
+    short_max: 55
+signal_logic:
+  min_confluence: 3
+  direction: dual
+# live paper params;trade_enabled=false → NO-GO 观察:只记录信号、不下单
+# 注:helixa 原引擎受上游现货共识门控;helivex 的共识门控在共识层(只 promoted 引擎驱动),不在此重读
+live:
+  breakout_period: 20
+  vol_ma_period: 20
+  vol_surge_mult: 1.5
+  rsi_period: 14
+  qty_usd: 100
+  trade_enabled: false
+mode: paper
+status: ported-observe
+gate:
+  n_splits: 6
+  embargo_bars: 50

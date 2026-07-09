@@ -47,6 +47,8 @@ STRATEGY_YAML_MAP = {
     "trend_follower_port": STRATEGIES_DIR / "trend_follower_port.yaml",
     "scalper_v2_port": STRATEGIES_DIR
     / "scalper_v2_port.yaml",  # helixa intraday_scalper_v2 移植(observe)
+    "futures_signal_port": STRATEGIES_DIR
+    / "futures_signal_port.yaml",  # helixa futures-signal-engine 移植(observe)
 }
 
 # paper.signals strategy_id prefixes written by paper/strategies/*.py
@@ -58,6 +60,7 @@ STRATEGY_SIGNAL_PREFIX = {
     "ler_okx": "ler_okx_%",  # 保留位——无实现,恒为 0 行
     "trend_follower_port": "trend_follower_port_%",  # 移植:observe 信号(无 fills)
     "scalper_v2_port": "scalper_v2_port_%",  # 移植:observe 信号(无 fills)
+    "futures_signal_port": "futures_signal_port_%",  # 移植:observe 信号(无 fills)
 }
 
 _pool: asyncpg.Pool | None = None
