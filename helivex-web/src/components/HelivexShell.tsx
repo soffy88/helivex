@@ -1,6 +1,7 @@
 'use client';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { HomeTab } from './tabs/HomeTab';
 import { OverviewTab } from './tabs/OverviewTab';
 import { ConfigureTab } from './tabs/ConfigureTab';
 import { BacktestTab, ExecutionsTab, PnLTab, AuditTab } from './tabs/OtherTabs';
@@ -11,6 +12,7 @@ import { EnsembleTab } from './tabs/EnsembleTab';
 import { TabErrorBoundary } from './TabErrorBoundary';
 
 const TABS = [
+  { id: 'home',       label: '首页' },
   { id: 'overview',   label: 'Overview' },
   { id: 'portfolio',  label: 'Portfolio' },
   { id: 'ensemble',   label: 'Ensemble' },
@@ -31,7 +33,7 @@ export function HelivexShell() {
   const pathname = usePathname();
   const params = useSearchParams();
   const raw = params.get('tab');
-  const tab = raw && TAB_IDS.includes(raw) ? raw : 'overview';
+  const tab = raw && TAB_IDS.includes(raw) ? raw : 'home';
 
   // tab change → push (back/forward navigates view history); preserves other params
   const setTab = (id: string) => {
@@ -42,6 +44,7 @@ export function HelivexShell() {
 
   const renderTab = () => {
     switch (tab) {
+      case 'home':       return <HomeTab />;
       case 'overview':   return <OverviewTab />;
       case 'portfolio':  return <PortfolioTab />;
       case 'ensemble':   return <EnsembleTab />;
@@ -53,7 +56,7 @@ export function HelivexShell() {
       case 'executions': return <ExecutionsTab />;
       case 'pnl':        return <PnLTab />;
       case 'audit':      return <AuditTab />;
-      default:           return <OverviewTab />;
+      default:           return <HomeTab />;
     }
   };
 
