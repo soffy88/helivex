@@ -91,6 +91,7 @@ class ScalperV2Port(Strategy):
         self._pending_signal_id: int | None = None
         self._order_submit_ns: int | None = None
         self._db: ResilientPool | None = None
+        self._snapshot: bool = False  # seed-snapshot eval: log only, never trade
 
     def _strategy_id(self) -> str:
         inst = self.config.instrument_id.replace(".", "_").replace("-", "_").lower()
@@ -140,7 +141,11 @@ class ScalperV2Port(Strategy):
             self._lows.append(float(r["l"]))
             self._closes.append(float(r["c"]))
         self.log.info(f"[{sid}] warmup seeded {len(rows)} 5m bars from ohlcv_5m")
-        self._evaluate(self.clock.timestamp_ns())
+        self._snapshot = True
+        try:
+            self._evaluate(self.clock.timestamp_ns())
+        finally:
+            self._snapshot = False
 
     def on_bar(self, bar: Bar) -> None:
         self._highs.append(float(bar.high))
@@ -281,7 +286,7 @@ class ScalperV2Port(Strategy):
             f"[{strat}] SIGNAL {action} @ {price:.2f} mode={self._mode} tier={rec['tier']}"
         )
 
-        if action == "NEUTRAL":
+        if action == "NEUTRAL" or self._snapshot:
             return
 
         if not self.config.trade_enabled:

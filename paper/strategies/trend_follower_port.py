@@ -86,6 +86,7 @@ class TrendFollowerPort(Strategy):
         self._pending_signal_id: int | None = None
         self._order_submit_ns: int | None = None
         self._db: ResilientPool | None = None
+        self._snapshot: bool = False  # seed-snapshot eval: log only, never trade
 
     def _strategy_id(self) -> str:
         inst = self.config.instrument_id.replace(".", "_").replace("-", "_").lower()
@@ -148,7 +149,11 @@ class TrendFollowerPort(Strategy):
         # Log the current signal snapshot immediately (on last completed daily bar) so
         # the strategy is measurable now — rather than waiting for the next 00:00 UTC
         # live close. observe mode → this logs a signal, never an order.
-        self._evaluate(self.clock.timestamp_ns())
+        self._snapshot = True
+        try:
+            self._evaluate(self.clock.timestamp_ns())
+        finally:
+            self._snapshot = False
 
     def on_historical_data(self, data: Any) -> None:
         if isinstance(data, Bar):
@@ -277,7 +282,7 @@ class TrendFollowerPort(Strategy):
         self._signal_ts = ts_event
         self.log.info(f"[{strat}] SIGNAL {action} @ {price:.2f} tier={rec['tier']}")
 
-        if action == "NEUTRAL":
+        if action == "NEUTRAL" or self._snapshot:
             return
 
         # OBSERVE gate: without trade_enabled the ported strategy never submits an

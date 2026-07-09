@@ -31,7 +31,10 @@ indicators:
 signal_logic:
   min_confluence: 2
   direction: dual
-# live paper params;trade_enabled=false → NO-GO 观察:只记录信号、不下单
+risk:
+  cost_bps: 10.0
+  max_position_pct: 1.0
+# live paper params;trade_enabled=true → paper 交易(OKX demo);gate 仍 UNVALIDATED
 live:
   bb_period: 20
   bb_k: 2.0
@@ -44,9 +47,9 @@ live:
   breakout_exit_adx: 15
   max_holding_bars: 48
   qty_usd: 50
-  trade_enabled: false
+  trade_enabled: true
 mode: paper
-status: ported-observe
+status: ported-paper
 gate:
   n_splits: 6
   embargo_bars: 50

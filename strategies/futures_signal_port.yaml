@@ -26,7 +26,10 @@ indicators:
 signal_logic:
   min_confluence: 3
   direction: dual
-# live paper params;trade_enabled=false → NO-GO 观察:只记录信号、不下单
+risk:
+  cost_bps: 10.0
+  max_position_pct: 1.0
+# live paper params;trade_enabled=true → paper 交易(OKX demo);gate 仍 UNVALIDATED
 # 注:helixa 原引擎受上游现货共识门控;helivex 的共识门控在共识层(只 promoted 引擎驱动),不在此重读
 live:
   breakout_period: 20
@@ -34,9 +37,9 @@ live:
   vol_surge_mult: 1.5
   rsi_period: 14
   qty_usd: 100
-  trade_enabled: false
+  trade_enabled: true
 mode: paper
-status: ported-observe
+status: ported-paper
 gate:
   n_splits: 6
   embargo_bars: 50

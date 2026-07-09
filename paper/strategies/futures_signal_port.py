@@ -72,6 +72,7 @@ class FuturesSignalPort(Strategy):
         self._pending_signal_id: int | None = None
         self._order_submit_ns: int | None = None
         self._db: ResilientPool | None = None
+        self._snapshot: bool = False  # seed-snapshot eval: log only, never trade
 
     def _strategy_id(self) -> str:
         inst = self.config.instrument_id.replace(".", "_").replace("-", "_").lower()
@@ -122,7 +123,11 @@ class FuturesSignalPort(Strategy):
             self._closes.append(float(r["c"]))
             self._vols.append(float(r["v"]) if r["v"] is not None else 0.0)
         self.log.info(f"[{sid}] warmup seeded {len(rows)} 1h bars from ohlcv_1h")
-        self._evaluate(self.clock.timestamp_ns())
+        self._snapshot = True
+        try:
+            self._evaluate(self.clock.timestamp_ns())
+        finally:
+            self._snapshot = False
 
     def on_bar(self, bar: Bar) -> None:
         self._highs.append(float(bar.high))
@@ -236,7 +241,7 @@ class FuturesSignalPort(Strategy):
         self._signal_ts = ts_event
         self.log.info(f"[{strat}] SIGNAL {action} @ {price:.2f} tier={rec['tier']}")
 
-        if action == "NEUTRAL":
+        if action == "NEUTRAL" or self._snapshot:
             return
 
         if not self.config.trade_enabled:
