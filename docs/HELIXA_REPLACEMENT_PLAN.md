@@ -16,7 +16,7 @@ helivex **不照搬** helixa 的微服务 + RabbitMQ 架构,只复刻**能力**�
 | 数据 | OHLCV/funding/OI/orderbook/trades/liq | (iris 生产)| md-adapter | — | ✅ 已合并到 iris |
 | 风控 | CVaR 组合优化 | oprim+oskill+omodul | cvar_risk_adapter | **1** | ✅ 完成(observe) |
 | 风控 | 3 层仓位裁剪 + 熔断 | oskill+omodul | 同上 | **1** | ✅ 完成 |
-| 风控 | crisis-override + fee/edge 过滤 | oskill | 扩展 P1 | **6** | ⬜ |
+| 风控 | crisis-override + fee/edge + 共识→风控桥 | oprim+oskill | consensus_risk_adapter | **6** | ✅ 完成(observe) |
 | regime | 市场状态 crisis/trend/range(确定性主+HMM可选)| oskill+omodul | regime_adapter | **2** | ✅ 完成(advisory) |
 | 数据 | 情绪 fear-greed(Alt.me FGI)| **iris collector**(数据层归 iris)| md.sentiment | **3** | ✅ 完成 |
 | 数据 | 链上(Coin Metrics 免费,BTC/ETH)| **iris collector** | md.onchain | **3** | ✅ 完成 |
@@ -26,7 +26,7 @@ helivex **不照搬** helixa 的微服务 + RabbitMQ 架构,只复刻**能力**�
 | 信号 | LLM 人格槽 | omodul | signal_engines_adapter | **4c** | ✅ 建槽(禁用零成本) |
 | 共识 | 多引擎融合(只 promoted 驱动)| oskill+omodul | consensus_adapter | **5** | ✅ 完成 |
 | 共识 | weight-learner(EWMA)| oskill | consensus_adapter | **5** | ✅ 机制就位 |
-| 归因 | 引擎 round-trip P&L 归因 | oskill | attribution | **5→6** | ⬜ 待引擎驱动实盘 |
+| 归因 | 引擎 round-trip P&L 归因 + 权重学习闭环 | oskill | consensus_risk_adapter | **6** | ✅ 机制就位(待标签成交)|
 | 执行 | nautilus 2 策略(trend_follower/scalper_v2)| 策略逻辑纯函数 | helivex paper 策略 | **7** | ⬜ 可选 |
 | API | public-api 13 公开 + ~13 内部端点 | (service)| gateway 补端点 | **8** | ⬜ |
 | 前端 | dashboard 3 路由 17 组件 | (前端)| helivex-web 补视图 | **8** | ⬜ |
