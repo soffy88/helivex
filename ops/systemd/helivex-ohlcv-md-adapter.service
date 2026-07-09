@@ -1,5 +1,5 @@
 [Unit]
-Description=Helivex OHLCV adapter — backfill ohlcv_1h/5m (okx_swap) from md.ohlcv (consolidation P2a; DB->DB, no proxy)
+Description=Helivex OHLCV adapter — backfill ohlcv_1h/5m (okx_swap) + ohlcv_1h (okx spot) from md.ohlcv (consolidation P2a + spot follow-up; DB->DB, no proxy)
 After=network-online.target
 Wants=network-online.target
 
