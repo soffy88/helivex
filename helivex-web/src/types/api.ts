@@ -360,3 +360,15 @@ export interface ConsensusRiskItem {
   reasons: string[];
 }
 export interface ConsensusRiskResp { as_of: string | null; enforce_mode: string; evals: ConsensusRiskItem[]; }
+
+// ── 补齐 C: OHLCV K线 + 决策轨迹 + 归因 ──────────────
+export interface OhlcvResp {
+  instrument: string;
+  candles: { ts: string; o: number; h: number; l: number; c: number }[];
+  markers: { ts: string; side: string; price: number; strategy: string }[];
+}
+export interface DecisionTrailItem {
+  kind: string; instrument: string; fingerprint: string | null; ts: string;
+  steps: { layer: string; callable: string; status: string }[] | null;
+}
+export interface DecisionTrailResp { decision_trail: DecisionTrailItem[]; }

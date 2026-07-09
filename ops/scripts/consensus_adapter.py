@@ -63,9 +63,11 @@ CREATE TABLE IF NOT EXISTS paper.consensus_signals (
     sentiment_bias    NUMERIC,
     onchain_bias      NUMERIC,
     fingerprint       TEXT,
-    detail            JSONB
+    detail            JSONB,
+    decision_trail    JSONB
 );
 CREATE INDEX IF NOT EXISTS consensus_signals_cycle ON paper.consensus_signals (cycle_ts DESC);
+ALTER TABLE paper.consensus_signals ADD COLUMN IF NOT EXISTS decision_trail JSONB;
 
 CREATE TABLE IF NOT EXISTS paper.engine_weights (
     engine      TEXT PRIMARY KEY,
@@ -219,8 +221,8 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
                 """INSERT INTO paper.consensus_signals
                    (cycle_ts, instrument, final_direction, consensus_score, kelly_position,
                     agreement_ratio, is_divergent, should_execute, n_promoted, regime_state,
-                    sentiment_bias, onchain_bias, fingerprint, detail)
-                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)""",
+                    sentiment_bias, onchain_bias, fingerprint, detail, decision_trail)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)""",
                 cycle_ts,
                 inst,
                 f["final_direction"],
@@ -242,6 +244,7 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
                     },
                     default=str,
                 ),
+                json.dumps(r["decision_trail"], default=str),
             )
             results.append({"inst": inst, "regime_state": regime_state, **f})
     return results

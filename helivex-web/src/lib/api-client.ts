@@ -96,3 +96,11 @@ export const ensembleApi = {
   consensus: () => req<ConsensusResp>('/consensus'),
   riskEval: () => req<ConsensusRiskResp>('/consensus/risk_eval'),
 };
+
+// ── 补齐 C: K线 + 决策轨迹 ──────────
+import type { OhlcvResp, DecisionTrailResp } from '@/types/api';
+
+export const chartApi = {
+  ohlcv: (symbol: string, limit = 120) => req<OhlcvResp>(`/ohlcv/${encodeURIComponent(symbol)}?limit=${limit}`),
+  decisionTrail: (limit = 20) => req<DecisionTrailResp>(`/decision-trail/recent?limit=${limit}`),
+};

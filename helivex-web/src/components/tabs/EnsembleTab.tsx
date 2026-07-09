@@ -7,9 +7,10 @@
 'use client';
 
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
-import { ensembleApi } from '@/lib/api-client';
+import { ensembleApi, chartApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
-import type { RegimeResp, EnginesResp, ConsensusResp, ConsensusRiskResp } from '@/types/api';
+import { Candlestick } from '../charts';
+import type { RegimeResp, EnginesResp, ConsensusResp, ConsensusRiskResp, OhlcvResp, DecisionTrailResp } from '@/types/api';
 
 const dirColor = (d: string) =>
   d === 'long' ? 'var(--success, oklch(0.62 0.18 145))' : d === 'short' ? 'var(--destructive)' : 'var(--muted-foreground)';
@@ -19,12 +20,15 @@ const sym = (s: string) => s.split('-')[0];
 
 export function EnsembleTab() {
   const { data, loading, error, stale } = useApi(
-    () => Promise.all([ensembleApi.regime(), ensembleApi.engines(), ensembleApi.consensus(), ensembleApi.riskEval()]),
+    () => Promise.all([
+      ensembleApi.regime(), ensembleApi.engines(), ensembleApi.consensus(), ensembleApi.riskEval(),
+      chartApi.ohlcv('BTC-USDT', 120), chartApi.decisionTrail(12),
+    ]),
     [], 15000, 'ensemble',
   );
   if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
   if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
-  const [regime, engines, consensus, risk] = data as [RegimeResp, EnginesResp, ConsensusResp, ConsensusRiskResp];
+  const [regime, engines, consensus, risk, ohlcv, trail] = data as [RegimeResp, EnginesResp, ConsensusResp, ConsensusRiskResp, OhlcvResp, DecisionTrailResp];
 
   // group engine signals by instrument
   const byInst: Record<string, typeof engines.engines> = {};
@@ -134,6 +138,42 @@ export function EnsembleTab() {
       <div className="hv-honest-note">
         风控评估为 observe-only:算出"共识若执行会不会过全套风控(crisis→三层裁剪→fee/edge)、多大仓位",
         <strong>不下单</strong>。接 enforce(真下 paper 单)是后续独立、需人工放行的一步。
+      </div>
+
+      {/* K 线图(BTC 5m)+ 成交标记 */}
+      <div className="hv-section-title">K 线 · {ohlcv.instrument.split('-')[0]} 5m(手写 SVG,无图表库)· {ohlcv.candles.length} 根</div>
+      {ohlcv.candles.length < 2 ? <EmptyState text="K 线数据不足" /> : (
+        <>
+          <Candlestick candles={ohlcv.candles} markers={ohlcv.markers} />
+          <div className="hv-honest-note">
+            绿涨红跌;三角 = 成交标记({ohlcv.markers.length} 笔,买绿卖红)。
+            {ohlcv.markers.length === 0 && ' 该标的暂无 paper 成交(策略交易其它标的)。'}
+          </div>
+        </>
+      )}
+
+      {/* 决策轨迹(3O 指纹,比 helixa 强)*/}
+      <div className="hv-section-title">决策轨迹(3O 指纹,可复现)· 最近 {trail.decision_trail.length} 条</div>
+      {trail.decision_trail.length === 0 ? <EmptyState text="暂无决策轨迹" /> : (
+        <table className="hv-table" aria-label="决策轨迹">
+          <thead><tr><th>时间</th><th>类型</th><th>标的</th><th>指纹</th><th>步骤(layer/callable)</th></tr></thead>
+          <tbody>
+            {trail.decision_trail.map((t, i) => (
+              <tr key={i}>
+                <td>{new Date(t.ts).toLocaleTimeString()}</td>
+                <td>{t.kind}</td>
+                <td>{t.instrument ? sym(t.instrument) : '—'}</td>
+                <td style={{ fontFamily: 'monospace', fontSize: 'var(--text-xs)' }}>{(t.fingerprint || '—').slice(0, 12)}</td>
+                <td style={{ fontSize: 'var(--text-xs)' }}>
+                  {t.steps ? t.steps.map(s => `${s.layer}/${s.callable}`).join(' → ') : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="hv-honest-note">
+        每条决策带 64 位指纹 + 逐步 layer/callable/status 溯源,同输入可复现——比 helixa 的自由文本 reasoning 强。
       </div>
     </div>
   );

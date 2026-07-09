@@ -1656,6 +1656,56 @@ async def get_multitime_trend(symbol: str) -> dict:
     }
 
 
+@app.get("/ohlcv/{symbol}")
+async def get_ohlcv(symbol: str, limit: int = Query(120, ge=10, le=500)) -> dict:
+    """Recent 5m candles + fill markers for a symbol (helixa internal/ohlcv +
+    PriceChart trade-marker equivalent). Reads helivex market_data.ohlcv_5m."""
+    inst = symbol if symbol.endswith("-SWAP") else f"{symbol}-SWAP"
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT bar_close_ts, open, high, low, close, volume
+               FROM market_data.ohlcv_5m
+               WHERE source='okx_swap_5m' AND instrument=$1
+               ORDER BY bar_close_ts DESC LIMIT $2""",
+            inst,
+            limit,
+        )
+        rows = list(reversed(rows))
+        first_ts = rows[0]["bar_close_ts"] if rows else None
+        fills = []
+        if first_ts is not None:
+            fills = await conn.fetch(
+                """SELECT ts, side, actual_fill_price, strategy_id
+                   FROM paper.fills WHERE split_part(instrument,'.',1)=$1 AND ts >= $2
+                   ORDER BY ts ASC LIMIT 200""",
+                inst,
+                first_ts,
+            )
+    return {
+        "instrument": inst,
+        "candles": [
+            {
+                "ts": r["bar_close_ts"].isoformat(),
+                "o": float(r["open"]),
+                "h": float(r["high"]),
+                "l": float(r["low"]),
+                "c": float(r["close"]),
+            }
+            for r in rows
+        ],
+        "markers": [
+            {
+                "ts": m["ts"].isoformat(),
+                "side": m["side"].lower(),
+                "price": float(m["actual_fill_price"]),
+                "strategy": m["strategy_id"],
+            }
+            for m in fills
+        ],
+    }
+
+
 # ─── /regime (3O Phase 2, advisory market-regime classification) ──────────────
 
 

@@ -75,3 +75,52 @@ export function DivergingBars({ items, unit = '' }: {
     </div>
   );
 }
+
+/** 手写 SVG K 线蜡烛图 + 成交标记(无图表库)。 */
+export interface Candle { ts: string; o: number; h: number; l: number; c: number; }
+export interface CandleMarker { ts: string; side: string; price: number; strategy?: string; }
+export function Candlestick({ candles, markers = [], w = 640, h = 260 }: {
+  candles: Candle[]; markers?: CandleMarker[]; w?: number; h?: number;
+}) {
+  if (candles.length < 2) return <div className="hv-empty__sub">K 线数据不足</div>;
+  const lows = candles.map(c => c.l), highs = candles.map(c => c.h);
+  const min = Math.min(...lows), max = Math.max(...highs), rng = max - min || 1;
+  const pad = 8, iw = w - pad * 2, ih = h - pad * 2;
+  const n = candles.length, cw = iw / n;
+  const y = (v: number) => pad + ih - ((v - min) / rng) * ih;
+  const up = 'var(--success, oklch(0.62 0.18 145))', dn = 'var(--destructive)';
+  const tsIndex = (ts: string) => {
+    // nearest candle index by timestamp
+    const t = new Date(ts).getTime();
+    let best = 0, bd = Infinity;
+    candles.forEach((c, i) => { const d = Math.abs(new Date(c.ts).getTime() - t); if (d < bd) { bd = d; best = i; } });
+    return best;
+  };
+  return (
+    <svg className="hv-candles" viewBox={`0 0 ${w} ${h}`} width="100%" height={h} preserveAspectRatio="none"
+      role="img" aria-label={`K线图,${n} 根,区间 ${min.toFixed(2)}–${max.toFixed(2)}`}>
+      {candles.map((c, i) => {
+        const x = pad + i * cw + cw / 2;
+        const col = c.c >= c.o ? up : dn;
+        const bodyTop = y(Math.max(c.o, c.c)), bodyBot = y(Math.min(c.o, c.c));
+        return (
+          <g key={i}>
+            <line x1={x} x2={x} y1={y(c.h)} y2={y(c.l)} stroke={col} strokeWidth="1" />
+            <rect x={x - cw * 0.35} y={bodyTop} width={cw * 0.7} height={Math.max(1, bodyBot - bodyTop)} fill={col} />
+          </g>
+        );
+      })}
+      {markers.map((m, i) => {
+        const idx = tsIndex(m.ts);
+        const x = pad + idx * cw + cw / 2;
+        const my = y(m.price);
+        const buy = m.side === 'buy';
+        return (
+          <polygon key={'m' + i}
+            points={buy ? `${x},${my + 8} ${x - 4},${my + 14} ${x + 4},${my + 14}` : `${x},${my - 8} ${x - 4},${my - 14} ${x + 4},${my - 14}`}
+            fill={buy ? up : dn} stroke="var(--background)" strokeWidth="0.5" />
+        );
+      })}
+    </svg>
+  );
+}
