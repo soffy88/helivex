@@ -20,13 +20,13 @@ helivex **不照搬** helixa 的微服务 + RabbitMQ 架构,只复刻**能力**�
 | regime | 市场状态 crisis/trend/range(确定性主+HMM可选)| oskill+omodul | regime_adapter | **2** | ✅ 完成(advisory) |
 | 数据 | 情绪 fear-greed(Alt.me FGI)| **iris collector**(数据层归 iris)| md.sentiment | **3** | ✅ 完成 |
 | 数据 | 链上(Coin Metrics 免费,BTC/ETH)| **iris collector** | md.onchain | **3** | ✅ 完成 |
-| 信号 | FGI→bull/bear 权重 + 链上→tanh signal | oskill(合成)| P5 共识消费 | 5 | ⬜ 留 P5 |
+| 信号 | FGI→情绪偏置 + 链上→tanh signal | oskill 合成 | consensus_adapter | 5 | ✅ 完成 |
 | 信号 | 多周期 TA(自研指标)| oskill(纯 TA)+adapter | signal_engines_adapter | **4a** | ✅ 完成 |
 | 信号 | ML(LightGBM+三重障碍+WFV+DSR门)| oprim+oskill+omodul | signal_engines_adapter | **4b** | ✅ 完成(门拒绝) |
 | 信号 | LLM 人格槽 | omodul | signal_engines_adapter | **4c** | ✅ 建槽(禁用零成本) |
-| 共识 | prob-engine 多引擎融合 | omodul | consensus_adapter | **5** | ⬜ |
-| 共识 | weight-learner(EWMA 在线权重)| oskill | 同上 | **5** | ⬜ |
-| 归因 | factor-analyzer 归因 + IC/ICIR | oskill | attribution_adapter | **5** | ⬜ |
+| 共识 | 多引擎融合(只 promoted 驱动)| oskill+omodul | consensus_adapter | **5** | ✅ 完成 |
+| 共识 | weight-learner(EWMA)| oskill | consensus_adapter | **5** | ✅ 机制就位 |
+| 归因 | 引擎 round-trip P&L 归因 | oskill | attribution | **5→6** | ⬜ 待引擎驱动实盘 |
 | 执行 | nautilus 2 策略(trend_follower/scalper_v2)| 策略逻辑纯函数 | helivex paper 策略 | **7** | ⬜ 可选 |
 | API | public-api 13 公开 + ~13 内部端点 | (service)| gateway 补端点 | **8** | ⬜ |
 | 前端 | dashboard 3 路由 17 组件 | (前端)| helivex-web 补视图 | **8** | ⬜ |
