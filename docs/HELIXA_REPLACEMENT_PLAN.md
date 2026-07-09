@@ -27,7 +27,7 @@ helivex **不照搬** helixa 的微服务 + RabbitMQ 架构,只复刻**能力**�
 | 共识 | 多引擎融合(只 promoted 驱动)| oskill+omodul | consensus_adapter | **5** | ✅ 完成 |
 | 共识 | weight-learner(EWMA)| oskill | consensus_adapter | **5** | ✅ 机制就位 |
 | 归因 | 引擎 round-trip P&L 归因 + 权重学习闭环 | oskill | consensus_risk_adapter | **6** | ✅ 机制就位(待标签成交)|
-| 执行 | nautilus 2 策略(trend_follower/scalper_v2)| 策略逻辑纯函数 | helivex paper 策略 | **7** | ⬜ 可选 |
+| 执行 | 2 策略逻辑(trend_follower/scalper_v2)| oskill+adx oprim | signal_engines(tf_trend/tf_scalp)| **7** | ✅ 完成(接为信号引擎)|
 | API | 端点(regime/engines/consensus/risk_eval + P1)| gateway | 已随 P2-P6 建 | **8** | ✅ 核心完成 |
 | 前端 | Ensemble tab(regime/引擎/共识/风控全链路)| helivex-web | EnsembleTab | **8** | ✅ 完成 |
 | 运维 | 3O 管线健康检查 | evaluator | eval_ensemble_freshness | **9** | ✅ 完成 |
