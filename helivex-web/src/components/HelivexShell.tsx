@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { HomeTab } from './tabs/HomeTab';
 import { ConfigureTab } from './tabs/ConfigureTab';
@@ -30,6 +31,32 @@ const TAB_ALIAS: Record<string, string> = {
 };
 
 const TAB_IDS = TABS.map(t => t.id) as readonly string[];
+
+/** 头部终端状态:UTC 实时时钟(每秒)+ 网关连接健康点(30s 轮询 /gw/risk/status)。 */
+function HeaderStatus() {
+  const [now, setNow] = useState<string>('');
+  const [ok, setOk] = useState(true);
+  useEffect(() => {
+    const fmt = () => new Date().toISOString().slice(11, 19) + ' UTC';
+    setNow(fmt());
+    const t = setInterval(() => setNow(fmt()), 1000);
+    const ping = async () => {
+      try { setOk((await fetch('/gw/risk/status', { cache: 'no-store' })).ok); }
+      catch { setOk(false); }
+    };
+    ping();
+    const p = setInterval(ping, 30000);
+    return () => { clearInterval(t); clearInterval(p); };
+  }, []);
+  return (
+    <>
+      <span className="hv-conn" data-ok={ok ? 'true' : 'false'} title={ok ? '网关连接正常' : '网关不可达'}>
+        <span className="hv-conn__dot" />{ok ? 'LIVE' : 'OFFLINE'}
+      </span>
+      <span className="hv-clock" suppressHydrationWarning>{now}</span>
+    </>
+  );
+}
 
 export function HelivexShell() {
   const router = useRouter();
@@ -75,7 +102,10 @@ export function HelivexShell() {
               onClick={() => setTab(t.id)}>{t.label}</button>
           ))}
         </nav>
-        <span className="hv-mode-global">paper mode</span>
+        <div className="hv-head-right">
+          <HeaderStatus />
+          <span className="hv-mode-global">paper mode</span>
+        </div>
       </header>
       <main className="hv-main" role="tabpanel"
         id={`panel-${tab}`} aria-labelledby={`tab-${tab}`} tabIndex={0}>

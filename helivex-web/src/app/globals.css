@@ -405,3 +405,83 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .hv-signal-toggle { margin-left: auto; padding: 4px 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--card); color: var(--muted-foreground); font-size: var(--text-xs); cursor: pointer; transition: background .15s ease, color .15s ease; }
 .hv-signal-toggle:hover { background: var(--muted); color: var(--foreground); }
 .hv-signal-empty-inline { padding: 14px; border: 1px dashed color-mix(in oklch, var(--border) 80%, transparent); border-radius: 10px; background: color-mix(in oklch, var(--card) 40%, transparent); font-size: var(--text-sm); color: var(--muted-foreground); text-align: center; }
+
+/* ════════════════════ 终端专业化层 (quant terminal pro) ════════════════════
+   原则:等宽数据字体 · 统一涨跌语义色 · 高数据密度 · 低视觉噪音 · 宽屏利用 */
+
+/* 1) 语义色修复:--success 此前未定义,全站 fallback 到 #3fb950(与主题脱节)。
+   统一映射到主题的涨跌色,所有 tab 的 var(--success,…) 立即协调,零业务改动。 */
+[data-theme='terminal-dark'] {
+  --success: var(--quote-up, oklch(0.68 0.20 145));
+  --warn: var(--alert-warn, oklch(0.75 0.18 70));
+}
+
+/* 2) 等宽数据字体:一切数字/时间戳/代码走 --font-data(tabular)。
+   这是"专业终端感"的第一要素。 */
+.hv-num, .hv-bar-val, .hv-metric-val, .hv-mini__v, .hv-micro-mid, .hv-micro-time,
+.hv-feed__t, .hv-audit-time, .hv-signal-time, .hv-indicator-val, .hv-util-label,
+.hv-dbar-val, .hv-param-input, .hv-gate-metrics strong, .hv-uw-label, .hv-status__meta strong,
+.hv-clock {
+  font-family: var(--font-data, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+.hv-table td.hv-num, .hv-table td:has(> .hv-num) { font-family: var(--font-data, ui-monospace, monospace); }
+
+/* 3) 表格终端化:紧凑行高、表头微背景、贴数据密度 */
+.hv-table { font-size: var(--text-sm); }
+.hv-table th { padding: 6px 8px; background: color-mix(in oklch, var(--muted) 45%, transparent); font-size: 10px; }
+.hv-table th:first-child { border-top-left-radius: 6px; }
+.hv-table th:last-child { border-top-right-radius: 6px; }
+.hv-table td { padding: 6px 8px; }
+.hv-table tbody tr:last-child td { border-bottom: none; }
+
+/* 4) 告警降噪:honest-note / stale / bar-note 从大块亮黄背景改为
+   左侧细条 + 透明底 + 柔和文字(信息仍在,噪音大减) */
+.hv-honest-note {
+  background: color-mix(in oklch, var(--card) 55%, transparent);
+  border: 1px solid color-mix(in oklch, var(--border) 85%, transparent);
+  border-left: 3px solid color-mix(in oklch, var(--warn) 55%, transparent);
+  color: var(--muted-foreground);
+}
+.hv-honest-note strong { color: var(--text-secondary, var(--foreground)); }
+.hv-trial-warn {
+  background: color-mix(in oklch, var(--card) 55%, transparent);
+  border-left: 3px solid color-mix(in oklch, var(--warn) 55%, transparent);
+  color: var(--muted-foreground);
+}
+.hv-bar-note { color: var(--muted-foreground); }
+
+/* 5) 宽屏数据密度:1200 → 1560,大屏不再两侧留白 */
+.hv-main { max-width: 1560px; }
+
+/* 6) 头部终端化:更紧凑 + UTC 时钟 + 连接健康点 */
+.hv-header { height: 48px; gap: 18px; }
+.hv-logo { font-size: var(--text-base); }
+.hv-head-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.hv-clock { font-size: var(--text-xs); color: var(--muted-foreground); letter-spacing: 0.02em; }
+.hv-conn { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--muted-foreground); }
+.hv-conn__dot { width: 7px; height: 7px; border-radius: 99px; background: var(--success); box-shadow: 0 0 6px color-mix(in oklch, var(--success) 60%, transparent); }
+.hv-conn[data-ok="false"] .hv-conn__dot { background: var(--destructive); box-shadow: 0 0 6px color-mix(in oklch, var(--destructive) 60%, transparent); animation: hv-pulse 1.2s ease-in-out infinite; }
+
+/* 7) 统一圆角 12px + 策略 tab 激活态改低调风(描边+浅底,不再实心大色块) */
+.hv-metric-card, .hv-strat-card, .hv-micro-card, .hv-chart-box, .hv-gate-result,
+.hv-audit-detail, .hv-dbars, .hv-uw, .hv-signal-logic, .hv-bar, .hv-status, .hv-ks-banner { border-radius: 12px; }
+.hv-strat-tab { padding: 6px 14px; }
+.hv-strat-tab[data-active="true"] {
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+  color: var(--primary); border-color: color-mix(in oklch, var(--primary) 45%, transparent);
+  font-weight: 600; box-shadow: none;
+}
+
+/* 8) KPI 值升格:大一号 + 数据字体(概览条一眼扫读) */
+.hv-bar { gap: 26px; padding: 12px 18px; }
+.hv-bar-val { font-size: var(--text-lg); font-weight: 650; }
+
+/* 9) 涨跌语义辅助类(与 quote 色一致) */
+.hv-up { color: var(--quote-up, var(--success)); }
+.hv-down { color: var(--quote-down, var(--destructive)); }
+
+/* 10) 面板内边距微调 + mini 卡数据字体已覆盖;面板标题左侧同款 tick */
+.hv-panel { box-shadow: 0 1px 2px color-mix(in oklch, black 22%, transparent), inset 0 1px 0 color-mix(in oklch, white 4%, transparent); }
+.hv-panel__title { display: flex; align-items: center; gap: 7px; }
+.hv-panel__title::before { content: ""; width: 3px; height: 11px; border-radius: 2px; background: color-mix(in oklch, var(--primary) 70%, transparent); flex-shrink: 0; }
