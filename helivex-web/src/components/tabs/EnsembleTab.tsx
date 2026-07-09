@@ -10,6 +10,7 @@ import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
 import { ensembleApi, chartApi, streamApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import { Candlestick } from '../charts';
+import { AuditTab } from './OtherTabs';
 import type { RegimeResp, EnginesResp, ConsensusResp, ConsensusRiskResp, OhlcvResp, DecisionTrailResp, FgiResp } from '@/types/api';
 
 const dirColor = (d: string) =>
@@ -198,6 +199,9 @@ export function EnsembleTab() {
       <div className="hv-honest-note">
         每条决策带 64 位指纹 + 逐步 layer/callable/status 溯源,同输入可复现——比 helixa 的自由文本 reasoning 强。
       </div>
+
+      {/* IA 重构:审计签名链并入此处(决策溯源 + 完整性同属"决策治理")*/}
+      <AuditTab />
     </div>
   );
 }

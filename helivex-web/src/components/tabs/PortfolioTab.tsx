@@ -7,16 +7,19 @@
 import { useState } from 'react';
 import { OEquityCurveChart } from '@helios/blocks';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
-import { Underwater } from '../charts';
+import { Underwater, DivergingBars } from '../charts';
 import { portfolioApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
-import type { PortfolioSummary, CorrelationMatrix, PortfolioEquity } from '@/types/api';
+import type { PortfolioSummary, CorrelationMatrix, PortfolioEquity, PortfolioAttributionResp } from '@/types/api';
+
+const shortStrat = (s: string) => s.replace(/_usdt_swap_okx$/, '').replace(/_/g, ' ');
 
 export function PortfolioTab() {
   const { data, loading, error, stale } = useApi(
     () => Promise.all([portfolioApi.summary(), portfolioApi.correlation(), portfolioApi.equity()]),
     [], 15000, 'portfolio',
   );
+  const attr = useApi<PortfolioAttributionResp>(() => portfolioApi.attribution(), [], 30000, 'portfolio-attr');
   const [killConfirm, setKillConfirm] = useState(false);
   const [killed, setKilled] = useState(false);
 
@@ -77,6 +80,35 @@ export function PortfolioTab() {
         </div>
       )}
       <div className="hv-honest-note">低相关性利于组合分散。边界策略组合可能整体过 gate(R4)。</div>
+
+      {/* P&L 归因(每策略,真实成交派生)— 原 P&L tab 并入此处 */}
+      <div className="hv-section-title">
+        P&L 归因(按策略)· 合计已实现 {attr.data ? `$${attr.data.total_realized.toFixed(2)}` : '—'}
+      </div>
+      {(attr.data?.by_strategy ?? []).length === 0 ? <EmptyState text="暂无归因数据" sub="需已平仓的回合" /> : (
+        <>
+          <DivergingBars items={attr.data!.by_strategy.map(s => ({ label: shortStrat(s.strategy_id), value: s.realized_pnl, ok: s.realized_pnl >= 0 }))} unit="$" />
+          <table className="hv-table" aria-label="P&L 归因">
+            <thead><tr><th>策略</th><th>已实现 P&L</th><th>占毛额</th><th>成交数</th><th>胜率</th><th>单笔均益</th><th>最佳/最差</th></tr></thead>
+            <tbody>
+              {attr.data!.by_strategy.map(s => (
+                <tr key={s.strategy_id}>
+                  <td>{shortStrat(s.strategy_id)}</td>
+                  <td style={{ color: s.realized_pnl >= 0 ? 'var(--success,#3fb950)' : 'var(--destructive)' }}>${s.realized_pnl.toFixed(2)}</td>
+                  <td>{(s.pct_of_gross * 100).toFixed(1)}%</td>
+                  <td>{s.n_trades}</td>
+                  <td>{s.win_rate != null ? (s.win_rate * 100).toFixed(0) + '%' : '—'}</td>
+                  <td>{s.avg_pnl != null ? '$' + s.avg_pnl.toFixed(3) : '—'}</td>
+                  <td className="hv-num">{s.best != null ? `+${s.best}` : '—'} / {s.worst != null ? s.worst : '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+      <div className="hv-honest-note">
+        ⚠️ Paper 短期 P&L ≠ 策略有效。归因按<strong>策略</strong>(引擎级归因要等 enforce 后引擎驱动执行才成立)。
+      </div>
 
       <div className="hv-section-title">风险控制</div>
       {killed ? (
