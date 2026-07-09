@@ -243,6 +243,12 @@ def build_node() -> TradingNode:
                     chandelier_mult=float(tf.get("chandelier_mult", 3.0)),
                     max_holding_days=int(tf.get("max_holding_days", 30)),
                     qty_usd=float(tf.get("qty_usd", 200.0)),
+                    use_ema=bool(tf.get("use_ema", True)),
+                    ema_period=int(tf.get("ema_period", 50)),
+                    use_macd=bool(tf.get("use_macd", True)),
+                    macd_fast=int(tf.get("macd_fast", 12)),
+                    macd_slow=int(tf.get("macd_slow", 26)),
+                    macd_signal=int(tf.get("macd_signal", 9)),
                     trade_enabled=_tf_enabled,
                 )
             )
@@ -270,6 +276,12 @@ def build_node() -> TradingNode:
                     breakout_exit_adx=float(sv.get("breakout_exit_adx", 15.0)),
                     max_holding_bars=int(sv.get("max_holding_bars", 48)),
                     qty_usd=float(sv.get("qty_usd", 50.0)),
+                    use_ema=bool(sv.get("use_ema", True)),
+                    ema_period=int(sv.get("ema_period", 50)),
+                    use_macd=bool(sv.get("use_macd", True)),
+                    macd_fast=int(sv.get("macd_fast", 12)),
+                    macd_slow=int(sv.get("macd_slow", 26)),
+                    macd_signal=int(sv.get("macd_signal", 9)),
                     trade_enabled=_sv_enabled,
                 )
             )
@@ -290,6 +302,12 @@ def build_node() -> TradingNode:
                     vol_surge_mult=float(fs.get("vol_surge_mult", 1.5)),
                     rsi_period=int(fs.get("rsi_period", 14)),
                     qty_usd=float(fs.get("qty_usd", 100.0)),
+                    use_ema=bool(fs.get("use_ema", True)),
+                    ema_period=int(fs.get("ema_period", 50)),
+                    use_macd=bool(fs.get("use_macd", True)),
+                    macd_fast=int(fs.get("macd_fast", 12)),
+                    macd_slow=int(fs.get("macd_slow", 26)),
+                    macd_signal=int(fs.get("macd_signal", 9)),
                     trade_enabled=_fs_enabled,
                 )
             )

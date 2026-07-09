@@ -36,7 +36,7 @@ from paper.risk import RISK, log_risk_event
 from paper.db import DB_DSN, DDL, log_signal, log_fill
 from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
-from paper.strategies._indicators import wilder_rsi
+from paper.strategies._indicators import wilder_rsi, ema, macd
 
 
 class FuturesSignalPortConfig(StrategyConfig, frozen=True):
@@ -51,6 +51,12 @@ class FuturesSignalPortConfig(StrategyConfig, frozen=True):
     rsi_short_min: float = 25.0
     rsi_short_max: float = 55.0
     qty_usd: float = 100.0
+    use_ema: bool = True
+    ema_period: int = 50
+    use_macd: bool = True
+    macd_fast: int = 12
+    macd_slow: int = 26
+    macd_signal: int = 9
     trade_enabled: bool = False  # NO-GO → observe only; flip True only after gate pass
 
 
@@ -61,7 +67,16 @@ class FuturesSignalPort(Strategy):
 
     def __init__(self, config: FuturesSignalPortConfig) -> None:
         super().__init__(config)
-        maxn = max(config.breakout_period, config.vol_ma_period, config.rsi_period) + 5
+        maxn = (
+            max(
+                config.breakout_period,
+                config.vol_ma_period,
+                config.rsi_period,
+                config.ema_period,
+                config.macd_slow + config.macd_signal,
+            )
+            + 5
+        )
         self._highs: deque[float] = deque(maxlen=maxn + 2)
         self._lows: deque[float] = deque(maxlen=maxn + 2)
         self._closes: deque[float] = deque(maxlen=maxn + 2)
@@ -148,7 +163,16 @@ class FuturesSignalPort(Strategy):
             list(self._vols),
         )
 
-        need = max(c.breakout_period, c.vol_ma_period, c.rsi_period) + 1
+        need = (
+            max(
+                c.breakout_period,
+                c.vol_ma_period,
+                c.rsi_period,
+                c.ema_period,
+                c.macd_slow + c.macd_signal,
+            )
+            + 1
+        )
         if len(closes) < need:
             self._fire(
                 ts_event, "NEUTRAL", close, {"warmup": True, "n_bars": len(closes)}
@@ -166,6 +190,20 @@ class FuturesSignalPort(Strategy):
             self._fire(ts_event, "NEUTRAL", close, {"warmup": True})
             return
         vol_surge = vol_ma > 0 and vol_now > c.vol_surge_mult * vol_ma
+        # optional confluence filters (EMA trend + MACD momentum) — tunable from前端
+        ema_v = ema(closes, c.ema_period) if c.use_ema else None
+        mac = (
+            macd(closes, c.macd_fast, c.macd_slow, c.macd_signal)
+            if c.use_macd
+            else None
+        )
+        macd_hist = mac[2] if mac else None
+        long_conf = ((not c.use_ema) or ema_v is None or close > ema_v) and (
+            (not c.use_macd) or macd_hist is None or macd_hist >= 0
+        )
+        short_conf = ((not c.use_ema) or ema_v is None or close < ema_v) and (
+            (not c.use_macd) or macd_hist is None or macd_hist <= 0
+        )
 
         action: str | None = None
         if self._position == 0:
@@ -173,12 +211,14 @@ class FuturesSignalPort(Strategy):
                 close > high_bo
                 and vol_surge
                 and c.rsi_long_min <= rsi <= c.rsi_long_max
+                and long_conf
             ):
                 action = "enter_long"
             elif (
                 close < low_bo
                 and vol_surge
                 and c.rsi_short_min <= rsi <= c.rsi_short_max
+                and short_conf
             ):
                 action = "enter_short"
         elif self._position == 1:
@@ -197,6 +237,8 @@ class FuturesSignalPort(Strategy):
             "vol_now": round(vol_now, 2),
             "vol_surge": vol_surge,
             "rsi": round(rsi, 1),
+            "ema": round(ema_v, 4) if ema_v is not None else None,
+            "macd_hist": round(macd_hist, 4) if macd_hist is not None else None,
             "position": self._position,
             "n_bars": len(closes),
         }

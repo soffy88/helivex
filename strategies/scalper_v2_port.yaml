@@ -48,6 +48,12 @@ live:
   max_holding_bars: 48
   qty_usd: 50
   trade_enabled: true
+  use_ema: true
+  ema_period: 50
+  use_macd: true
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
 mode: paper
 status: ported-paper
 gate:

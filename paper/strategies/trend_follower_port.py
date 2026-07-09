@@ -46,7 +46,7 @@ from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
 
 
-from paper.strategies._indicators import wilder_atr, wilder_adx
+from paper.strategies._indicators import wilder_atr, wilder_adx, ema, macd
 
 
 class TrendFollowerPortConfig(StrategyConfig, frozen=True):
@@ -62,6 +62,12 @@ class TrendFollowerPortConfig(StrategyConfig, frozen=True):
     atr_health_max: float = 0.10
     max_holding_days: int = 30
     qty_usd: float = 200.0
+    use_ema: bool = True
+    ema_period: int = 50
+    use_macd: bool = True
+    macd_fast: int = 12
+    macd_slow: int = 26
+    macd_signal: int = 9
     trade_enabled: bool = False  # NO-GO → observe only; flip True only after gate pass
 
 
@@ -73,7 +79,13 @@ class TrendFollowerPort(Strategy):
     def __init__(self, config: TrendFollowerPortConfig) -> None:
         super().__init__(config)
         maxn = (
-            max(config.donchian_period, config.chandelier_period, 2 * config.adx_period)
+            max(
+                config.donchian_period,
+                config.chandelier_period,
+                2 * config.adx_period,
+                config.ema_period,
+                config.macd_slow + config.macd_signal,
+            )
             + 5
         )
         self._highs: deque[float] = deque(maxlen=maxn + 2)
@@ -180,7 +192,16 @@ class TrendFollowerPort(Strategy):
         close = float(self._closes[-1])
         highs, lows, closes = list(self._highs), list(self._lows), list(self._closes)
 
-        need = max(c.donchian_period, c.chandelier_period, 2 * c.adx_period) + 1
+        need = (
+            max(
+                c.donchian_period,
+                c.chandelier_period,
+                2 * c.adx_period,
+                c.ema_period,
+                c.macd_slow + c.macd_signal,
+            )
+            + 1
+        )
         if len(closes) < need:
             self._fire(
                 ts_event, "NEUTRAL", close, {"warmup": True, "n_bars": len(closes)}
@@ -203,11 +224,26 @@ class TrendFollowerPort(Strategy):
         chand_short = ll + atr * c.chandelier_mult
         health_ok = c.atr_health_min <= atr_pct <= c.atr_health_max
 
+        # optional confluence filters (EMA trend + MACD momentum) — tunable from前端
+        ema_v = ema(closes, c.ema_period) if c.use_ema else None
+        mac = (
+            macd(closes, c.macd_fast, c.macd_slow, c.macd_signal)
+            if c.use_macd
+            else None
+        )
+        macd_hist = mac[2] if mac else None
+        long_conf = ((not c.use_ema) or ema_v is None or close > ema_v) and (
+            (not c.use_macd) or macd_hist is None or macd_hist >= 0
+        )
+        short_conf = ((not c.use_ema) or ema_v is None or close < ema_v) and (
+            (not c.use_macd) or macd_hist is None or macd_hist <= 0
+        )
+
         action: str | None = None
         if self._position == 0:
-            if close > don_hi and adx >= c.adx_entry and health_ok:
+            if close > don_hi and adx >= c.adx_entry and health_ok and long_conf:
                 action = "enter_long"
-            elif close < don_lo and adx >= c.adx_entry and health_ok:
+            elif close < don_lo and adx >= c.adx_entry and health_ok and short_conf:
                 action = "enter_short"
         elif self._position == 1:
             if (
@@ -232,6 +268,8 @@ class TrendFollowerPort(Strategy):
             "chand_long": round(chand_long, 4),
             "chand_short": round(chand_short, 4),
             "health_ok": health_ok,
+            "ema": round(ema_v, 4) if ema_v is not None else None,
+            "macd_hist": round(macd_hist, 4) if macd_hist is not None else None,
             "bars_held": self._bars_held,
             "position": self._position,
             "n_bars": len(closes),

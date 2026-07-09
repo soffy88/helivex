@@ -41,7 +41,14 @@ from paper.risk import RISK, log_risk_event
 from paper.db import DB_DSN, DDL, log_signal, log_fill
 from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
-from paper.strategies._indicators import wilder_atr, wilder_adx, wilder_rsi, bollinger
+from paper.strategies._indicators import (
+    wilder_atr,
+    wilder_adx,
+    wilder_rsi,
+    bollinger,
+    ema,
+    macd,
+)
 
 
 class ScalperV2PortConfig(StrategyConfig, frozen=True):
@@ -64,6 +71,12 @@ class ScalperV2PortConfig(StrategyConfig, frozen=True):
     atr_health_min: float = 0.0005
     atr_health_max: float = 0.05
     qty_usd: float = 50.0
+    use_ema: bool = True
+    ema_period: int = 50
+    use_macd: bool = True
+    macd_fast: int = 12
+    macd_slow: int = 26
+    macd_signal: int = 9
     trade_enabled: bool = False  # NO-GO → observe only; flip True only after gate pass
 
 
@@ -74,7 +87,16 @@ class ScalperV2Port(Strategy):
 
     def __init__(self, config: ScalperV2PortConfig) -> None:
         super().__init__(config)
-        maxn = max(config.bb_period, config.rsi_period, 2 * config.adx_period) + 5
+        maxn = (
+            max(
+                config.bb_period,
+                config.rsi_period,
+                2 * config.adx_period,
+                config.ema_period,
+                config.macd_slow + config.macd_signal,
+            )
+            + 5
+        )
         self._highs: deque[float] = deque(maxlen=maxn + 2)
         self._lows: deque[float] = deque(maxlen=maxn + 2)
         self._closes: deque[float] = deque(maxlen=maxn + 2)
@@ -162,7 +184,16 @@ class ScalperV2Port(Strategy):
         close = float(self._closes[-1])
         highs, lows, closes = list(self._highs), list(self._lows), list(self._closes)
 
-        need = max(c.bb_period, c.rsi_period, 2 * c.adx_period) + 1
+        need = (
+            max(
+                c.bb_period,
+                c.rsi_period,
+                2 * c.adx_period,
+                c.ema_period,
+                c.macd_slow + c.macd_signal,
+            )
+            + 1
+        )
         if len(closes) < need:
             self._fire(
                 ts_event, "NEUTRAL", close, {"warmup": True, "n_bars": len(closes)}
@@ -179,6 +210,20 @@ class ScalperV2Port(Strategy):
         mid, upper, lower = bb
         atr_pct = atr / close if close else 0.0
         health_ok = c.atr_health_min <= atr_pct <= c.atr_health_max
+        # optional confluence filters (EMA trend + MACD momentum) — tunable from前端
+        ema_v = ema(closes, c.ema_period) if c.use_ema else None
+        mac = (
+            macd(closes, c.macd_fast, c.macd_slow, c.macd_signal)
+            if c.use_macd
+            else None
+        )
+        macd_hist = mac[2] if mac else None
+        long_conf = ((not c.use_ema) or ema_v is None or close > ema_v) and (
+            (not c.use_macd) or macd_hist is None or macd_hist >= 0
+        )
+        short_conf = ((not c.use_ema) or ema_v is None or close < ema_v) and (
+            (not c.use_macd) or macd_hist is None or macd_hist <= 0
+        )
 
         # ADX-hysteresis mode switch with cooldown
         if self._cooldown > 0:
@@ -193,14 +238,14 @@ class ScalperV2Port(Strategy):
         if self._position == 0:
             if health_ok:
                 if self._mode == "mr":
-                    if rsi <= c.rsi_oversold:
+                    if rsi <= c.rsi_oversold and long_conf:
                         action = "enter_long"
-                    elif rsi >= c.rsi_overbought:
+                    elif rsi >= c.rsi_overbought and short_conf:
                         action = "enter_short"
                 else:  # breakout
-                    if close > upper:
+                    if close > upper and long_conf:
                         action = "enter_long"
-                    elif close < lower:
+                    elif close < lower and short_conf:
                         action = "enter_short"
         elif self._position == 1:
             if self._entry_mode == "mr":
@@ -238,6 +283,8 @@ class ScalperV2Port(Strategy):
             "bb_up": round(upper, 4),
             "bb_lo": round(lower, 4),
             "health_ok": health_ok,
+            "ema": round(ema_v, 4) if ema_v is not None else None,
+            "macd_hist": round(macd_hist, 4) if macd_hist is not None else None,
             "bars_held": self._bars_held,
             "position": self._position,
             "entry_mode": self._entry_mode,

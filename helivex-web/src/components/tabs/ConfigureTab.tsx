@@ -49,11 +49,18 @@ const LIVE_META: Record<string, { label: string; step: number; min?: number }> =
   breakout_period: { label: '突破窗口 (bars)', step: 1, min: 2 },
   vol_ma_period:   { label: '量能均线周期', step: 1, min: 2 },
   vol_surge_mult:  { label: '量能激增倍数 (×)', step: 0.1, min: 0 },
+  // 通用技术指标(EMA 趋势 + MACD 动量,汇合过滤)
+  ema_period:  { label: 'EMA 趋势周期', step: 1, min: 2 },
+  macd_fast:   { label: 'MACD 快线周期', step: 1, min: 2 },
+  macd_slow:   { label: 'MACD 慢线周期', step: 1, min: 2 },
+  macd_signal: { label: 'MACD 信号周期', step: 1, min: 2 },
 };
 
 // live params that are booleans → rendered as a toggle instead of a number input
 const LIVE_BOOL_META: Record<string, { label: string; onText: string; offText: string }> = {
   trade_enabled: { label: '交易开关', onText: '● paper 交易(下单)', offText: '○ observe(只记录)' },
+  use_ema:  { label: 'EMA 趋势过滤', onText: '● 开', offText: '○ 关' },
+  use_macd: { label: 'MACD 动量过滤', onText: '● 开', offText: '○ 关' },
 };
 
 export function ConfigureTab() {

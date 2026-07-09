@@ -115,3 +115,46 @@ def bollinger(
     var = sum((x - mid) ** 2 for x in window) / period
     sd = var**0.5
     return mid, mid + k * sd, mid - k * sd
+
+
+def _ema_series(vals: list[float], period: int) -> list[float | None]:
+    """EMA series aligned to `vals` (None until seeded at index period-1, SMA seed)."""
+    n = len(vals)
+    if n < period:
+        return [None] * n
+    kf = 2.0 / (period + 1)
+    e = sum(vals[:period]) / period
+    out: list[float | None] = [None] * (period - 1) + [e]
+    for x in vals[period:]:
+        e = x * kf + e * (1.0 - kf)
+        out.append(e)
+    return out
+
+
+def ema(closes: list[float], period: int) -> float | None:
+    """Latest EMA value (SMA-seeded). Needs `period` closes."""
+    s = _ema_series(closes, period)
+    return s[-1] if s and s[-1] is not None else None
+
+
+def macd(
+    closes: list[float], fast: int = 12, slow: int = 26, signal: int = 9
+) -> tuple[float, float, float] | None:
+    """MACD → (macd_line, signal_line, histogram) at the latest bar. Needs ~slow+signal bars."""
+    if len(closes) < slow + signal:
+        return None
+    ef = _ema_series(closes, fast)
+    es = _ema_series(closes, slow)
+    macd_line = [
+        (ef[i] - es[i]) if (ef[i] is not None and es[i] is not None) else None
+        for i in range(len(closes))
+    ]
+    macd_vals = [m for m in macd_line if m is not None]
+    if len(macd_vals) < signal:
+        return None
+    sig_series = _ema_series(macd_vals, signal)
+    if not sig_series or sig_series[-1] is None:
+        return None
+    macd_now = float(macd_vals[-1])
+    sig_now = float(sig_series[-1])
+    return macd_now, sig_now, macd_now - sig_now
