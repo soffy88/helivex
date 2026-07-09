@@ -68,6 +68,65 @@ app.add_middleware(
 app.middleware("http")(metrics_middleware)
 
 
+# ─── 补齐 E: edge 式响应脱敏中间件(helixa edge worker 等价,进程内)──────────
+# 默认开。redact 敏感键 + DSN/JWT/sk- 值 + 内网主机名。刻意 NOT redact 64-hex
+# 指纹(helixa 的 hex≥32 规则会误伤;这里校准更好——指纹是要展示的可复现凭证)。
+import re as _re
+
+GW_SANITIZE = os.environ.get("HELIVEX_GW_SANITIZE", "1") not in ("0", "false", "")
+_SENS_KEY = _re.compile(
+    r"secret|token|api_?key|private|passphrase|password|telegram|chat_id|webhook|db_dsn|_dsn|_host",
+    _re.I,
+)
+_SENS_VAL = _re.compile(
+    r"(sk-[A-Za-z0-9]{16,}|eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+"
+    r"|postgres(?:ql)?://[^\s\"']+|redis://[^\s\"']+)"
+)
+_INTERNAL_HOST = _re.compile(
+    r"platform-postgres|helios-redis|helios-proxy|quant-rabbitmq|host\.docker\.internal"
+)
+
+
+def _sanitize(obj):
+    if isinstance(obj, dict):
+        return {
+            k: ("[REDACTED]" if _SENS_KEY.search(k) else _sanitize(v))
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [_sanitize(x) for x in obj]
+    if isinstance(obj, str):
+        return _INTERNAL_HOST.sub("[internal]", _SENS_VAL.sub("[REDACTED]", obj))
+    return obj
+
+
+@app.middleware("http")
+async def sanitize_response(request: Request, call_next):
+    from starlette.responses import Response as _Resp
+
+    response = await call_next(request)
+    if not GW_SANITIZE or "application/json" not in response.headers.get(
+        "content-type", ""
+    ):
+        return response
+    body = b""
+    async for chunk in response.body_iterator:
+        body += chunk
+    try:
+        clean = json.dumps(_sanitize(json.loads(body))).encode()
+    except Exception:
+        clean = body
+    headers = {
+        k: v for k, v in response.headers.items() if k.lower() != "content-length"
+    }
+    return _Resp(
+        content=clean,
+        status_code=response.status_code,
+        headers=headers,
+        media_type="application/json",
+    )
+
+
 @app.get("/metrics")
 async def metrics() -> PlainTextResponse:
     """Prometheus exposition (request counts + latency, dependency-free)."""
