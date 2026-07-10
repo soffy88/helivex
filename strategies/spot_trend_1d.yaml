@@ -7,7 +7,8 @@ instruments:
 - ETH-USDT-SWAP
 - SOL-USDT-SWAP
 db_table: market_data.ohlcv_1h
-db_source: okx_swap_5m
+# okx_swap = SWAP 4H bars(6.5 年)→ resample_to_1d;此前误指 5m 表致日线仅 98 根报数据不足
+db_source: okx_swap
 resample_to_1d: true
 donchian:
   n_enter: 20
