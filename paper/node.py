@@ -106,7 +106,10 @@ def build_node() -> TradingNode:
         api_secret=api_secret,
         api_passphrase=passphrase,
         environment=_okx_env(),
-        instrument_types=(_okx_instrument_type_swap(),),
+        # SWAP + SPOT: exec was SWAP-only, which silently left SpotTrend1D
+        # (BTC/ETH-USDT spot) with NO execution path — signals fired but orders
+        # could never route/fill (0 fills ever). Data client already loads both.
+        instrument_types=(_okx_instrument_type_swap(), _okx_instrument_type_spot()),
         proxy_url=proxy_url,
         instrument_provider=InstrumentProviderConfig(load_all=True),
     )

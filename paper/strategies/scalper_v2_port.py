@@ -238,11 +238,16 @@ class ScalperV2Port(Strategy):
         if self._position == 0:
             if health_ok:
                 if self._mode == "mr":
-                    if rsi <= c.rsi_oversold and long_conf:
+                    # Mean-reversion entries are inherently COUNTER-trend: RSI≤30
+                    # (falling price) almost always sits below EMA(50) with negative
+                    # MACD hist, so the trend-confluence filter made MR entries
+                    # near-impossible — a self-contradiction. Confluence applies to
+                    # breakout entries only (where trend alignment makes sense).
+                    if rsi <= c.rsi_oversold:
                         action = "enter_long"
-                    elif rsi >= c.rsi_overbought and short_conf:
+                    elif rsi >= c.rsi_overbought:
                         action = "enter_short"
-                else:  # breakout
+                else:  # breakout — trend confluence (EMA/MACD) applies here
                     if close > upper and long_conf:
                         action = "enter_long"
                     elif close < lower and short_conf:

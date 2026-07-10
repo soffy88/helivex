@@ -135,7 +135,8 @@ class TrendFollowerPort(Strategy):
         try:
             rows = await self._db.execute(
                 lambda conn: conn.fetch(
-                    """SELECT max(high) AS h, min(low) AS l,
+                    """SELECT date_trunc('day', bar_close_ts) AS d,
+                          max(high) AS h, min(low) AS l,
                           (array_agg(close ORDER BY bar_close_ts DESC))[1] AS c
                      FROM market_data.ohlcv_1h
                      WHERE instrument = $1 AND source = 'okx_swap'
@@ -158,14 +159,27 @@ class TrendFollowerPort(Strategy):
             self._lows.append(float(r["l"]))
             self._closes.append(float(r["c"]))
         self.log.info(f"[{sid}] warmup seeded {len(rows)} daily bars from ohlcv_1h")
-        # Log the current signal snapshot immediately (on last completed daily bar) so
-        # the strategy is measurable now — rather than waiting for the next 00:00 UTC
-        # live close. observe mode → this logs a signal, never an order.
-        self._snapshot = True
-        try:
+        # 新鲜度分流:刚错过的日线收盘(≤30min,重启窗口)且 trade_enabled → 补做
+        # 一次真实决策(日线一天只有一次窗口,重启跨过收盘就要再等 24h);否则只记
+        # 快照(_snapshot=log only, never trade)。注:ports 无 venue 仓位 rehydrate,
+        # 但迄今 0 fills,无陈旧仓位;catch-up 只在 _position==0 时可能开新仓。
+        import asyncio as _aio
+        import datetime as _dt
+
+        last_close = rows[0]["d"] + _dt.timedelta(days=1)
+        age = (_dt.datetime.now(_dt.timezone.utc) - last_close).total_seconds()
+        if age <= 1800 and self.config.trade_enabled:
+            self.log.info(
+                f"[{sid}] catch-up eval: missed daily close {age:.0f}s ago during restart"
+            )
+            await _aio.sleep(12)  # 让 exec 对账/账户状态先落定
             self._evaluate(self.clock.timestamp_ns())
-        finally:
-            self._snapshot = False
+        else:
+            self._snapshot = True
+            try:
+                self._evaluate(self.clock.timestamp_ns())
+            finally:
+                self._snapshot = False
 
     def on_historical_data(self, data: Any) -> None:
         if isinstance(data, Bar):

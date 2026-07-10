@@ -62,8 +62,29 @@ class SpotTrend1D(Strategy):
         asyncio.ensure_future(self._rehydrate_position())
 
     async def _boot(self) -> None:
+        import asyncio
+
         await self._db.ensure()
         await self._seed_warmup()
+        # Catch-up: 日线策略一天只有一次决策窗口(00:00 UTC 收盘),重启跨过收盘
+        # 就要再等 24h——频繁重启会系统性掐掉它的开仓机会。刚错过(≤30min)则补做
+        # 一次真实决策;更旧不追。
+        await asyncio.sleep(12)  # 让 _rehydrate_position 先落定
+        self._catchup_eval()
+
+    def _catchup_eval(self) -> None:
+        import datetime as _dt
+
+        last = getattr(self, "_seed_last_close", None)
+        if last is None or not self._closes:
+            return
+        age = (_dt.datetime.now(_dt.timezone.utc) - last).total_seconds()
+        if age > 1800:
+            return
+        self.log.info(
+            f"[{self._strategy_id()}] catch-up eval: missed daily close {age:.0f}s ago during restart"
+        )
+        self._evaluate(self.clock.timestamp_ns())
 
     async def _seed_warmup(self) -> None:
         # Seed daily closes from market_data.ohlcv_1h resampled to 1D. Without this
@@ -100,6 +121,9 @@ class SpotTrend1D(Strategy):
             return
         for r in reversed(rows):  # chronological
             self._closes.append(float(r["c"]))
+        # date_trunc 返回当日 0 点;桶收盘 = d + 1day。供 _catchup_eval 判断新鲜度。
+        import datetime as _dt
+        self._seed_last_close = rows[0]["d"] + _dt.timedelta(days=1)
         self.log.info(
             f"[{sid}] warmup seeded {len(rows)} daily closes from ohlcv_1h ({inst_db} proxy)"
         )
@@ -138,12 +162,15 @@ class SpotTrend1D(Strategy):
         self.log.info(
             f"[on_bar] {bar.bar_type} close={close:.4f} n={len(self._closes)}"
         )
+        self._evaluate(int(bar.ts_event))
 
+    def _evaluate(self, ts_event: int) -> None:
+        close = float(self._closes[-1])
         c = self.config
         need = max(c.n_enter, c.n_exit, c.bear_ma) + 1
         if len(self._closes) < need:
             self._fire_signal(
-                bar, "NEUTRAL", close, {"n_bars": len(self._closes), "warmup": True}
+                ts_event, "NEUTRAL", close, {"n_bars": len(self._closes), "warmup": True}
             )
             return
 
@@ -174,10 +201,10 @@ class SpotTrend1D(Strategy):
             "n_bars": len(self._closes),
             "position": self._position,
         }
-        self._fire_signal(bar, action or "NEUTRAL", close, indic)
+        self._fire_signal(ts_event, action or "NEUTRAL", close, indic)
 
     def _fire_signal(
-        self, bar: Bar, action: str, price: float, indicators: dict | None = None
+        self, ts_event: int, action: str, price: float, indicators: dict | None = None
     ) -> None:
         import asyncio
 
@@ -188,7 +215,7 @@ class SpotTrend1D(Strategy):
             "strategy": strat,
             "action": action,
             "price": price,
-            "bar_ts": bar.ts_event,
+            "bar_ts": ts_event,
             "n_enter": self.config.n_enter,
             "n_exit": self.config.n_exit,
             "bear_ma": self.config.bear_ma,

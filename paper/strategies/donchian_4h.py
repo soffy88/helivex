@@ -77,8 +77,29 @@ class Donchian4H(Strategy):
         asyncio.ensure_future(self._rehydrate_position())
 
     async def _boot(self) -> None:
+        import asyncio
+
         await self._db.ensure()
         await self._seed_warmup()
+        # Catch-up: 慢周期策略每 4H 才有一次决策窗口,重启若恰好跨过 bar 收盘就
+        # 会错过并要再等 4h。若刚错过的收盘在 30min 内(重启窗口),补做一次真实
+        # 决策(helixa max_bar_lag 同款思路);更旧则等下一根,绝不评估陈旧数据。
+        await asyncio.sleep(12)  # 让 _rehydrate_position(10s)先落定,避免重复开仓
+        self._catchup_eval()
+
+    def _catchup_eval(self) -> None:
+        import datetime as _dt
+
+        last = getattr(self, "_seed_last_close", None)
+        if last is None or self._closes is None or not self._closes:
+            return
+        age = (_dt.datetime.now(_dt.timezone.utc) - last).total_seconds()
+        if age > 1800:
+            return  # 收盘已过 30min,不追;等下一根 live bar
+        self.log.info(
+            f"[{self._strategy_id()}] catch-up eval: missed 4H close {age:.0f}s ago during restart"
+        )
+        self._evaluate(self.clock.timestamp_ns())
 
     async def _seed_warmup(self) -> None:
         # Seed the close deque from market_data.ohlcv_1h resampled to 4H so a node
@@ -112,6 +133,9 @@ class Donchian4H(Strategy):
             return
         for r in reversed(rows):  # chronological
             self._closes.append(float(r["c"]))
+        # date_bin 返回桶起点;桶收盘 = b + 4h。供 _catchup_eval 判断新鲜度。
+        import datetime as _dt
+        self._seed_last_close = rows[0]["b"] + _dt.timedelta(hours=4)
         self.log.info(f"[{sid}] warmup seeded {len(rows)} 4H closes from ohlcv_1h")
 
     async def _rehydrate_position(self) -> None:
@@ -157,11 +181,14 @@ class Donchian4H(Strategy):
         self.log.info(
             f"[on_bar] {bar.bar_type} close={close:.4f} n={len(self._closes)}"
         )
+        self._evaluate(int(bar.ts_event))
 
+    def _evaluate(self, ts_event: int) -> None:
+        close = float(self._closes[-1])
         c = self.config
         if len(self._closes) < c.n_enter + 1:
             self._fire_signal(
-                bar, "NEUTRAL", close, {"n_bars": len(self._closes), "warmup": True}
+                ts_event, "NEUTRAL", close, {"n_bars": len(self._closes), "warmup": True}
             )
             return
 
@@ -194,10 +221,10 @@ class Donchian4H(Strategy):
             "n_bars": len(self._closes),
             "position": self._position,
         }
-        self._fire_signal(bar, action or "NEUTRAL", close, indic)
+        self._fire_signal(ts_event, action or "NEUTRAL", close, indic)
 
     def _fire_signal(
-        self, bar: Bar, action: str, price: float, indicators: dict | None = None
+        self, ts_event: int, action: str, price: float, indicators: dict | None = None
     ) -> None:
         import asyncio
 
@@ -208,7 +235,7 @@ class Donchian4H(Strategy):
             "strategy": strat,
             "action": action,
             "price": price,
-            "bar_ts": bar.ts_event,
+            "bar_ts": ts_event,
             "n_enter": self.config.n_enter,
             "n_exit": self.config.n_exit,
         }
@@ -240,7 +267,7 @@ class Donchian4H(Strategy):
             asyncio.ensure_future(_store())
 
         self._signal_price = price
-        self._signal_ts = bar.ts_event
+        self._signal_ts = ts_event
         self.log.info(
             f"[{strat}] SIGNAL {action} @ {price:.2f}  "
             f"record={rec['record_id']}  tier={rec['tier']}"
