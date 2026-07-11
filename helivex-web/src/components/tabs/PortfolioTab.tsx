@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
-import { EquityChart, Underwater, DivergingBars } from '../charts';
+import { EquityPanel, Underwater, DivergingBars } from '../charts';
 import { portfolioApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import type { PortfolioSummary, CorrelationMatrix, PortfolioEquity, PortfolioAttributionResp } from '@/types/api';
@@ -53,10 +53,9 @@ export function PortfolioTab() {
         <div className="hv-metric-card"><span className="hv-metric-label">可用资金</span><span className="hv-metric-val">${sum?.available?.toLocaleString() ?? '—'}</span></div>
       </div>
 
-      <div className="hv-section-title">合并资金曲线</div>
       {pts.length < 2 ? <EmptyState text="数据不足" sub="需 ≥2 个成交点" /> : (
         <>
-          <div className="hv-chart-box"><EquityChart pts={pts} h={260} /></div>
+          <div className="hv-chart-box"><EquityPanel pts={pts} title="合并资金曲线" h={260} /></div>
           <div className="hv-section-title">回撤水下图</div>
           <div className="hv-chart-box"><Underwater pts={pts.map(p => p.drawdown ?? 0)} /></div>
         </>

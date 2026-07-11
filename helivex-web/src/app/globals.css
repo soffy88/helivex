@@ -41,9 +41,9 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 .hv-strat-card__meta { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--muted-foreground); }
 
 /* metric card */
-.hv-metric-card { border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 14px; display: flex; flex-direction: column; gap: 4px; }
+.hv-metric-card { border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
 .hv-metric-label { font-size: var(--text-xs); color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.04em; }
-.hv-metric-val { font-size: var(--text-2xl); font-weight: 780; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.hv-metric-val { font-size: var(--text-xl); font-weight: 780; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .hv-pos { color: var(--success, oklch(0.62 0.18 145)); }
 .hv-neg { color: var(--destructive); }
 .hv-metric-note { font-size: 10px; color: var(--muted-foreground); }

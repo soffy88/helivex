@@ -64,9 +64,9 @@ export function EquityChart({ pts, h = 240, currency = '$' }: {
       ? `${t.getUTCMonth() + 1}/${t.getUTCDate()}`
       : `${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}`;
   };
-  const fmtY = (v: number) => currency + (Math.abs(v) >= 1000
-    ? v.toLocaleString('en-US', { maximumFractionDigits: 0 })
-    : v.toFixed(2));
+  const fmtY = (v: number) => (v < 0 ? '-' : '') + currency + (Math.abs(v) >= 1000
+    ? Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 0 })
+    : Math.abs(v).toFixed(2));
   const xTickIdx = [...new Set([0, 0.33, 0.66, 1].map(f => Math.round(f * (pts.length - 1))))];
   const base = vals[0];
   const hv = hover != null ? pts[hover] : null;
@@ -130,15 +130,83 @@ export function EquityChart({ pts, h = 240, currency = '$' }: {
         }}>
           <div style={{ color: 'var(--muted-foreground, #8b949e)' }}>{new Date(hv.date).toISOString().slice(0, 16).replace('T', ' ')} UTC</div>
           <div style={{ color: col }}>{fmtY(hv.equity)}
-            <span style={{ color: 'var(--muted-foreground, #8b949e)', marginLeft: 6 }}>
-              {(((hv.equity - base) / base) * 100).toFixed(3)}%
-            </span>
+            {base !== 0 && (
+              <span style={{ color: 'var(--muted-foreground, #8b949e)', marginLeft: 6 }}>
+                {(((hv.equity - base) / base) * 100).toFixed(3)}%
+              </span>
+            )}
           </div>
           {hv.drawdown != null && hv.drawdown < 0 && (
             <div style={{ color: 'var(--destructive, #f85149)' }}>DD {(hv.drawdown * 100).toFixed(2)}%</div>
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+type EqRange = '24h' | '7d' | 'all';
+type EqMode = 'nav' | 'pnl';
+const RANGE_MS: Record<Exclude<EqRange, 'all'>, number> = { '24h': 864e5, '7d': 7 * 864e5 };
+
+/**
+ * EquityPanel — 带控件的资金曲线面板(对齐 Hyperliquid 组合页):
+ * 时间范围切换(24H/7D/ALL,按最后一个数据点回溯,不依赖本地时钟)+
+ * 净值/PnL 双模式(PnL = 相对所选窗口起点的美元盈亏,起点=0)。
+ */
+export function EquityPanel({ pts, title, h = 250 }: {
+  pts: EquityChartPt[]; title: string; h?: number;
+}) {
+  const [range, setRange] = useState<EqRange>('all');
+  const [mode, setMode] = useState<EqMode>('nav');
+  const shown = (() => {
+    let sel = pts;
+    if (range !== 'all' && pts.length > 0) {
+      const cutoff = +new Date(pts[pts.length - 1].date) - RANGE_MS[range];
+      sel = pts.filter(p => +new Date(p.date) >= cutoff);
+    }
+    if (mode === 'pnl' && sel.length > 0) {
+      const b = sel[0].equity;
+      sel = sel.map(p => ({ ...p, equity: p.equity - b }));
+    }
+    return sel;
+  })();
+  const pill = (active: boolean): React.CSSProperties => ({
+    padding: '2px 10px', borderRadius: 6, fontSize: 11, cursor: 'pointer',
+    fontFamily: 'var(--font-mono)', lineHeight: '18px',
+    border: `1px solid ${active ? 'transparent' : 'var(--border, #30363d)'}`,
+    background: active ? 'var(--primary)' : 'transparent',
+    color: active ? 'var(--primary-foreground, #fff)' : 'var(--muted-foreground, #8b949e)',
+  });
+  const last = shown[shown.length - 1];
+  const first = shown[0];
+  const delta = last && first ? last.equity - (mode === 'pnl' ? 0 : first.equity) : 0;
+  return (
+    <div>
+      <div className="hv-panel__head" style={{ marginBottom: 6 }}>
+        <span className="hv-panel__title">{title}</span>
+        <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+          {last && (
+            <span style={{
+              fontFamily: 'var(--font-mono)', fontSize: 12, marginRight: 8,
+              color: delta >= 0 ? 'var(--success, #3fb950)' : 'var(--destructive, #f85149)',
+            }}>
+              {mode === 'pnl'
+                ? `${last.equity >= 0 ? '+' : '-'}$${Math.abs(last.equity).toFixed(2)}`
+                : `$${last.equity.toLocaleString('en-US', { maximumFractionDigits: 2 })}`}
+            </span>
+          )}
+          <button style={pill(mode === 'nav')} onClick={() => setMode('nav')}>净值</button>
+          <button style={pill(mode === 'pnl')} onClick={() => setMode('pnl')}>PnL</button>
+          <span style={{ width: 8 }} />
+          {(['24h', '7d', 'all'] as const).map(r => (
+            <button key={r} style={pill(range === r)} onClick={() => setRange(r)}>{r.toUpperCase()}</button>
+          ))}
+        </span>
+      </div>
+      {shown.length < 2
+        ? <div className="hv-empty__sub" style={{ padding: '32px 0', textAlign: 'center' }}>该时间范围内成交点不足</div>
+        : <EquityChart pts={shown} h={h} />}
     </div>
   );
 }
@@ -194,7 +262,9 @@ export function DivergingBars({ items, unit = '' }: {
     <div className="hv-dbars">
       {items.map((it, i) => {
         const v = it.value ?? 0;
-        const w = (Math.abs(v) / mag) * 50;
+        // sqrt 量程:单一 outlier 主导时(如一个策略亏损占 99%),线性刻度会把
+        // 其余条压成 <1px 不可见;sqrt 保序但压缩支配度,小值仍可辨。
+        const w = v === 0 ? 0 : Math.max(0.6, Math.sqrt(Math.abs(v) / mag) * 50);
         const pos = v >= 0;
         const color = it.ok === undefined
           ? (pos ? 'var(--success, oklch(0.62 0.18 145))' : 'var(--destructive)')

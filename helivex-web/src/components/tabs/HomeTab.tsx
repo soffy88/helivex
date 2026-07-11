@@ -8,7 +8,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
-import { EquityChart } from '../charts';
+import { EquityPanel } from '../charts';
 import { helivexApi, portfolioApi, riskApi, ensembleApi, streamApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import { SafeGateBadge } from '../SafeBadges';
@@ -106,10 +106,9 @@ export function HomeTab() {
       {/* Hero:组合资金曲线(左,全策略合并 — 对齐 Hyperliquid 组合页"账户级优先")+ 持仓(右) */}
       <div className="hv-hero">
         <div className="hv-panel">
-          <div className="hv-panel__head"><span className="hv-panel__title">组合资金曲线 · 全策略合并</span></div>
           {combinedPts.length < 2
             ? <EmptyState text="数据不足" sub="需 ≥2 个成交点" />
-            : <EquityChart pts={combinedPts} h={250} />}
+            : <EquityPanel pts={combinedPts} title="组合资金曲线 · 全策略合并" h={250} />}
         </div>
         {id && (
           <div className="hv-panel">
