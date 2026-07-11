@@ -12,7 +12,7 @@ import { useApi } from '@/lib/use-api';
 import { Sparkline } from '../charts';
 import type { RiskStatus, RiskEvent, MicroLatest, MicroSeriesPoint, CvarWeights, PositionCaps } from '@/types/api';
 
-const usd = (v: number) => (v >= 0 ? '+' : '−') + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+const usd = (v: number) => (v >= 0 ? '+' : '-') + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const sevColor = (s: string) => s === 'critical' ? 'var(--destructive)' : s === 'high' ? 'oklch(0.70 0.15 80)' : 'var(--muted-foreground)';
 
 /** utilization bar: value vs cap, fills + turns red as it approaches the cap */
