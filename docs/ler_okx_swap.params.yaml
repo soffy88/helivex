@@ -7,8 +7,12 @@
 
 strategy: ler_okx_swap
 spec_ref: HELIVEX-IMPL_SPEC-LER-001
-spec_version: v1.1
-status: research
+spec_version: v1.2
+status: blocked   # ⛔ B1 待 Wiki 裁决(spec §13)。不是 research —— 不得进 Phase 0。
+blocked_reason: >
+  B1: H0 关于全市场聚合强制流($100M+ 量级);OKX 单家爆仓 feed 实测 p99 仅 $188k/5m,
+  最大瀑布 $2.53M —— 噪声量级,无法检验 H0。v1.1 "换标的非换假设" 的理由已被证伪。
+  提请 Wiki 在「重开付费数据决策」与「REJECT」之间裁决。见 spec §13。
 description: "爆仓衰竭回归(Liquidation Exhaustion Regression)——OKX BTC/ETH/SOL-USDT-SWAP, 1m"
 instruments:
   - BTC-USDT-SWAP
@@ -16,9 +20,29 @@ instruments:
   - SOL-USDT-SWAP
 timeframe: 1m
 
+# 数据语义(spec §5.1.1,v1.2 新增) —— 不遵守会静默产出错误信号
+data_semantics:
+  # C1: md.liquidations.size 是合约张数,不是币量。名义额 = size × ct_val × price。
+  #     直接 size*price 会使 BTC 名义额高估 100×。ct_val 取自 OKX
+  #     /api/v5/public/instruments(2026-07-11 实取,ctMult 均为 1)。
+  ct_val:
+    BTC-USDT-SWAP: 0.01   # BTC
+    ETH-USDT-SWAP: 0.1    # ETH
+    SOL-USDT-SWAP: 1      # SOL
+  # C2: OKX side 是「强平订单方向」,不是「被强平仓位方向」。
+  long_liquidation_side: sell    # side='sell' = 多头被强制平仓(卖出平多)
+  short_liquidation_side: buy    # side='buy'  = 空头被强制平仓
+  # C3: T1 取过去 30d 分位 → 30 天预热前 T1 在数学上不存在。
+  t1_warmup_days: 30
+  t1_first_evaluable_date: "2026-08-05"   # 爆仓采集起点 2026-07-06 + 30d
+
 trigger:
-  t1_liquidation_notional_percentile: 99   # p99, 过去 30d 分布, 5m 滚动名义额
-  t2_atr_displacement_multiple: 2.0        # 瀑布窗峰谷位移 > 2×ATR(60,1m)
+  t1_liquidation_notional_percentile: 99   # p99, 过去 30d 分布, 5m 滚动名义额(按 ct_val 换算)
+  # T2′(v1.2 量纲修正,spec §5.2 B2): disp(W)/√W > 2 × ATR(60,1m)
+  # 原式 disp(W) > 2×ATR(60,1m) 是量纲错误(左 O(√W) vs 右 O(1)),实测通过率 99.9% —— 空过滤器。
+  # 修正只改归一化子,系数 k=2 原封不动、未重新拟合。修正后通过率 1.8%–7.6%。
+  t2_displacement_normalizer: sqrt_window_minutes   # ← v1.2 新增
+  t2_atr_displacement_multiple: 2.0                 # k=2,未动
   cascade_window_timeout_min: 60
 
 exhaustion:
@@ -65,7 +89,7 @@ configs:
 # spec §11 决策标记,原样映射(单一事实来源是 spec 文档,这里只是给前端渲染用)
 locked_params:
   - trigger.t1_liquidation_notional_percentile
-  - trigger.t2_atr_displacement_multiple
+  - trigger.t2_atr_displacement_multiple    # k=2 —— v1.2 的量纲修正未改此值
   - exhaustion.e1_liquidation_decay_ratio
   - exhaustion.e2_oi_min_change
   - execution.c0_maker.fill_rule
@@ -78,5 +102,8 @@ changeable_params:   # 可改,须 Wiki 批准并重新预注册
   - execution.c1_taker_control.slippage_model
   - risk.risk_per_trade_bps
   - regime_filters.f1_trend_aligned_skip_return_pct
-already_amended:   # Wiki 已批准,2026-07-08(见 spec §11/§12)
-  - instruments   # Binance BTCUSDT → OKX BTC/ETH/SOL-USDT-SWAP
+already_amended:   # 量纲/事实订正,2026-07-11(见 spec §11/§12.4)
+  - trigger.t2_displacement_normalizer   # B2: 量纲修正,k 未动,不构成 p-hacking
+  - data_semantics                        # C1/C2/C3
+withdrawn_pending_wiki:   # ⛔ v1.1 的批准前提已被证伪,连同批准一并提请复议(spec §13)
+  - instruments   # Binance BTCUSDT → OKX。理由"换标的非换假设"错误 —— 这就是 B1

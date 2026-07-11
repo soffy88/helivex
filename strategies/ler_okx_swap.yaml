@@ -6,7 +6,7 @@
 # 的最小字段集),没有 `live` 块 —— Configure tab 因此展示"该策略无实盘参数",
 # 不会出现可用的"保存并重启节点"操作。
 strategy: ler_okx_swap
-description: "爆仓衰竭回归(LER)研究项目 — OKX BTC/ETH/SOL-USDT-SWAP, 1m — 数据积累中,未进 Phase 0/gate"
+description: "爆仓衰竭回归(LER)研究项目 — ⛔ BLOCKED: B1 待 Wiki 裁决(spec §13) — OKX 单家爆仓量级(p99 $188k/5m)无法检验 H0,不得进 Phase 0"
 timeframe: 1m
 instruments:
   - BTC-USDT-SWAP
