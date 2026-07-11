@@ -24,6 +24,7 @@ export interface StrategyState {
   indicators: IndicatorConfig[];
   signal_logic: { entry: string; exit: string; min_confluence: number; direction_mode: 'dual' | 'long_only' | 'short_only' };
   gate: { verdict: GateVerdict; dsr?: number; pbo?: number; reason?: string };
+  n_fills?: number; // paper.fills 计数,首页据此默认选中有成交的策略
 }
 
 export interface GateResult {

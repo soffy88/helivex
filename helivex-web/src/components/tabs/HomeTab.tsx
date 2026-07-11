@@ -46,7 +46,11 @@ export function HomeTab() {
   const [strategies, account, summary, risk, fgi, regime, consensus] =
     data as [StrategyState[], PaperAccount, PortfolioSummary, RiskStatus, FgiResp, RegimeResp, ConsensusResp];
 
-  const id = sel ?? strategies[0]?.strategy_id ?? null;
+  // 默认选中首个有成交的策略——零成交策略的资金曲线/持仓/成交历史全是空态
+  const id = sel
+    ?? strategies.find(s => (s.n_fills ?? 0) > 0)?.strategy_id
+    ?? strategies[0]?.strategy_id
+    ?? null;
   const cur = strategies.find(s => s.strategy_id === id) ?? null;
   const tripped = risk.kill_switch.tripped;
   const positioned = !!cur && cur.position && cur.position !== '—' && cur.position !== 'flat';

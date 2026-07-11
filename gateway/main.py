@@ -297,7 +297,12 @@ async def get_strategies() -> list[dict]:
                 "SELECT COUNT(*) AS n FROM paper.signals WHERE strategy_id LIKE $1",
                 prefix,
             )
+            frow = await conn.fetchrow(
+                "SELECT COUNT(*) AS n FROM paper.fills WHERE strategy_id LIKE $1",
+                prefix,
+            )
         n_signals = int(row["n"]) if row else 0
+        n_fills = int(frow["n"]) if frow else 0
 
         sl = cfg.get("signal_logic", {})
 
@@ -334,6 +339,7 @@ async def get_strategies() -> list[dict]:
                 "gate": gate_obj,
                 # Extra context fields (not in StrategyState type, ignored by frontend)
                 "n_paper_signals": n_signals,
+                "n_fills": n_fills,
                 "instruments": cfg.get("instruments", []),
                 "timeframe": cfg.get("timeframe", ""),
                 "config_path": str(yaml_path.relative_to(PROJECT_ROOT)),
