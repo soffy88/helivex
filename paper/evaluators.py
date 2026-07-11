@@ -850,3 +850,60 @@ async def eval_circuit_breaker_events(*, config: dict | None = None) -> list[dic
             )
         )
     return out
+
+
+# ── 开仓链路断点:有信号无成交 ──────────────────────────────────────────────────
+
+
+async def eval_entry_signal_without_fill(*, config: dict | None = None) -> list[dict]:
+    """开仓链路断点报警:策略发出 enter_* 信号,宽限期内 fills 表等不到成交。
+
+    市价 IOC 单实测延迟 350-900ms,信号已落库而成交迟迟不来,说明
+    信号→算量→下单→成交链路在中间某层断了。历史案例全是这个形态
+    (settlement_price AttributeError、ctVal 张数取整归零):signals 有
+    enter,fills 为空,靠人隔天翻表才发现。此评估器把发现时间从"天"压到
+    分钟级。风控闸拦截(risk_events kind=block)是预期行为,排除不报。
+    """
+    cfg = config or {}
+    grace_s: float = cfg.get("grace_seconds", 120)
+    lookback_s: float = cfg.get("lookback_seconds", 3600)
+    try:
+        conn = await asyncpg.connect(DB_DSN)
+        rows = await conn.fetch(
+            """SELECT s.id, s.ts, s.strategy_id, s.action
+               FROM paper.signals s
+               WHERE s.action LIKE 'enter%'
+                 AND s.ts > now() - make_interval(secs => $1)
+                 AND s.ts < now() - make_interval(secs => $2)
+                 AND NOT EXISTS (
+                   SELECT 1 FROM paper.fills f
+                   WHERE f.signal_id = s.id
+                      OR (f.strategy_id = s.strategy_id
+                          AND f.ts BETWEEN s.ts AND s.ts + make_interval(secs => $2))
+                 )
+                 AND NOT EXISTS (
+                   SELECT 1 FROM paper.risk_events r
+                   WHERE r.kind = 'block'
+                     AND r.entity_id LIKE s.strategy_id || '%'
+                     AND r.ts BETWEEN s.ts - interval '5 seconds'
+                                  AND s.ts + interval '60 seconds'
+                 )
+               ORDER BY s.ts DESC""",
+            lookback_s,
+            grace_s,
+        )
+        await conn.close()
+    except Exception as e:
+        return [_alert("entry_no_fill", "high", f"DB error checking entry fills: {e}")]
+    if not rows:
+        return []
+    worst = rows[0]
+    return [
+        _alert(
+            "entry_no_fill",
+            "critical",
+            f"开仓信号无成交 ×{len(rows)}:最近 {worst['strategy_id']} "
+            f"{worst['action']} @ {worst['ts']:%m-%d %H:%M:%S} — "
+            f"信号→下单→成交链路疑似断裂,查引擎 [guard]/ERROR 日志",
+        )
+    ]

@@ -40,6 +40,7 @@ from paper.evaluators import (
     eval_trade_events,
     eval_trading_allowed_heartbeat,
     eval_web_alive,
+    eval_entry_signal_without_fill,
     eval_write_freshness,
     eval_ws_tick_flow,
 )
@@ -127,6 +128,7 @@ def build_alerter() -> AlerterEngine:
             eval_trade_events,
             eval_circuit_breaker_events,
             eval_l2_recorder_flow,
+            eval_entry_signal_without_fill,
             eval_write_freshness,
             eval_ingestion_freshness,
             eval_persist_fidelity,
@@ -173,6 +175,10 @@ def build_alerter() -> AlerterEngine:
                 },
                 "eval_l2_recorder_flow": {
                     "stale_seconds": 5 * 60,
+                },
+                "eval_entry_signal_without_fill": {
+                    "grace_seconds": 120,
+                    "lookback_seconds": 3600,
                 },
                 "eval_write_freshness": {
                     "stale_seconds": 15 * 60,  # 3× the 5-min scalp signal cadence
