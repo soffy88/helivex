@@ -8,7 +8,7 @@
 
 import { useState, type ReactNode } from 'react';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
-import { EquityPanel } from '../charts';
+import { EquityPanel, Underwater, DivergingBars } from '../charts';
 import { helivexApi, portfolioApi, riskApi, ensembleApi, streamApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import { SafeGateBadge } from '../SafeBadges';
@@ -16,7 +16,17 @@ import { EquityView, PositionsView, StatsView, ExecutionView, SignalsView, Trade
 import type {
   StrategyState, PaperAccount, PortfolioSummary, RiskStatus, FgiResp,
   RegimeResp, ConsensusResp, TimelineResp, PortfolioEquity,
+  CorrelationMatrix, PortfolioAttributionResp,
 } from '@/types/api';
+
+const shortStrat = (s: string) => s.replace(/_usdt_swap_okx$/, '').replace(/_/g, ' ');
+const corrColor = (v: number) => {
+  if (v >= 0.99) return 'var(--muted)';
+  const abs = Math.abs(v);
+  return abs < 0.3 ? 'color-mix(in oklch, var(--success, oklch(0.62 0.18 145)) 30%, transparent)'
+    : abs < 0.6 ? 'color-mix(in oklch, oklch(0.70 0.15 80) 30%, transparent)'
+    : 'color-mix(in oklch, var(--destructive) 30%, transparent)';
+};
 
 const STRAT_TAG: Record<string, string> = {
   spot_trend: '现货', scalp_5m: '日内', trend_dual: '趋势', vwap_mr_dual: '均值回归', ler_okx: 'LER',
@@ -35,18 +45,26 @@ export function HomeTab() {
     () => Promise.all([
       helivexApi.strategies(), helivexApi.account(), portfolioApi.summary(), riskApi.status(),
       streamApi.fgi(), ensembleApi.regime(), ensembleApi.consensus(), portfolioApi.equity(),
+      portfolioApi.correlation(),
     ]),
     [], 15000, 'home',
   );
   const tl = useApi<TimelineResp>(() => streamApi.timeline(20), [], 15000, 'home-tl');
+  const attr = useApi<PortfolioAttributionResp>(() => portfolioApi.attribution(), [], 30000, 'home-attr');
   const [sel, setSel] = useState<string | null>(null);
   const [showDetail, setShowDetail] = useState(false);
+  const [killConfirm, setKillConfirm] = useState(false);
+  const [killed, setKilled] = useState(false);
 
   if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
   if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
-  const [strategies, account, summary, risk, fgi, regime, consensus, portfolioEq] =
-    data as [StrategyState[], PaperAccount, PortfolioSummary, RiskStatus, FgiResp, RegimeResp, ConsensusResp, PortfolioEquity];
+  const [strategies, account, summary, risk, fgi, regime, consensus, portfolioEq, corr] =
+    data as [StrategyState[], PaperAccount, PortfolioSummary, RiskStatus, FgiResp, RegimeResp, ConsensusResp, PortfolioEquity, CorrelationMatrix];
   const combinedPts = portfolioEq?.combined ?? [];
+  const doKill = async () => {
+    try { await portfolioApi.kill(); setKilled(true); } catch { /* surfaced below */ }
+    setKillConfirm(false);
+  };
 
   // 默认选中首个有成交的策略——零成交策略的资金曲线/持仓/成交历史全是空态
   const id = sel
@@ -75,6 +93,7 @@ export function HomeTab() {
         {kpi('持仓', String(summary.total_positions))}
         {kpi('未实现', <span style={{ color: pnlColor(summary.total_unrealized_pnl) }}>${summary.total_unrealized_pnl.toFixed(2)}</span>)}
         {kpi('已实现', <span style={{ color: pnlColor(summary.total_realized_pnl) }}>${summary.total_realized_pnl.toFixed(2)}</span>)}
+        {kpi('可用资金', `$${summary.available?.toLocaleString() ?? '—'}`)}
         <span className="hv-bar-note" style={{ color: tripped ? 'var(--destructive)' : 'var(--success,#3fb950)' }}>
           {tripped ? '🛑 已熔断' : '✅ 风控正常'}
         </span>
@@ -108,7 +127,12 @@ export function HomeTab() {
         <div className="hv-panel">
           {combinedPts.length < 2
             ? <EmptyState text="数据不足" sub="需 ≥2 个成交点" />
-            : <EquityPanel pts={combinedPts} title="组合资金曲线 · 全策略合并" h={250} />}
+            : (
+              <>
+                <EquityPanel pts={combinedPts} title="组合资金曲线 · 全策略合并" h={210} />
+                <Underwater pts={combinedPts.map(p => p.drawdown ?? 0)} h={56} />
+              </>
+            )}
         </div>
         {id && (
           <div className="hv-panel">
@@ -116,6 +140,58 @@ export function HomeTab() {
             <PositionsView id={id} />
           </div>
         )}
+      </div>
+
+      {/* 组合分析:P&L 归因 + 策略相关性(原 Portfolio 页去重合并) */}
+      <div className="hv-grid-2">
+        <div className="hv-panel">
+          <div className="hv-panel__head">
+            <span className="hv-panel__title">P&L 归因(按策略)</span>
+            <span className="hv-panel__link">合计已实现 {attr.data ? `$${attr.data.total_realized.toFixed(2)}` : '—'}</span>
+          </div>
+          {(attr.data?.by_strategy ?? []).length === 0 ? <EmptyState text="暂无归因数据" sub="需已平仓的回合" /> : (
+            <>
+              <DivergingBars items={attr.data!.by_strategy.map(s => ({ label: shortStrat(s.strategy_id), value: s.realized_pnl, ok: s.realized_pnl >= 0 }))} unit="$" />
+              <table className="hv-table" aria-label="P&L 归因">
+                <thead><tr><th>策略</th><th>已实现</th><th>成交数</th><th>胜率</th><th>最佳/最差</th></tr></thead>
+                <tbody>
+                  {attr.data!.by_strategy.map(s => (
+                    <tr key={s.strategy_id}>
+                      <td>{shortStrat(s.strategy_id)}</td>
+                      <td style={{ color: s.realized_pnl >= 0 ? 'var(--success,#3fb950)' : 'var(--destructive)' }}>${s.realized_pnl.toFixed(2)}</td>
+                      <td>{s.n_trades}</td>
+                      <td>{s.win_rate != null ? (s.win_rate * 100).toFixed(0) + '%' : '—'}</td>
+                      <td className="hv-num">{s.best != null ? `+${s.best}` : '—'} / {s.worst != null ? s.worst : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="hv-honest-note">⚠️ Paper 短期 P&L ≠ 策略有效。归因按<strong>策略</strong>(引擎级归因要等 enforce 后引擎驱动执行才成立)。</div>
+            </>
+          )}
+        </div>
+        <div className="hv-panel">
+          <div className="hv-panel__head">
+            <span className="hv-panel__title">策略相关性</span>
+            <span className="hv-panel__link">低相关 = 分散好</span>
+          </div>
+          {!corr?.matrix?.length ? <EmptyState text="暂无相关性数据" /> : (
+            <div className="hv-corr-matrix">
+              <table className="hv-table" aria-label="策略相关性矩阵">
+                <thead><tr><th></th>{corr.strategies.map(s => <th key={s} className="hv-num">{shortStrat(s)}</th>)}</tr></thead>
+                <tbody>
+                  {corr.matrix.map((row, i) => (
+                    <tr key={i}>
+                      <td>{corr.strategies[i] ? shortStrat(corr.strategies[i]) : i}</td>
+                      {row.map((v, j) => <td key={j} className="hv-num" style={{ background: corrColor(v), textAlign: 'center' }}>{v.toFixed(2)}</td>)}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="hv-honest-note">低相关性利于组合分散。边界策略组合可能整体过 gate(R4)。</div>
+        </div>
       </div>
 
       {/* 市场速览:FGI + 每标的 regime/共识(摘要,详见 Ensemble) */}
@@ -184,6 +260,22 @@ export function HomeTab() {
             </div>
           )}
         </>
+      )}
+
+      {/* 风险控制(原 Portfolio 页) */}
+      <div className="hv-section-title">风险控制</div>
+      {killed ? (
+        <div className="hv-honest-note">已发送停止指令。</div>
+      ) : !killConfirm ? (
+        <button className="hv-kill-btn" onClick={() => setKillConfirm(true)}>⏹ 一键停所有策略</button>
+      ) : (
+        <div className="hv-kill-confirm">
+          <span>确定停止所有策略?这会平掉所有 paper 持仓。</span>
+          <div className="hv-kill-actions">
+            <button className="hv-kill-cancel" onClick={() => setKillConfirm(false)}>取消</button>
+            <button className="hv-kill-confirm-btn" onClick={doKill}>确认停止</button>
+          </div>
+        </div>
       )}
     </div>
   );

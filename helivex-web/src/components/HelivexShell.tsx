@@ -5,17 +5,16 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { HomeTab } from './tabs/HomeTab';
 import { ConfigureTab } from './tabs/ConfigureTab';
 import { ExecVerifyTab } from './tabs/OtherTabs';
-import { PortfolioTab } from './tabs/PortfolioTab';
 import { RiskTab, MicrostructureTab } from './tabs/RiskMicroTabs';
 import { LerTab } from './tabs/LerTab';
 import { EnsembleTab } from './tabs/EnsembleTab';
 import { TabErrorBoundary } from './TabErrorBoundary';
 
-// IA 重构 12→8:Overview 并入 首页;P&L 并入 Portfolio;Backtest+Executions→执行与验证;
-// Audit 并入 Ensemble。每个显示模块只归属一个 tab,消除重复。
+// IA 重构 12→8→7:Overview/P&L/Portfolio 全部并入 首页(组合总览/合并曲线与
+// 首页重复,独有的归因/相关性/水下图/kill 已迁入);Backtest+Executions→执行与
+// 验证;Audit 并入 Ensemble。每个显示模块只归属一个 tab,消除重复。
 const TABS = [
   { id: 'home',       label: '首页' },
-  { id: 'portfolio',  label: 'Portfolio' },
   { id: 'ensemble',   label: 'Ensemble' },
   { id: 'risk',       label: 'Risk' },
   { id: 'micro',      label: 'Microstructure' },
@@ -26,7 +25,7 @@ const TABS = [
 
 // 旧 tab id → 新归属(老书签/深链不 404,重定向到合并后的 tab)
 const TAB_ALIAS: Record<string, string> = {
-  overview: 'home', pnl: 'portfolio', audit: 'ensemble',
+  overview: 'home', pnl: 'home', portfolio: 'home', audit: 'ensemble',
   backtest: 'execverify', executions: 'execverify',
 };
 
@@ -76,7 +75,6 @@ export function HelivexShell() {
   const renderTab = () => {
     switch (tab) {
       case 'home':       return <HomeTab />;
-      case 'portfolio':  return <PortfolioTab />;
       case 'ensemble':   return <EnsembleTab />;
       case 'risk':       return <RiskTab />;
       case 'micro':      return <MicrostructureTab />;
