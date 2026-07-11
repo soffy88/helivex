@@ -138,6 +138,90 @@ def _governance_gate() -> None:
         )
 
 
+def _wait_okx_reachable(timeout_s: float = 600.0) -> None:
+    """Block until OKX REST answers through the configured proxy (OKX_WS_PROXY).
+
+    2026-07-10 incident: after a host reboot this container came up seconds
+    before the sing-box tunnel. NT's OKX adapter does NOT retry its initial
+    instrument load — the first connect got "connection reset", the node timed
+    out, then sat RUNNING with both engines disconnected for 24h (zero bars,
+    zero fills, zero logs). Any HTTP response (even a 4xx — Cloudflare blocks
+    urllib's TLS fingerprint) proves the tunnel is passing traffic; only
+    transport-level errors mean "not ready yet".
+    """
+    import time
+    import urllib.error
+    import urllib.request
+
+    proxy = os.environ.get("OKX_WS_PROXY", "")
+    handlers = (
+        [urllib.request.ProxyHandler({"http": proxy, "https": proxy})] if proxy else []
+    )
+    opener = urllib.request.build_opener(*handlers)
+    url = "https://www.okx.com/api/v5/public/time"
+    deadline = time.monotonic() + timeout_s
+    delay = 2.0
+    while True:
+        try:
+            opener.open(url, timeout=10).close()
+            print("[paper/run.py] OKX reachable via proxy — proceeding.")
+            return
+        except urllib.error.HTTPError:
+            print(
+                "[paper/run.py] Proxy tunnel up (HTTP response from OKX) — proceeding."
+            )
+            return
+        except OSError as e:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                print(
+                    f"[ABORT] OKX unreachable via proxy after {timeout_s:.0f}s: {e}",
+                    file=sys.stderr,
+                )
+                sys.exit(1)  # non-zero exit → docker restart policy retries us
+            print(f"[paper/run.py] OKX not reachable yet ({e}); retry in {delay:.0f}s…")
+            time.sleep(min(delay, remaining))
+            delay = min(delay * 2, 30.0)
+
+
+def _start_zombie_guard(node) -> None:
+    """Kill the process if both engines stay disconnected ≥5 min — docker restarts us.
+
+    Companion to _wait_okx_reachable: the preflight guards startup, this guards
+    the running node. NT keeps the TradingNode in RUNNING even when the initial
+    connect timed out (or a WS session dies beyond the adapter's own reconnect),
+    which supervision by exit code can never see. Dying is the only way docker's
+    restart policy can heal us.
+    """
+    import threading
+    import time
+
+    def _watch() -> None:
+        time.sleep(120.0)  # grace: normal startup / adapter reconnects
+        misses = 0
+        while True:
+            try:
+                ok = (
+                    node.kernel.data_engine.check_connected()
+                    and node.kernel.exec_engine.check_connected()
+                )
+            except Exception:
+                ok = False
+            misses = 0 if ok else misses + 1
+            if misses >= 5:
+                print(
+                    "[paper/run.py] FATAL: engines disconnected ≥5 min — exiting so "
+                    "docker restarts the node.",
+                    file=sys.stderr,
+                )
+                sys.stderr.flush()
+                _remove_pid()
+                os._exit(1)
+            time.sleep(60.0)
+
+    threading.Thread(target=_watch, name="zombie-guard", daemon=True).start()
+
+
 async def _init_db_schema() -> None:
     import asyncpg
     from paper.db import DB_DSN, ensure_schema
@@ -174,6 +258,7 @@ def main() -> None:
     _load_env()
     _safety_gate()
     _governance_gate()
+    _wait_okx_reachable()
     asyncio.run(_init_db_schema())
 
     _write_pid()
@@ -184,6 +269,7 @@ def main() -> None:
 
     node = build_node()
     node.build()
+    _start_zombie_guard(node)
 
     try:
         print(
