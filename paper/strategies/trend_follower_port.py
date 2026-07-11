@@ -388,7 +388,15 @@ class TrendFollowerPort(Strategy):
         if instrument is None:
             self.log.error(f"[{strat}] instrument not in cache")
             return
-        qty = instrument.make_qty(self.config.qty_usd / float(self._closes[-1] or 1))
+        # 名义美元 → 合约张数:OKX SWAP 数量单位是"张",1 张 = multiplier(ctVal)个币
+        # (BTC 0.01 / ETH 0.1 / SOL 1)。少乘 ctVal 会把张数少算 1/ctVal 倍,BTC 上
+        # make_qty 因取整到 0 抛 ValueError(2026-07-11 15:00 enter_long 实测被拦)。
+        px = float(self._closes[-1] or 1)
+        ct_val = float(instrument.multiplier or 1)
+        try:
+            qty = instrument.make_qty(self.config.qty_usd / (ct_val * px))
+        except ValueError:
+            qty = instrument.min_quantity
         if qty is None or float(str(qty)) < float(str(instrument.min_quantity)):
             qty = instrument.min_quantity
 
