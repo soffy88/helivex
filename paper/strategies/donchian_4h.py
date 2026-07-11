@@ -29,6 +29,11 @@ from paper.risk import RISK, log_risk_event
 from paper.db import DB_DSN, DDL, log_signal, log_fill
 from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
+from paper.strategies._guard import (
+    close_positions_okx_safe,
+    resync_position_from_venue,
+    survive,
+)
 
 
 class Donchian4HConfig(StrategyConfig, frozen=True):
@@ -60,6 +65,7 @@ class Donchian4H(Strategy):
         inst = self.config.instrument_id.replace(".", "_").replace("-", "_").lower()
         return f"{self.STRATEGY_BASE}_{inst}"
 
+    @survive
     def on_start(self) -> None:
         import asyncio
 
@@ -166,6 +172,7 @@ class Donchian4H(Strategy):
                 f"[{self._strategy_id()}] rehydrated _position={self._position} from venue net={net}"
             )
 
+    @survive
     def on_trade_tick(self, tick: TradeTick) -> None:
         # Probe only the first few ticks to confirm WS flow at boot, then go quiet.
         # The old `% 100` logged thousands of lines/min and grew the log to 500MB+.
@@ -176,6 +183,7 @@ class Donchian4H(Strategy):
                 f"sz={tick.size} n={self._tick_count}"
             )
 
+    @survive
     def on_bar(self, bar: Bar) -> None:
         close = float(bar.close)
         self._closes.append(close)
@@ -337,6 +345,7 @@ class Donchian4H(Strategy):
         self.submit_order(order)
         self.log.info(f"[{strat}] ORDER submitted: {side} {qty}")
 
+    @survive
     def on_order_filled(self, event: Any) -> None:
         import asyncio
 
@@ -395,9 +404,27 @@ class Donchian4H(Strategy):
             self._pending_signal_id = None
             self._order_submit_ns = None
 
+    @survive
+    def on_order_rejected(self, event: Any) -> None:
+        resync_position_from_venue(self, "rejected")
+
+    @survive
+    def on_order_denied(self, event: Any) -> None:
+        resync_position_from_venue(self, "denied")
+
+    @survive
+    def on_order_canceled(self, event: Any) -> None:
+        # 本策略从不主动撤单 — cancel 只可能是 IOC 未成交,按拒单重同步
+        resync_position_from_venue(self, "canceled")
+
+    @survive
+    def on_order_expired(self, event: Any) -> None:
+        resync_position_from_venue(self, "expired")
+
+    @survive
     def on_stop(self) -> None:
         inst_id = InstrumentId.from_str(self.config.instrument_id)
-        self.close_all_positions(inst_id)
+        close_positions_okx_safe(self)
         if self._db is not None:
             import asyncio
 
