@@ -135,6 +135,7 @@ class Donchian4H(Strategy):
             self._closes.append(float(r["c"]))
         # date_bin 返回桶起点;桶收盘 = b + 4h。供 _catchup_eval 判断新鲜度。
         import datetime as _dt
+
         self._seed_last_close = rows[0]["b"] + _dt.timedelta(hours=4)
         self.log.info(f"[{sid}] warmup seeded {len(rows)} 4H closes from ohlcv_1h")
 
@@ -188,7 +189,10 @@ class Donchian4H(Strategy):
         c = self.config
         if len(self._closes) < c.n_enter + 1:
             self._fire_signal(
-                ts_event, "NEUTRAL", close, {"n_bars": len(self._closes), "warmup": True}
+                ts_event,
+                "NEUTRAL",
+                close,
+                {"n_bars": len(self._closes), "warmup": True},
             )
             return
 
@@ -304,9 +308,7 @@ class Donchian4H(Strategy):
             self.log.error(f"[{strat}] instrument not found in cache")
             return
 
-        qty = instrument.make_qty(
-            self.config.qty_usd / float(instrument.settlement_price or 1)
-        )
+        qty = instrument.make_qty(self.config.qty_usd / float(self._closes[-1] or 1))
         if qty is None or float(str(qty)) < float(str(instrument.min_quantity)):
             qty = instrument.min_quantity
 

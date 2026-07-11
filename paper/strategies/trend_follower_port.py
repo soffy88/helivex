@@ -380,9 +380,7 @@ class TrendFollowerPort(Strategy):
         if instrument is None:
             self.log.error(f"[{strat}] instrument not in cache")
             return
-        qty = instrument.make_qty(
-            self.config.qty_usd / float(instrument.settlement_price or 1)
-        )
+        qty = instrument.make_qty(self.config.qty_usd / float(self._closes[-1] or 1))
         if qty is None or float(str(qty)) < float(str(instrument.min_quantity)):
             qty = instrument.min_quantity
 
