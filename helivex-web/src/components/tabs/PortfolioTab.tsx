@@ -5,9 +5,8 @@
 'use client';
 
 import { useState } from 'react';
-import { OEquityCurveChart } from '@helios/blocks';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
-import { Underwater, DivergingBars } from '../charts';
+import { EquityChart, Underwater, DivergingBars } from '../charts';
 import { portfolioApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import type { PortfolioSummary, CorrelationMatrix, PortfolioEquity, PortfolioAttributionResp } from '@/types/api';
@@ -57,7 +56,7 @@ export function PortfolioTab() {
       <div className="hv-section-title">合并资金曲线</div>
       {pts.length < 2 ? <EmptyState text="数据不足" sub="需 ≥2 个成交点" /> : (
         <>
-          <div className="hv-chart-box"><OEquityCurveChart points={pts.map(p => ({ date: p.date, equity: p.equity, drawdown: p.drawdown }))} showDrawdown /></div>
+          <div className="hv-chart-box"><EquityChart pts={pts} h={260} /></div>
           <div className="hv-section-title">回撤水下图</div>
           <div className="hv-chart-box"><Underwater pts={pts.map(p => p.drawdown ?? 0)} /></div>
         </>
@@ -67,11 +66,11 @@ export function PortfolioTab() {
       {!corr?.matrix?.length ? <EmptyState text="暂无相关性数据" /> : (
         <div className="hv-corr-matrix">
           <table className="hv-table" aria-label="策略相关性矩阵">
-            <thead><tr><th></th>{corr.strategies.map(s => <th key={s} className="hv-num">{s.split('_')[0]}</th>)}</tr></thead>
+            <thead><tr><th></th>{corr.strategies.map(s => <th key={s} className="hv-num">{shortStrat(s)}</th>)}</tr></thead>
             <tbody>
               {corr.matrix.map((row, i) => (
                 <tr key={i}>
-                  <td>{corr.strategies[i]?.split('_')[0] ?? i}</td>
+                  <td>{corr.strategies[i] ? shortStrat(corr.strategies[i]) : i}</td>
                   {row.map((v, j) => <td key={j} className="hv-num" style={{ background: corrColor(v), textAlign: 'center' }}>{v.toFixed(2)}</td>)}
                 </tr>
               ))}

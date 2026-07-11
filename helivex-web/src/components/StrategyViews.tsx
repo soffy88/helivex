@@ -5,7 +5,7 @@
 'use client';
 
 import { useState } from 'react';
-import { OEquityCurveChart } from '@helios/blocks';
+import { EquityChart } from './charts';
 import { EmptyState, Skeleton } from './EmptyState';
 import { detailApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
@@ -72,17 +72,9 @@ export function EquityView({ id }: { id: string }) {
   if (loading && !data) return <Loading />; if (error && !data) return <ErrBox e={error} />;
   const pts = data?.points ?? [];
   if (pts.length < 2) return <EmptyState text="数据不足" sub="需 ≥2 个成交点" />;
-  // OEquityCurveChart 内部用 Math.max/min(...equity, 1) 求量程,按"归一化收益曲线,起点=1.0"
-  // 的约定强制把 1 纳入极值。我们传的是绝对美元净值(~5000),1 远低于全部取值,导致
-  // eqRange 被撑成 ~5000 而真实净值波动只有几美分,曲线被压成一条肉眼不可见的平线。
-  // 按组件的隐含契约把净值归一化为起点=1.0 的相对倍数,规避这个下限钳位。
-  const base = pts[0].equity || 1;
   return (
     <div className="hv-chart-box">
-      <OEquityCurveChart
-        points={pts.map(p => ({ date: p.date, equity: p.equity / base, drawdown: p.drawdown }))}
-        showDrawdown
-      />
+      <EquityChart pts={pts} h={230} />
     </div>
   );
 }

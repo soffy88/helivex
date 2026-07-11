@@ -8,13 +8,14 @@
 
 import { useState, type ReactNode } from 'react';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
+import { EquityChart } from '../charts';
 import { helivexApi, portfolioApi, riskApi, ensembleApi, streamApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import { SafeGateBadge } from '../SafeBadges';
 import { EquityView, PositionsView, StatsView, ExecutionView, SignalsView, TradesView } from '../StrategyViews';
 import type {
   StrategyState, PaperAccount, PortfolioSummary, RiskStatus, FgiResp,
-  RegimeResp, ConsensusResp, TimelineResp,
+  RegimeResp, ConsensusResp, TimelineResp, PortfolioEquity,
 } from '@/types/api';
 
 const STRAT_TAG: Record<string, string> = {
@@ -33,7 +34,7 @@ export function HomeTab() {
   const { data, loading, error, stale } = useApi(
     () => Promise.all([
       helivexApi.strategies(), helivexApi.account(), portfolioApi.summary(), riskApi.status(),
-      streamApi.fgi(), ensembleApi.regime(), ensembleApi.consensus(),
+      streamApi.fgi(), ensembleApi.regime(), ensembleApi.consensus(), portfolioApi.equity(),
     ]),
     [], 15000, 'home',
   );
@@ -43,8 +44,9 @@ export function HomeTab() {
 
   if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
   if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
-  const [strategies, account, summary, risk, fgi, regime, consensus] =
-    data as [StrategyState[], PaperAccount, PortfolioSummary, RiskStatus, FgiResp, RegimeResp, ConsensusResp];
+  const [strategies, account, summary, risk, fgi, regime, consensus, portfolioEq] =
+    data as [StrategyState[], PaperAccount, PortfolioSummary, RiskStatus, FgiResp, RegimeResp, ConsensusResp, PortfolioEquity];
+  const combinedPts = portfolioEq?.combined ?? [];
 
   // 默认选中首个有成交的策略——零成交策略的资金曲线/持仓/成交历史全是空态
   const id = sel
@@ -101,19 +103,21 @@ export function HomeTab() {
         </div>
       )}
 
-      {/* Hero:资金曲线(左)+ 持仓(右) */}
-      {id && (
-        <div className="hv-hero">
+      {/* Hero:组合资金曲线(左,全策略合并 — 对齐 Hyperliquid 组合页"账户级优先")+ 持仓(右) */}
+      <div className="hv-hero">
+        <div className="hv-panel">
+          <div className="hv-panel__head"><span className="hv-panel__title">组合资金曲线 · 全策略合并</span></div>
+          {combinedPts.length < 2
+            ? <EmptyState text="数据不足" sub="需 ≥2 个成交点" />
+            : <EquityChart pts={combinedPts} h={250} />}
+        </div>
+        {id && (
           <div className="hv-panel">
-            <div className="hv-panel__head"><span className="hv-panel__title">资金曲线 — {cur?.name}</span></div>
-            <EquityView id={id} />
-          </div>
-          <div className="hv-panel">
-            <div className="hv-panel__head"><span className="hv-panel__title">持仓</span></div>
+            <div className="hv-panel__head"><span className="hv-panel__title">持仓 — {cur?.name}</span></div>
             <PositionsView id={id} />
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* 市场速览:FGI + 每标的 regime/共识(摘要,详见 Ensemble) */}
       <div className="hv-panel">
@@ -165,10 +169,11 @@ export function HomeTab() {
       {id && (
         <>
           <button className="hv-collapse" onClick={() => setShowDetail(v => !v)} aria-expanded={showDetail}>
-            {showDetail ? '▾ 收起策略明细' : '▸ 展开策略明细(统计 / 执行 / 信号 / 成交)'}
+            {showDetail ? '▾ 收起策略明细' : '▸ 展开策略明细(资金曲线 / 统计 / 执行 / 信号 / 成交)'}
           </button>
           {showDetail && (
             <div className="hv-home__group">
+              <div className="hv-flat-col"><div className="hv-section-title">资金曲线 — {cur?.name}</div><EquityView id={id} /></div>
               <div className="hv-grid-2">
                 <div className="hv-flat-col"><div className="hv-section-title">统计</div><StatsView id={id} /></div>
                 <div className="hv-flat-col"><div className="hv-section-title">执行质量(真实滑点/延迟)</div><ExecutionView id={id} /></div>
