@@ -9,8 +9,8 @@
     "shots": "node scripts/screenshot.mjs"
   },
   "dependencies": {
-    "@helios/blocks": "file:vendor/helios-blocks-2.8.0.tgz",
-    "@helios/oui": "file:./vendor/helios-oui-1.6.0.tgz",
+    "@helios/blocks": "file:./vendor/helios-blocks-4.4.0.tgz",
+    "@helios/oui": "file:./vendor/helios-oui-2.1.5.tgz",
     "next": "^16.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
