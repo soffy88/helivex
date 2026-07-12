@@ -120,24 +120,24 @@ def build_node() -> TradingNode:
     sp = _live("spot_trend_1d.yaml")
 
     # Strategy 1 — Donchian 4H SWAP (BTC, ETH, SOL)
-    # LAST-INTERNAL: NT aggregates from trade ticks — no dependency on business WS candle push
+    # LAST-EXTERNAL: NT aggregates from trade ticks — no dependency on business WS candle push
     donchian_btc = Donchian4HConfig(
         instrument_id="BTC-USDT-SWAP.OKX",
-        bar_type="BTC-USDT-SWAP.OKX-4-HOUR-LAST-INTERNAL",
+        bar_type="BTC-USDT-SWAP.OKX-4-HOUR-LAST-EXTERNAL",
         n_enter=int(td.get("n_enter", 20)),
         n_exit=int(td.get("n_exit", 10)),
         qty_usd=float(td.get("qty_usd", 200.0)),
     )
     donchian_eth = Donchian4HConfig(
         instrument_id="ETH-USDT-SWAP.OKX",
-        bar_type="ETH-USDT-SWAP.OKX-4-HOUR-LAST-INTERNAL",
+        bar_type="ETH-USDT-SWAP.OKX-4-HOUR-LAST-EXTERNAL",
         n_enter=int(td.get("n_enter", 20)),
         n_exit=int(td.get("n_exit", 10)),
         qty_usd=float(td.get("qty_usd", 200.0)),
     )
     donchian_sol = Donchian4HConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
-        bar_type="SOL-USDT-SWAP.OKX-4-HOUR-LAST-INTERNAL",
+        bar_type="SOL-USDT-SWAP.OKX-4-HOUR-LAST-EXTERNAL",
         n_enter=int(td.get("n_enter", 20)),
         n_exit=int(td.get("n_exit", 10)),
         qty_usd=float(td.get("qty_usd", 200.0)),
@@ -146,7 +146,7 @@ def build_node() -> TradingNode:
     # Strategy 2 — VWAP-MR 1H SWAP (SOL)
     vwap_sol = VwapMR1HConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
-        bar_type="SOL-USDT-SWAP.OKX-1-HOUR-LAST-INTERNAL",
+        bar_type="SOL-USDT-SWAP.OKX-1-HOUR-LAST-EXTERNAL",
         vwap_n=int(vw.get("vwap_n", 4)),
         z_thr=float(vw.get("z_thr", 2.0)),
         hold=int(vw.get("hold", 6)),
@@ -158,7 +158,7 @@ def build_node() -> TradingNode:
     # Strategy 3 — Daily Donchian Spot (BTC, ETH)
     spot_btc = SpotTrend1DConfig(
         instrument_id="BTC-USDT.OKX",
-        bar_type="BTC-USDT.OKX-1-DAY-LAST-INTERNAL",
+        bar_type="BTC-USDT.OKX-1-DAY-LAST-EXTERNAL",
         n_enter=int(sp.get("n_enter", 20)),
         n_exit=int(sp.get("n_exit", 10)),
         bear_ma=int(sp.get("bear_ma", 200)),
@@ -166,7 +166,7 @@ def build_node() -> TradingNode:
     )
     spot_eth = SpotTrend1DConfig(
         instrument_id="ETH-USDT.OKX",
-        bar_type="ETH-USDT.OKX-1-DAY-LAST-INTERNAL",
+        bar_type="ETH-USDT.OKX-1-DAY-LAST-EXTERNAL",
         n_enter=int(sp.get("n_enter", 20)),
         n_exit=int(sp.get("n_exit", 10)),
         bear_ma=int(sp.get("bear_ma", 200)),
@@ -196,7 +196,7 @@ def build_node() -> TradingNode:
     sc = _live("scalp_5m.yaml")
     scalp_btc = Scalp5MConfig(
         instrument_id="BTC-USDT-SWAP.OKX",
-        bar_type="BTC-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
+        bar_type="BTC-USDT-SWAP.OKX-5-MINUTE-LAST-EXTERNAL",
         vwap_n=int(sc.get("vwap_n", 12)),
         z_thr=float(sc.get("z_thr", 2.0)),
         hold=int(sc.get("hold", 6)),
@@ -206,7 +206,7 @@ def build_node() -> TradingNode:
     )
     scalp_eth = Scalp5MConfig(
         instrument_id="ETH-USDT-SWAP.OKX",
-        bar_type="ETH-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
+        bar_type="ETH-USDT-SWAP.OKX-5-MINUTE-LAST-EXTERNAL",
         vwap_n=int(sc.get("vwap_n", 12)),
         z_thr=float(sc.get("z_thr", 2.0)),
         hold=int(sc.get("hold", 6)),
@@ -216,7 +216,7 @@ def build_node() -> TradingNode:
     )
     scalp_sol = Scalp5MConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
-        bar_type="SOL-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
+        bar_type="SOL-USDT-SWAP.OKX-5-MINUTE-LAST-EXTERNAL",
         vwap_n=int(sc.get("vwap_n", 12)),
         z_thr=float(sc.get("z_thr", 2.0)),
         hold=int(sc.get("hold", 6)),
@@ -245,7 +245,7 @@ def build_node() -> TradingNode:
             TrendFollowerPort(
                 TrendFollowerPortConfig(
                     instrument_id=f"{_sym}-USDT-SWAP.OKX",
-                    bar_type=f"{_sym}-USDT-SWAP.OKX-1-DAY-LAST-INTERNAL",
+                    bar_type=f"{_sym}-USDT-SWAP.OKX-1-DAY-LAST-EXTERNAL",
                     donchian_period=int(tf.get("donchian_period", 20)),
                     adx_period=int(tf.get("adx_period", 14)),
                     adx_entry=float(tf.get("adx_entry", 20.0)),
@@ -275,7 +275,7 @@ def build_node() -> TradingNode:
             ScalperV2Port(
                 ScalperV2PortConfig(
                     instrument_id=f"{_sym}-USDT-SWAP.OKX",
-                    bar_type=f"{_sym}-USDT-SWAP.OKX-5-MINUTE-LAST-INTERNAL",
+                    bar_type=f"{_sym}-USDT-SWAP.OKX-5-MINUTE-LAST-EXTERNAL",
                     bb_period=int(sv.get("bb_period", 20)),
                     bb_k=float(sv.get("bb_k", 2.0)),
                     rsi_period=int(sv.get("rsi_period", 14)),
@@ -309,7 +309,7 @@ def build_node() -> TradingNode:
             FuturesSignalPort(
                 FuturesSignalPortConfig(
                     instrument_id=f"{_sym}-USDT-SWAP.OKX",
-                    bar_type=f"{_sym}-USDT-SWAP.OKX-1-HOUR-LAST-INTERNAL",
+                    bar_type=f"{_sym}-USDT-SWAP.OKX-1-HOUR-LAST-EXTERNAL",
                     breakout_period=int(fs.get("breakout_period", 20)),
                     vol_ma_period=int(fs.get("vol_ma_period", 20)),
                     vol_surge_mult=float(fs.get("vol_surge_mult", 1.5)),
