@@ -31,6 +31,8 @@ risk:
   qty_usd: 50       # intentionally small — known loser, limit paper burn
 # live paper params (read by paper/node.py → Scalp5M; edit via Configure tab)
 live:
+  sl_std: 1.0
+  min_rr: 1.5
   vwap_n: 12
   z_thr: 2.0
   hold: 6

@@ -76,6 +76,8 @@ class ScalperV2PortConfig(StrategyConfig, frozen=True):
     atr_health_min: float = 0.0005
     atr_health_max: float = 0.05
     qty_usd: float = 50.0
+    sl_atr_mult: float = 1.0  # MR 模式止损距离 = sl_atr_mult × 入场 ATR
+    min_rr: float = 1.5  # MR 模式止盈 = min_rr × 止损距离(盈亏比下限)
     use_ema: bool = True
     ema_period: int = 50
     use_macd: bool = True
@@ -113,6 +115,9 @@ class ScalperV2Port(Strategy):
         self._trail_extreme: float | None = (
             None  # trailing high(long)/low(short) for bo exit
         )
+        self._entry_px: float | None = None  # MR 括号锚点(rehydrate 仓位无锚点→原出场)
+        self._sl_dist: float | None = None
+        self._pending_sl: float | None = None
         self._signal_price: float | None = None
         self._signal_ts: int | None = None
         self._pending_signal_id: int | None = None
@@ -261,7 +266,16 @@ class ScalperV2Port(Strategy):
                         action = "enter_short"
         elif self._position == 1:
             if self._entry_mode == "mr":
-                if close >= mid or rsi >= c.rsi_neutral_low:
+                # SL/TP 括号(RR≥min_rr)取代原 BB 中轨/RSI 中性小目标出场 —
+                # 原出场赢小亏大(实测盈亏比 ~1.1),括号结构性锁定 1:min_rr。
+                # rehydrate 仓位无入场锚点 → 退回原出场。
+                if self._entry_px is not None and self._sl_dist:
+                    if (
+                        close <= self._entry_px - self._sl_dist
+                        or close >= self._entry_px + c.min_rr * self._sl_dist
+                    ):
+                        action = "exit_long"
+                elif close >= mid or rsi >= c.rsi_neutral_low:
                     action = "exit_long"
             else:
                 self._trail_extreme = max(self._trail_extreme or close, close)
@@ -274,7 +288,13 @@ class ScalperV2Port(Strategy):
                 action = "exit_long"
         elif self._position == -1:
             if self._entry_mode == "mr":
-                if close <= mid or rsi <= c.rsi_neutral_high:
+                if self._entry_px is not None and self._sl_dist:
+                    if (
+                        close >= self._entry_px + self._sl_dist
+                        or close <= self._entry_px - c.min_rr * self._sl_dist
+                    ):
+                        action = "exit_short"
+                elif close <= mid or rsi <= c.rsi_neutral_high:
                     action = "exit_short"
             else:
                 self._trail_extreme = min(self._trail_extreme or close, close)
@@ -285,6 +305,9 @@ class ScalperV2Port(Strategy):
                     action = "exit_short"
             if action is None and self._bars_held >= c.max_holding_bars:
                 action = "exit_short"
+
+        if action in ("enter_long", "enter_short"):
+            self._pending_sl = atr * c.sl_atr_mult
 
         indic = {
             "mode": self._mode,
@@ -417,15 +440,24 @@ class ScalperV2Port(Strategy):
                 self._mode,
                 float(str(self._closes[-1])),
             )
+            self._entry_px, self._sl_dist = (
+                float(str(self._closes[-1])),
+                self._pending_sl,
+            )
         elif action == "enter_short":
             side, self._position, self._bars_held = OrderSide.SELL, -1, 0
             self._entry_mode, self._trail_extreme = (
                 self._mode,
                 float(str(self._closes[-1])),
             )
+            self._entry_px, self._sl_dist = (
+                float(str(self._closes[-1])),
+                self._pending_sl,
+            )
         elif action in ("exit_long", "exit_short"):
             side = OrderSide.SELL if self._position == 1 else OrderSide.BUY
             self._position, self._bars_held, self._trail_extreme = 0, 0, None
+            self._entry_px = self._sl_dist = None
         else:
             return
 
@@ -514,6 +546,7 @@ class ScalperV2Port(Strategy):
     def _handle_order_failure(self, kind: str) -> None:
         if resync_position_from_venue(self, kind) == 0:
             self._bars_held, self._trail_extreme = 0, None
+            self._entry_px = self._sl_dist = None
 
     @survive
     def on_stop(self) -> None:

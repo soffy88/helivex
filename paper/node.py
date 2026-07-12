@@ -151,6 +151,8 @@ def build_node() -> TradingNode:
         z_thr=float(vw.get("z_thr", 2.0)),
         hold=int(vw.get("hold", 6)),
         qty_usd=float(vw.get("qty_usd", 200.0)),
+        sl_std=float(vw.get("sl_std", 1.0)),
+        min_rr=float(vw.get("min_rr", 1.5)),
     )
 
     # Strategy 3 — Daily Donchian Spot (BTC, ETH)
@@ -199,6 +201,8 @@ def build_node() -> TradingNode:
         z_thr=float(sc.get("z_thr", 2.0)),
         hold=int(sc.get("hold", 6)),
         qty_usd=float(sc.get("qty_usd", 50.0)),
+        sl_std=float(sc.get("sl_std", 1.0)),
+        min_rr=float(sc.get("min_rr", 1.5)),
     )
     scalp_eth = Scalp5MConfig(
         instrument_id="ETH-USDT-SWAP.OKX",
@@ -207,6 +211,8 @@ def build_node() -> TradingNode:
         z_thr=float(sc.get("z_thr", 2.0)),
         hold=int(sc.get("hold", 6)),
         qty_usd=float(sc.get("qty_usd", 50.0)),
+        sl_std=float(sc.get("sl_std", 1.0)),
+        min_rr=float(sc.get("min_rr", 1.5)),
     )
     scalp_sol = Scalp5MConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
@@ -215,6 +221,8 @@ def build_node() -> TradingNode:
         z_thr=float(sc.get("z_thr", 2.0)),
         hold=int(sc.get("hold", 6)),
         qty_usd=float(sc.get("qty_usd", 50.0)),
+        sl_std=float(sc.get("sl_std", 1.0)),
+        min_rr=float(sc.get("min_rr", 1.5)),
     )
 
     node.trader.add_strategy(Donchian4H(donchian_btc))
@@ -276,6 +284,8 @@ def build_node() -> TradingNode:
                     adx_exit_breakout=float(sv.get("adx_exit_breakout", 18.0)),
                     cooldown_bars=int(sv.get("cooldown_bars", 4)),
                     trailing_atr_mult=float(sv.get("trailing_atr_mult", 1.5)),
+                    sl_atr_mult=float(sv.get("sl_atr_mult", 1.0)),
+                    min_rr=float(sv.get("min_rr", 1.5)),
                     breakout_exit_adx=float(sv.get("breakout_exit_adx", 15.0)),
                     max_holding_bars=int(sv.get("max_holding_bars", 48)),
                     qty_usd=float(sv.get("qty_usd", 50.0)),

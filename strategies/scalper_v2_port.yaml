@@ -44,6 +44,8 @@ live:
   adx_exit_breakout: 18
   cooldown_bars: 4
   trailing_atr_mult: 1.5
+  sl_atr_mult: 1.0
+  min_rr: 1.5
   breakout_exit_adx: 15
   max_holding_bars: 48
   qty_usd: 50

@@ -35,6 +35,8 @@ class VwapMR1HConfig(StrategyConfig, frozen=True):
     z_thr: float = 2.0
     hold: int = 6  # bars before time-exit
     qty_usd: float = 200.0
+    sl_std: float = 1.0  # 止损距离 = sl_std × 入场时收盘σ
+    min_rr: float = 1.5  # 止盈 = min_rr × 止损距离 — 结构性保证盈亏比 ≥ min_rr
 
 
 class VwapMR1H(Strategy):
@@ -48,6 +50,11 @@ class VwapMR1H(Strategy):
         self._volumes: deque[float] = deque(maxlen=config.vwap_n + 2)
         self._position: int = 0  # 0=flat, +1=long, -1=short
         self._bars_left: int = 0
+        self._entry_px: float | None = (
+            None  # SL/TP 括号锚点(rehydrate 仓位无锚点→仅时间平仓)
+        )
+        self._sl_dist: float | None = None
+        self._pending_sl: float | None = None
         self._signal_price: float | None = None
         self._pending_signal_id: int | None = None
         self._order_submit_ns: int | None = None
@@ -140,6 +147,30 @@ class VwapMR1H(Strategy):
             f"[on_bar] {bar.bar_type} close={close:.4f} n={len(self._closes)}"
         )
 
+        # SL/TP 括号(先于时间平仓):SL = sl_std×入场σ,TP = min_rr×SL。
+        if self._position != 0 and self._entry_px is not None and self._sl_dist:
+            edge = (close - self._entry_px) * self._position  # 有利方向为正
+            hit = (
+                "stop_loss"
+                if edge <= -self._sl_dist
+                else "take_profit"
+                if edge >= self.config.min_rr * self._sl_dist
+                else None
+            )
+            if hit:
+                self._fire_signal(
+                    bar,
+                    hit,
+                    close,
+                    {
+                        "entry": self._entry_px,
+                        "sl_dist": round(self._sl_dist, 6),
+                        "edge": round(edge, 6),
+                        "position": self._position,
+                    },
+                )
+                return
+
         # Decrement hold / time-based exit
         if self._position != 0:
             self._bars_left -= 1
@@ -195,8 +226,10 @@ class VwapMR1H(Strategy):
             "bars_left": self._bars_left,
         }
         if z > self.config.z_thr:
+            self._pending_sl = self.config.sl_std * std
             self._fire_signal(bar, "enter_short", close, indic)
         elif z < -self.config.z_thr:
+            self._pending_sl = self.config.sl_std * std
             self._fire_signal(bar, "enter_long", close, indic)
         else:
             self._fire_signal(bar, "NEUTRAL", close, indic)
@@ -284,14 +317,17 @@ class VwapMR1H(Strategy):
             side = OrderSide.SELL
             self._position = -1
             self._bars_left = self.config.hold
+            self._entry_px, self._sl_dist = price, self._pending_sl
         elif action == "enter_long":
             side = OrderSide.BUY
             self._position = 1
             self._bars_left = self.config.hold
-        elif action == "time_exit":
+            self._entry_px, self._sl_dist = price, self._pending_sl
+        elif action in ("time_exit", "stop_loss", "take_profit"):
             side = OrderSide.BUY if self._position == -1 else OrderSide.SELL
             self._position = 0
             self._bars_left = 0
+            self._entry_px = self._sl_dist = None
         else:
             return
 
@@ -388,6 +424,7 @@ class VwapMR1H(Strategy):
     def _handle_order_failure(self, kind: str) -> None:
         if resync_position_from_venue(self, kind) == 0:
             self._bars_left = 0
+            self._entry_px = self._sl_dist = None
 
     @survive
     def on_stop(self) -> None:

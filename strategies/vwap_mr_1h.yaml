@@ -36,6 +36,8 @@ risk:
   hold_bars: 6
 # live paper params (read by paper/node.py → VwapMR1H; edit via Configure tab)
 live:
+  sl_std: 1.0
+  min_rr: 1.5
   vwap_n: 4
   z_thr: 2.0
   hold: 6
