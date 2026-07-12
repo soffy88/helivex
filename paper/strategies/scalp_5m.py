@@ -56,6 +56,7 @@ class Scalp5MConfig(StrategyConfig, frozen=True):
     qty_usd: float = 50.0  # small notional — known loser, control paper burn
     sl_std: float = 1.0  # 止损距离 = sl_std × 入场时收盘σ
     min_rr: float = 1.5  # 止盈 = min_rr × 止损距离 — 结构性保证盈亏比 ≥ min_rr
+    cooldown_after_sl: int = 0  # 止损后 N 根 bar 内禁止再入场(0=关);对付单边行情绞肉机
 
 
 class Scalp5M(Strategy):
@@ -77,6 +78,7 @@ class Scalp5M(Strategy):
         )
         self._sl_dist: float | None = None
         self._pending_sl: float | None = None
+        self._sl_cooldown: int = 0
         self._signal_price: float | None = None
         self._pending_signal_id: int | None = None
         self._order_submit_ns: int | None = None
@@ -257,7 +259,11 @@ class Scalp5M(Strategy):
             "bars_left": self._bars_left,
         }
 
-        if z > self.config.z_thr:
+        if self._sl_cooldown > 0:
+            self._sl_cooldown -= 1
+            indic["sl_cooldown"] = self._sl_cooldown + 1
+            self._fire_signal(bar, "NEUTRAL", close, indic)
+        elif z > self.config.z_thr:
             self._pending_sl = self.config.sl_std * std
             self._fire_signal(bar, "enter_short", close, indic)
         elif z < -self.config.z_thr:

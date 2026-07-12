@@ -33,6 +33,7 @@ risk:
 live:
   sl_std: 1.0
   min_rr: 1.5
+  cooldown_after_sl: 0
   vwap_n: 12
   z_thr: 2.0
   hold: 6

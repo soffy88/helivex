@@ -259,6 +259,16 @@ def main() -> None:
     _safety_gate()
     _governance_gate()
     _wait_okx_reachable()
+    # 算量预检:16 条策略腿按 OKX 实时合约规格过一遍,任何一腿取整归零就
+    # 大声报错(不阻断启动 — 预检依赖公网 API,瞬时故障不该杀节点;报警由
+    # monitor 的 entry_no_fill 兜底)。
+    try:
+        from tools.preflight_sizing import main as _preflight
+
+        if _preflight() != 0:
+            print("[paper/run.py] ⚠⚠ 算量预检 FAIL — 有策略腿开仓必然失败,查上方输出!")
+    except Exception as exc:
+        print(f"[paper/run.py] 算量预检跳过(非致命): {exc!r}")
     asyncio.run(_init_db_schema())
 
     _write_pid()

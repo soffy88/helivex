@@ -153,6 +153,7 @@ def build_node() -> TradingNode:
         qty_usd=float(vw.get("qty_usd", 200.0)),
         sl_std=float(vw.get("sl_std", 1.0)),
         min_rr=float(vw.get("min_rr", 1.5)),
+        cooldown_after_sl=int(vw.get("cooldown_after_sl", 0)),
     )
 
     # Strategy 3 — Daily Donchian Spot (BTC, ETH)
@@ -203,6 +204,7 @@ def build_node() -> TradingNode:
         qty_usd=float(sc.get("qty_usd", 50.0)),
         sl_std=float(sc.get("sl_std", 1.0)),
         min_rr=float(sc.get("min_rr", 1.5)),
+        cooldown_after_sl=int(sc.get("cooldown_after_sl", 0)),
     )
     scalp_eth = Scalp5MConfig(
         instrument_id="ETH-USDT-SWAP.OKX",
@@ -213,6 +215,7 @@ def build_node() -> TradingNode:
         qty_usd=float(sc.get("qty_usd", 50.0)),
         sl_std=float(sc.get("sl_std", 1.0)),
         min_rr=float(sc.get("min_rr", 1.5)),
+        cooldown_after_sl=int(sc.get("cooldown_after_sl", 0)),
     )
     scalp_sol = Scalp5MConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
@@ -223,6 +226,7 @@ def build_node() -> TradingNode:
         qty_usd=float(sc.get("qty_usd", 50.0)),
         sl_std=float(sc.get("sl_std", 1.0)),
         min_rr=float(sc.get("min_rr", 1.5)),
+        cooldown_after_sl=int(sc.get("cooldown_after_sl", 0)),
     )
 
     node.trader.add_strategy(Donchian4H(donchian_btc))
@@ -286,6 +290,7 @@ def build_node() -> TradingNode:
                     trailing_atr_mult=float(sv.get("trailing_atr_mult", 1.5)),
                     sl_atr_mult=float(sv.get("sl_atr_mult", 1.0)),
                     min_rr=float(sv.get("min_rr", 1.5)),
+                    cooldown_after_sl=int(sv.get("cooldown_after_sl", 0)),
                     breakout_exit_adx=float(sv.get("breakout_exit_adx", 15.0)),
                     max_holding_bars=int(sv.get("max_holding_bars", 48)),
                     qty_usd=float(sv.get("qty_usd", 50.0)),

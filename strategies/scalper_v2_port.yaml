@@ -46,6 +46,7 @@ live:
   trailing_atr_mult: 1.5
   sl_atr_mult: 1.0
   min_rr: 1.5
+  cooldown_after_sl: 0
   breakout_exit_adx: 15
   max_holding_bars: 48
   qty_usd: 50

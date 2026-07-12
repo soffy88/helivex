@@ -80,6 +80,7 @@ class ScalperV2PortConfig(StrategyConfig, frozen=True):
     qty_usd: float = 50.0
     sl_atr_mult: float = 1.0  # MR 模式止损距离 = sl_atr_mult × 入场 ATR
     min_rr: float = 1.5  # MR 模式止盈 = min_rr × 止损距离(盈亏比下限)
+    cooldown_after_sl: int = 0  # 止损后 N 根 bar 内禁止再入场(0=关)
     use_ema: bool = True
     ema_period: int = 50
     use_macd: bool = True
@@ -120,6 +121,7 @@ class ScalperV2Port(Strategy):
         self._entry_px: float | None = None  # MR 括号锚点(rehydrate 仓位无锚点→原出场)
         self._sl_dist: float | None = None
         self._pending_sl: float | None = None
+        self._sl_cooldown: int = 0
         self._signal_price: float | None = None
         self._signal_ts: int | None = None
         self._pending_signal_id: int | None = None
@@ -250,7 +252,9 @@ class ScalperV2Port(Strategy):
                 self._mode, self._cooldown = "mr", c.cooldown_bars
 
         action: str | None = None
-        if self._position == 0:
+        if self._sl_cooldown > 0 and self._position == 0:
+            self._sl_cooldown -= 1
+        elif self._position == 0:
             if health_ok:
                 if self._mode == "mr":
                     # Mean-reversion entries are inherently COUNTER-trend: RSI≤30
@@ -273,10 +277,10 @@ class ScalperV2Port(Strategy):
                 # 原出场赢小亏大(实测盈亏比 ~1.1),括号结构性锁定 1:min_rr。
                 # rehydrate 仓位无入场锚点 → 退回原出场。
                 if self._entry_px is not None and self._sl_dist:
-                    if (
-                        close <= self._entry_px - self._sl_dist
-                        or close >= self._entry_px + c.min_rr * self._sl_dist
-                    ):
+                    if close <= self._entry_px - self._sl_dist:
+                        action = "exit_long"
+                        self._sl_cooldown = c.cooldown_after_sl
+                    elif close >= self._entry_px + c.min_rr * self._sl_dist:
                         action = "exit_long"
                 elif close >= mid or rsi >= c.rsi_neutral_low:
                     action = "exit_long"
@@ -292,10 +296,10 @@ class ScalperV2Port(Strategy):
         elif self._position == -1:
             if self._entry_mode == "mr":
                 if self._entry_px is not None and self._sl_dist:
-                    if (
-                        close >= self._entry_px + self._sl_dist
-                        or close <= self._entry_px - c.min_rr * self._sl_dist
-                    ):
+                    if close >= self._entry_px + self._sl_dist:
+                        action = "exit_short"
+                        self._sl_cooldown = c.cooldown_after_sl
+                    elif close <= self._entry_px - c.min_rr * self._sl_dist:
                         action = "exit_short"
                 elif close <= mid or rsi <= c.rsi_neutral_high:
                     action = "exit_short"
