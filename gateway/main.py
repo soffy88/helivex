@@ -1140,17 +1140,26 @@ async def get_strategy_signals(
 
 
 @app.get("/strategies/{strategy_id}/stats")
-async def get_strategy_stats(strategy_id: str) -> dict:
+async def get_strategy_stats(
+    strategy_id: str,
+    since: str | None = Query(
+        None, description="ISO 时间,只统计此后的回合(出场结构变更后分段统计用)"
+    ),
+) -> dict:
     """Return StrategyStats computed from realized FIFO round-trips of paper.fills."""
     import statistics
 
+    since_dt = datetime.fromisoformat(since.replace("Z", "+00:00")) if since else None
     prefix = _prefix_for(strategy_id)
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
             """SELECT ts, instrument, side, quantity, signal_price, actual_fill_price
-               FROM paper.fills WHERE strategy_id LIKE $1 ORDER BY ts ASC""",
+               FROM paper.fills WHERE strategy_id LIKE $1
+                 AND ($2::timestamptz IS NULL OR ts >= $2::timestamptz)
+               ORDER BY ts ASC""",
             prefix,
+            since_dt,
         )
     trades = _round_trips(rows)
     n = len(trades)
