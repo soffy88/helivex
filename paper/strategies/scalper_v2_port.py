@@ -43,6 +43,8 @@ from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
 from paper.strategies._guard import (
     close_positions_okx_safe,
+    own_open_qty,
+    start_exposure_sync,
     resync_position_from_venue,
     survive,
 )
@@ -135,6 +137,7 @@ class ScalperV2Port(Strategy):
 
         self._bar_type = BarType.from_str(self.config.bar_type)
         self.subscribe_bars(self._bar_type)
+        start_exposure_sync(self)
         mode = "TRADE" if self.config.trade_enabled else "OBSERVE(no orders)"
         self.log.info(
             f"[{self._strategy_id()}] started [{mode}], bars={self._bar_type}"
@@ -458,6 +461,11 @@ class ScalperV2Port(Strategy):
             side = OrderSide.SELL if self._position == 1 else OrderSide.BUY
             self._position, self._bars_held, self._trail_extreme = 0, 0, None
             self._entry_px = self._sl_dist = None
+            # 平仓用本策略实际持仓量,避免按现价重算导致的数量漂移残渣
+            _own = own_open_qty(self)
+            if _own is not None:
+                qty = instrument.make_qty(abs(_own))
+
         else:
             return
 

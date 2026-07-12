@@ -35,6 +35,67 @@ def survive(fn: Callable) -> Callable:
     return wrapper
 
 
+_EXPOSURE_SYNC_STARTED = False
+
+
+def start_exposure_sync(strategy: Any, interval: float = 60.0) -> None:
+    """全局唯一的敞口对账循环(所有策略 on_start 都调,首个生效)。
+
+    RISK 账本是进程内存,重启即清零,而 venue 持仓仍在 — cap 会在低估
+    敞口的状态下放行新开仓。每 interval 秒把 cache 全量持仓的美元敞口
+    (qty×ctVal×开仓均价)与账本对账,差额记 ("external", inst) 键。
+    """
+    global _EXPOSURE_SYNC_STARTED
+    if _EXPOSURE_SYNC_STARTED:
+        return
+    _EXPOSURE_SYNC_STARTED = True
+    import asyncio
+
+    from paper.risk import RISK
+
+    async def _loop() -> None:
+        await asyncio.sleep(20)  # 等启动对账落定
+        while True:
+            try:
+                by_inst: dict[str, float] = {}
+                for p in strategy.cache.positions_open():
+                    inst = strategy.cache.instrument(p.instrument_id)
+                    ct = float(inst.multiplier) if inst is not None else 1.0
+                    key = str(p.instrument_id)
+                    by_inst[key] = by_inst.get(key, 0.0) + abs(
+                        float(p.signed_qty)
+                    ) * ct * float(p.avg_px_open)
+                RISK.sync_external_exposure(by_inst)
+            except Exception as exc:
+                try:
+                    strategy.log.warning(f"[guard] 敞口对账失败: {exc!r}")
+                except Exception:
+                    pass
+            await asyncio.sleep(interval)
+
+    asyncio.ensure_future(_loop())
+
+
+def own_open_qty(strategy: Any) -> float | None:
+    """本策略在其标的上的实际净持仓(张,含符号);无仓/查询失败返回 None。
+
+    平仓单必须用这个数量而不是按当前价重算 — 价格动了重算数量就和开仓
+    数量不等,每回合留反向零头(实证:scalper_v2_sol 残 -0.01 张)。
+    重启后的 EXTERNAL 仓位不带 strategy_id → 返回 None,调用方走原逻辑。
+    """
+    from nautilus_trader.model.identifiers import InstrumentId
+
+    try:
+        ps = strategy.cache.positions_open(
+            instrument_id=InstrumentId.from_str(strategy.config.instrument_id),
+            strategy_id=strategy.id,
+        )
+        net = float(sum(p.signed_qty for p in ps))
+        return net if net != 0 else None
+    except Exception:
+        return None
+
+
 def close_positions_okx_safe(strategy: Any) -> None:
     """OKX-safe 的停机平仓,替代 on_stop 里的 close_all_positions()。
 

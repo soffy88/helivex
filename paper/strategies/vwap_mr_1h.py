@@ -23,6 +23,8 @@ from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
 from paper.strategies._guard import (
     close_positions_okx_safe,
+    own_open_qty,
+    start_exposure_sync,
     resync_position_from_venue,
     survive,
 )
@@ -70,6 +72,7 @@ class VwapMR1H(Strategy):
 
         self._bar_type = BarType.from_str(self.config.bar_type)
         self.subscribe_bars(self._bar_type)
+        start_exposure_sync(self)
         self._db = ResilientPool(DB_DSN, DDL, name=self._strategy_id(), logger=self.log)
         asyncio.ensure_future(self._boot())
         asyncio.ensure_future(self._rehydrate_position())
@@ -328,6 +331,11 @@ class VwapMR1H(Strategy):
             self._position = 0
             self._bars_left = 0
             self._entry_px = self._sl_dist = None
+            # 平仓用本策略实际持仓量,避免按现价重算导致的数量漂移残渣
+            _own = own_open_qty(self)
+            if _own is not None:
+                qty = instrument.make_qty(abs(_own))
+
         else:
             return
 

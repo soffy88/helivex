@@ -31,6 +31,8 @@ from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
 from paper.strategies._guard import (
     close_positions_okx_safe,
+    own_open_qty,
+    start_exposure_sync,
     resync_position_from_venue,
     survive,
 )
@@ -72,6 +74,7 @@ class Donchian4H(Strategy):
         self._bar_type = BarType.from_str(self.config.bar_type)
         self._instrument_id_obj = InstrumentId.from_str(self.config.instrument_id)
         self.subscribe_bars(self._bar_type)
+        start_exposure_sync(self)
         # Probe: explicit trade sub so on_trade fires — verifies public WS tick flow
         self.subscribe_trade_ticks(self._instrument_id_obj)
         self.log.info(
@@ -337,6 +340,11 @@ class Donchian4H(Strategy):
         elif action in ("exit_long", "exit_short"):
             side = OrderSide.SELL if self._position == 1 else OrderSide.BUY
             self._position = 0
+            # 平仓用本策略实际持仓量,避免按现价重算导致的数量漂移残渣
+            _own = own_open_qty(self)
+            if _own is not None:
+                qty = instrument.make_qty(abs(_own))
+
         else:
             return
 

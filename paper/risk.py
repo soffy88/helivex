@@ -193,6 +193,20 @@ class PortfolioRiskManager:
         with self._lock:
             self._exposure.pop((strategy_id, instrument), None)
 
+    def sync_external_exposure(self, by_inst: dict[str, float]) -> None:
+        """账户级敞口对账:cache 全量持仓美元敞口 − 策略级账本已计部分 =
+        外部残留(重启后账本清零而 venue 仓位仍在的缺口),记 ("external", inst)。
+        策略级归因不可恢复(重启后仓位是 EXTERNAL,不带 strategy_id),此对账
+        只保证 gross / per-instrument cap 面对真实敞口。"""
+        with self._lock:
+            for key in [k for k in self._exposure if k[0] == "external"]:
+                self._exposure.pop(key, None)
+            for inst, total in by_inst.items():
+                tracked = sum(v for (s, i), v in self._exposure.items() if i == inst)
+                extra = total - tracked
+                if extra > 1e-9:
+                    self._exposure[("external", inst)] = extra
+
     # — views —
     def gross_exposure(self) -> float:
         with self._lock:
