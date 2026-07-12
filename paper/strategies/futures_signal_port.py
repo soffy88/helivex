@@ -378,7 +378,9 @@ class FuturesSignalPort(Strategy):
         strat, inst = self._strategy_id(), self.config.instrument_id
         sig_id = self._pending_signal_id
         if self._position != 0:
-            RISK.open_position(strat, inst, fill_price * qty)
+            _i = self.cache.instrument(InstrumentId.from_str(inst))
+            _ct = float(_i.multiplier) if _i is not None else 1.0
+            RISK.open_position(strat, inst, fill_price * qty * _ct)
         else:
             RISK.close_position(strat, inst)
         fill_type = (

@@ -352,7 +352,9 @@ class Scalp5M(Strategy):
             # replacing the nominal qty_usd estimate from _fire_signal. _position is
             # already updated by _fire_signal: non-zero = entry fill, 0 = exit fill.
             if self._position != 0:
-                RISK.open_position(strat, inst, fill_price * qty)
+                _i = self.cache.instrument(InstrumentId.from_str(inst))
+                _ct = float(_i.multiplier) if _i is not None else 1.0
+                RISK.open_position(strat, inst, fill_price * qty * _ct)
             else:
                 RISK.close_position(strat, inst)
             # Real maker/taker from the venue fill report (was hardcoded taker)
