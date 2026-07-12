@@ -40,7 +40,13 @@ def close_positions_okx_safe(strategy: Any) -> None:
 
     close_all_positions 生成 NT 默认 clOrdId(O-20260711-…,含连字符),
     OKX 拒单 'Parameter clOrdId error' — 停机平仓从未真正成交,仓位悬在
-    venue。按真实净仓自发 OKX-safe 市价单平掉。
+    venue。改为自发 OKX-safe 市价单平掉。
+
+    ⚠ 只平【本策略自己】的持仓(cache 按 strategy_id 过滤),绝不能用
+    portfolio.net_position — 那是账户级净仓,BTC/ETH/SOL 各被 4-6 个
+    策略实例共享,每个实例都平一次同一净仓 = 反向放大数倍。
+    2026-07-12 00:47 断连自愈重启时该 bug 实爆:6 实例 × SELL 16.34 +
+    6 × BUY 8.31,账户 USDT 4998→933。
     """
     from nautilus_trader.model.enums import OrderSide, TimeInForce
     from nautilus_trader.model.identifiers import InstrumentId
@@ -48,9 +54,12 @@ def close_positions_okx_safe(strategy: Any) -> None:
 
     inst_id = InstrumentId.from_str(strategy.config.instrument_id)
     try:
-        net = float(strategy.portfolio.net_position(inst_id))
+        own = strategy.cache.positions_open(
+            instrument_id=inst_id, strategy_id=strategy.id
+        )
+        net = float(sum(p.signed_qty for p in own))
     except Exception as exc:
-        strategy.log.error(f"[guard] close-on-stop 净仓查询失败: {exc!r}")
+        strategy.log.error(f"[guard] close-on-stop 本策略持仓查询失败: {exc!r}")
         return
     if net == 0:
         return
@@ -66,7 +75,9 @@ def close_positions_okx_safe(strategy: Any) -> None:
         client_order_id=next_client_order_id(strategy._strategy_id()),
     )
     strategy.submit_order(order)
-    strategy.log.info(f"[guard] close-on-stop: 平仓 net={net} → {order.side}")
+    strategy.log.info(
+        f"[guard] close-on-stop: 平本策略仓位 net={net}({len(own)} pos) → {order.side}"
+    )
 
 
 def resync_position_from_venue(strategy: Any, kind: str) -> int:
