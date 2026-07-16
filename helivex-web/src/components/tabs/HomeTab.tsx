@@ -9,14 +9,14 @@
 import { useState, type ReactNode } from 'react';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
 import { EquityPanel, Underwater, DivergingBars } from '../charts';
-import { helivexApi, portfolioApi, riskApi, ensembleApi, streamApi } from '@/lib/api-client';
+import { helivexApi, portfolioApi, riskApi, ensembleApi, streamApi, detailApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import { SafeGateBadge } from '../SafeBadges';
 import { EquityView, PositionsView, StatsView, ExecutionView, SignalsView, TradesView } from '../StrategyViews';
 import type {
   StrategyState, PaperAccount, PortfolioSummary, RiskStatus, FgiResp,
   RegimeResp, ConsensusResp, TimelineResp, PortfolioEquity,
-  CorrelationMatrix, PortfolioAttributionResp,
+  CorrelationMatrix, PortfolioAttributionResp, EquitySeriesPoint, StrategyEquity,
 } from '@/types/api';
 
 const shortStrat = (s: string) => s.replace(/_usdt_swap_okx$/, '').replace(/_/g, ' ');
@@ -40,6 +40,35 @@ const dirColor = (d: string) =>
 const regimeColor = (s: string) =>
   s === 'crisis' ? 'var(--destructive)' : s === 'trend' ? 'var(--success,#3fb950)' : 'oklch(0.70 0.15 80)';
 
+// hero 资金曲线选择:'组合'(全策略合并)或某个 strategy_id
+const COMBINED = '__combined__';
+
+// 组合视图:全策略合并曲线(数据随首页批量请求一并到手)
+function CombinedEquity({ pts }: { pts: EquitySeriesPoint[] }) {
+  if (pts.length < 2) return <EmptyState text="数据不足" sub="需 ≥2 个成交点" />;
+  return (
+    <>
+      <EquityPanel pts={pts} title="组合资金曲线 · 全策略合并" h={210} />
+      <Underwater pts={pts.map(p => p.drawdown ?? 0)} h={56} />
+    </>
+  );
+}
+
+// 单策略视图:自取该策略资金曲线(与折叠区 EquityView 同源 /strategies/{id}/equity)
+function StrategyHeroEquity({ id, name }: { id: string; name?: string }) {
+  const { data, loading, error } = useApi<StrategyEquity>(() => detailApi.equity(id), [id], 30000, `hero-eq:${id}`);
+  if (loading && !data) return <Skeleton />;
+  if (error && !data) return <EmptyState text="加载失败" sub={error} />;
+  const pts = data?.points ?? [];
+  if (pts.length < 2) return <EmptyState text="数据不足" sub="需 ≥2 个成交点" />;
+  return (
+    <>
+      <EquityPanel pts={pts} title={`资金曲线 — ${name ?? id}`} h={210} />
+      <Underwater pts={pts.map(p => p.drawdown ?? 0)} h={56} />
+    </>
+  );
+}
+
 export function HomeTab() {
   const { data, loading, error, stale } = useApi(
     () => Promise.all([
@@ -51,7 +80,7 @@ export function HomeTab() {
   );
   const tl = useApi<TimelineResp>(() => streamApi.timeline(20), [], 15000, 'home-tl');
   const attr = useApi<PortfolioAttributionResp>(() => portfolioApi.attribution(), [], 30000, 'home-attr');
-  const [sel, setSel] = useState<string | null>(null);
+  const [sel, setSel] = useState<string>(COMBINED);
   const [showDetail, setShowDetail] = useState(false);
   const [killConfirm, setKillConfirm] = useState(false);
   const [killed, setKilled] = useState(false);
@@ -61,16 +90,15 @@ export function HomeTab() {
   const [strategies, account, summary, risk, fgi, regime, consensus, portfolioEq, corr] =
     data as [StrategyState[], PaperAccount, PortfolioSummary, RiskStatus, FgiResp, RegimeResp, ConsensusResp, PortfolioEquity, CorrelationMatrix];
   const combinedPts = portfolioEq?.combined ?? [];
+  // 左上「净值」= 组合净值 = ∑各策略净值(组合曲线末值)。回退到 risk.nav(真实账户 NAV)。
+  const navTotal = combinedPts.length ? combinedPts[combinedPts.length - 1].equity : risk.nav;
   const doKill = async () => {
     try { await portfolioApi.kill(); setKilled(true); } catch { /* surfaced below */ }
     setKillConfirm(false);
   };
 
-  // 默认选中首个有成交的策略——零成交策略的资金曲线/持仓/成交历史全是空态
-  const id = sel
-    ?? strategies.find(s => (s.n_fills ?? 0) > 0)?.strategy_id
-    ?? strategies[0]?.strategy_id
-    ?? null;
+  // 默认落在「组合」;选中某策略时 id 才是该策略,驱动状态条/持仓/明细
+  const id = sel === COMBINED ? null : sel;
   const cur = strategies.find(s => s.strategy_id === id) ?? null;
   const tripped = risk.kill_switch.tripped;
   const positioned = !!cur && cur.position && cur.position !== '—' && cur.position !== 'flat';
@@ -87,7 +115,7 @@ export function HomeTab() {
 
       {/* 概览 KPI 条 */}
       <div className="hv-bar">
-        {kpi('净值 NAV', `$${risk.nav.toFixed(0)}`)}
+        {kpi('净值 NAV', `$${navTotal.toLocaleString('en-US', { maximumFractionDigits: 0 })}`)}
         {kpi('今日盈亏', <span style={{ color: pnlColor(account.pnl_today_net) }}>${account.pnl_today_net.toFixed(2)}</span>)}
         {kpi('回撤', <span style={{ color: risk.drawdown_pct > risk.caps.max_drawdown_pct * 0.66 ? 'var(--destructive)' : undefined }}>{risk.drawdown_pct.toFixed(2)}%</span>)}
         {kpi('持仓', String(summary.total_positions))}
@@ -99,11 +127,14 @@ export function HomeTab() {
         </span>
       </div>
 
-      {/* 策略切换 */}
+      {/* 策略切换(最前为「组合」= 全策略合并) */}
       <div className="hv-strat-tabs">
+        <button className="hv-strat-tab"
+          data-active={(sel === COMBINED) ? 'true' : undefined}
+          onClick={() => setSel(COMBINED)}>组合</button>
         {strategies.map(s => (
           <button key={s.strategy_id} className="hv-strat-tab"
-            data-active={(id === s.strategy_id) ? 'true' : undefined}
+            data-active={(sel === s.strategy_id) ? 'true' : undefined}
             onClick={() => setSel(s.strategy_id)}>{tag(s.strategy_id)}</button>
         ))}
       </div>
@@ -122,17 +153,12 @@ export function HomeTab() {
         </div>
       )}
 
-      {/* Hero:组合资金曲线(左,全策略合并 — 对齐 Hyperliquid 组合页"账户级优先")+ 持仓(右) */}
-      <div className="hv-hero">
+      {/* Hero:资金曲线(左,可在「组合」与单策略间切换)+ 持仓(右,选中策略时) */}
+      <div className="hv-hero" data-single={sel === COMBINED ? 'true' : undefined}>
         <div className="hv-panel">
-          {combinedPts.length < 2
-            ? <EmptyState text="数据不足" sub="需 ≥2 个成交点" />
-            : (
-              <>
-                <EquityPanel pts={combinedPts} title="组合资金曲线 · 全策略合并" h={210} />
-                <Underwater pts={combinedPts.map(p => p.drawdown ?? 0)} h={56} />
-              </>
-            )}
+          {sel === COMBINED
+            ? <CombinedEquity pts={combinedPts} />
+            : <StrategyHeroEquity id={sel} name={cur?.name} />}
         </div>
         {id && (
           <div className="hv-panel">
