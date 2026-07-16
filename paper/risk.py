@@ -46,6 +46,7 @@ from pathlib import Path
 
 import asyncpg
 
+from paper.contracts import ct_val
 from paper.db import DB_DSN
 
 log = logging.getLogger(__name__)
@@ -424,7 +425,8 @@ async def realized_pnl(
             # reducing / closing → realize on the closed amount
             closed = min(abs(fill_q), abs(q))
             direction = 1.0 if q > 0 else -1.0
-            pnl += direction * (px - cost) * closed
+            # quantity 是张数;乘 ctVal(张→币)才是真实 USD P&L,否则 BTC 放大 100 倍
+            pnl += direction * (px - cost) * closed * ct_val(r["instrument"])
             q += fill_q
             if q == 0:
                 cost = 0.0
@@ -501,9 +503,8 @@ async def unrealized_pnl(conn: asyncpg.Connection) -> dict:
         if mark is None:
             unmarked += 1
             continue
-        upnl += (
-            mark - cost
-        ) * qty  # qty is signed: short positions profit as mark falls
+        # qty is signed 张数 (short profits as mark falls); ×ctVal → real USD
+        upnl += (mark - cost) * qty * ct_val(inst)
         marked += 1
     return {"unrealized": upnl, "n_marked": marked, "n_unmarked": unmarked}
 

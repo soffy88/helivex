@@ -28,6 +28,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 
 from gateway.auth import require_token
 from gateway.metrics import metrics_middleware, render as render_metrics
+from paper.contracts import ct_val as _ct_val
 from gateway.deps import (
     DB_DSN,
     PROJECT_ROOT,
@@ -947,7 +948,7 @@ async def get_strategy_positions(strategy_id: str) -> list:
             {
                 "instrument": inst,
                 "side": side,
-                "quantity": round(abs(net_qty), 8),
+                "quantity": round(abs(net_qty) * _ct_val(inst), 8),  # 张 → 币
                 "avg_entry_price": round(avg_entry, 4),
                 "current_price": None,
                 "unrealized_pnl": 0.0,
@@ -978,7 +979,9 @@ def _fmt_duration(delta) -> str:
 def _round_trips(rows: list) -> list[dict]:
     """FIFO round-trip extraction from fills (ts-ASC). Each reducing fill closes
     open lots oldest-first and emits a realized trade. Total realized P&L matches
-    the avg-cost figure in paper.risk; FIFO just gives clean per-trade entry ts/px."""
+    the avg-cost figure in paper.risk; FIFO just gives clean per-trade entry ts/px.
+    Quantities in fills are OKX contracts (张); P&L / notional / quantity are scaled
+    by ctVal here so every downstream surface reports real coin/USD terms."""
     from collections import defaultdict, deque
 
     lots: dict[str, deque] = defaultdict(
@@ -988,6 +991,7 @@ def _round_trips(rows: list) -> list[dict]:
     seq = 0
     for r in rows:
         inst = r["instrument"]
+        ctv = _ct_val(inst)  # 张 → 币/美元 换算(BTC 0.01 / ETH 0.1 / SOL 1)
         px = float(r["actual_fill_price"])
         ts = r["ts"]
         q = float(r["quantity"]) * (1.0 if r["side"] == "BUY" else -1.0)
@@ -998,8 +1002,8 @@ def _round_trips(rows: list) -> list[dict]:
             lot_sign = 1.0 if lot[0] > 0 else -1.0
             q_sign = 1.0 if q > 0 else -1.0
             closed = min(abs(lot[0]), abs(q))
-            pnl = lot_sign * (px - lot[1]) * closed
-            entry_notional = lot[1] * closed
+            pnl = lot_sign * (px - lot[1]) * closed * ctv
+            entry_notional = lot[1] * closed * ctv
             seq += 1
             trades.append(
                 {
@@ -1010,7 +1014,7 @@ def _round_trips(rows: list) -> list[dict]:
                     "side": "long" if lot_sign > 0 else "short",
                     "entry_price": round(lot[1], 6),
                     "exit_price": round(px, 6),
-                    "quantity": round(closed, 8),
+                    "quantity": round(closed * ctv, 8),
                     "realized_pnl": round(pnl, 6),
                     "realized_pnl_pct": round(pnl / entry_notional * 100, 4)
                     if entry_notional
@@ -1472,19 +1476,23 @@ async def get_portfolio_correlation() -> dict:
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
-            """SELECT DATE(ts) AS day, strategy_id,
+            """SELECT DATE(ts) AS day, strategy_id, instrument,
                       SUM(CASE WHEN side='SELL' THEN 1.0 ELSE -1.0 END
                           * quantity * (actual_fill_price - COALESCE(signal_price, actual_fill_price))
                       ) AS daily_pnl
-               FROM paper.fills GROUP BY DATE(ts), strategy_id ORDER BY day""",
+               FROM paper.fills GROUP BY DATE(ts), strategy_id, instrument ORDER BY day""",
         )
 
     from collections import defaultdict
 
-    daily: dict[str, dict[str, float]] = defaultdict(dict)
+    # 按 instrument 分组后乘 ctVal(张→币),再按 (day, strategy) 汇总——否则一个策略跨
+    # BTC/ETH/SOL 的日 P&L 权重被合约面值扭曲,相关性矩阵失真。
+    daily: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     strats: set[str] = set()
     for r in rows:
-        daily[str(r["day"])][r["strategy_id"]] = float(r["daily_pnl"])
+        daily[str(r["day"])][r["strategy_id"]] += float(r["daily_pnl"]) * _ct_val(
+            r["instrument"]
+        )
         strats.add(r["strategy_id"])
 
     strat_list = sorted(strats)
@@ -1533,7 +1541,9 @@ async def get_portfolio_summary() -> dict:
     net_exp: dict[str, float] = defaultdict(float)
     for r in fill_rows:
         sign = 1.0 if r["side"] == "BUY" else -1.0
-        net_exp[r["instrument"]] += sign * float(r["quantity"])
+        net_exp[r["instrument"]] += (
+            sign * float(r["quantity"]) * _ct_val(r["instrument"])
+        )
     # Canonical realized P&L (FIFO), consistent with every other P&L surface.
     total_pnl = _realized_totals(fill_rows)["total"]
 
@@ -1732,7 +1742,7 @@ async def get_cross_exposure() -> dict:
 
     by_inst: dict[str, dict] = defaultdict(lambda: {"net": 0.0, "by_strategy": {}})
     for r in rows:
-        q = float(r["net_qty"] or 0.0)
+        q = float(r["net_qty"] or 0.0) * _ct_val(r["instrument"])  # 张 → 币
         if abs(q) < 1e-9:
             continue
         by_inst[r["instrument"]]["net"] += q
