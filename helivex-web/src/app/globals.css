@@ -9,6 +9,9 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 .hv-shell { min-height: 100dvh; display: flex; flex-direction: column; }
 .hv-header { display: flex; align-items: center; gap: 24px; padding: 0 20px; height: 52px; border-bottom: 1px solid var(--border); background: var(--card); }
 .hv-logo { font-size: var(--text-lg); font-weight: 780; letter-spacing: -0.02em; }
+/* Skip-link: off-screen until keyboard-focused, then pinned top-left (a11y). */
+.hv-skip { position: absolute; left: -9999px; top: 0; z-index: 100; padding: 8px 14px; background: var(--primary); color: var(--primary-foreground, #fff); border-radius: 0 0 7px 0; }
+.hv-skip:focus { left: 0; }
 .hv-nav { display: flex; gap: 2px; flex: 1; }
 .hv-nav-item { padding: 6px 14px; background: none; border: none; cursor: pointer; color: var(--muted-foreground); font-size: var(--text-sm); border-radius: 7px; }
 .hv-nav-item:hover { background: var(--muted); }
@@ -38,9 +41,9 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 .hv-strat-card__meta { display: flex; flex-direction: column; gap: 2px; font-size: var(--text-xs); color: var(--muted-foreground); }
 
 /* metric card */
-.hv-metric-card { border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 14px; display: flex; flex-direction: column; gap: 4px; }
+.hv-metric-card { border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
 .hv-metric-label { font-size: var(--text-xs); color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.04em; }
-.hv-metric-val { font-size: var(--text-2xl); font-weight: 780; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.hv-metric-val { font-size: var(--text-xl); font-weight: 780; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .hv-pos { color: var(--success, oklch(0.62 0.18 145)); }
 .hv-neg { color: var(--destructive); }
 .hv-metric-note { font-size: 10px; color: var(--muted-foreground); }
@@ -211,6 +214,39 @@ html, body { margin: 0; background: var(--background); color: var(--foreground);
 @media (max-width: 900px) { .hv-grid-2 { grid-template-columns: 1fr; } .hv-sel-row { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 640px) { .hv-sel-row { grid-template-columns: 1fr; } .hv-bar { gap: 12px; } .hv-bar-note { margin-left: 0; } }
 
+/* ── 首页(helixa 版式)清爽布局 ── */
+.hv-home { display: flex; flex-direction: column; gap: 18px; }
+.hv-home__group { display: flex; flex-direction: column; gap: 10px; }
+/* 状态条:细、干净,不用告警黄 */
+.hv-status { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 11px 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); font-size: var(--text-sm); }
+.hv-status__dot { width: 8px; height: 8px; border-radius: 99px; flex: none; }
+.hv-status__name { font-weight: 700; }
+.hv-status__meta { color: var(--muted-foreground); }
+.hv-status__meta strong { color: var(--foreground); font-weight: 600; }
+/* 60/40 hero:资金曲线 + 持仓 */
+.hv-hero { display: grid; grid-template-columns: 1.55fr 1fr; gap: 14px; align-items: start; }
+.hv-hero[data-single="true"] { grid-template-columns: 1fr; }
+@media (max-width: 900px) { .hv-hero { grid-template-columns: 1fr; } }
+/* 面板卡:统一卡片外观 */
+.hv-panel { border: 1px solid var(--border); border-radius: 12px; background: var(--card); padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.hv-panel__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.hv-panel__title { font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); }
+.hv-panel__link { font-size: var(--text-xs); color: var(--muted-foreground); }
+/* 市场速览小卡(FGI/regime/共识) */
+.hv-mini { display: flex; flex-direction: column; gap: 5px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; background: var(--background); }
+.hv-mini__k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted-foreground); }
+.hv-mini__v { font-size: var(--text-base); font-weight: 600; font-variant-numeric: tabular-nums; }
+/* 事件流 feed(细行,不用表格边框) */
+.hv-feed { display: flex; flex-direction: column; }
+.hv-feed__row { display: flex; align-items: baseline; gap: 12px; padding: 7px 2px; border-top: 1px solid color-mix(in oklch, var(--border) 55%, transparent); font-size: var(--text-sm); }
+.hv-feed__row:first-child { border-top: none; }
+.hv-feed__t { font-variant-numeric: tabular-nums; color: var(--muted-foreground); font-size: var(--text-xs); flex: none; width: 64px; }
+.hv-feed__cat { flex: none; font-size: var(--text-xs); }
+.hv-feed__label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 可折叠明细 */
+.hv-collapse { align-self: flex-start; padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--foreground); font-size: var(--text-sm); cursor: pointer; }
+.hv-collapse:hover { background: var(--muted); }
+
 /* ── 健壮性:Tab 错误边界 ── */
 .hv-tab-error { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 16px; gap: 8px; }
 .hv-tab-error__text { font-size: var(--text-base); font-weight: 600; color: var(--foreground); }
@@ -370,3 +406,83 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .hv-signal-toggle { margin-left: auto; padding: 4px 12px; border-radius: 7px; border: 1px solid var(--border); background: var(--card); color: var(--muted-foreground); font-size: var(--text-xs); cursor: pointer; transition: background .15s ease, color .15s ease; }
 .hv-signal-toggle:hover { background: var(--muted); color: var(--foreground); }
 .hv-signal-empty-inline { padding: 14px; border: 1px dashed color-mix(in oklch, var(--border) 80%, transparent); border-radius: 10px; background: color-mix(in oklch, var(--card) 40%, transparent); font-size: var(--text-sm); color: var(--muted-foreground); text-align: center; }
+
+/* ════════════════════ 终端专业化层 (quant terminal pro) ════════════════════
+   原则:等宽数据字体 · 统一涨跌语义色 · 高数据密度 · 低视觉噪音 · 宽屏利用 */
+
+/* 1) 语义色修复:--success 此前未定义,全站 fallback 到 #3fb950(与主题脱节)。
+   统一映射到主题的涨跌色,所有 tab 的 var(--success,…) 立即协调,零业务改动。 */
+[data-theme='terminal-dark'] {
+  --success: var(--quote-up, oklch(0.68 0.20 145));
+  --warn: var(--alert-warn, oklch(0.75 0.18 70));
+}
+
+/* 2) 等宽数据字体:一切数字/时间戳/代码走 --font-data(tabular)。
+   这是"专业终端感"的第一要素。 */
+.hv-num, .hv-bar-val, .hv-metric-val, .hv-mini__v, .hv-micro-mid, .hv-micro-time,
+.hv-feed__t, .hv-audit-time, .hv-signal-time, .hv-indicator-val, .hv-util-label,
+.hv-dbar-val, .hv-param-input, .hv-gate-metrics strong, .hv-uw-label, .hv-status__meta strong,
+.hv-clock {
+  font-family: var(--font-data, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+}
+.hv-table td.hv-num, .hv-table td:has(> .hv-num) { font-family: var(--font-data, ui-monospace, monospace); }
+
+/* 3) 表格终端化:紧凑行高、表头微背景、贴数据密度 */
+.hv-table { font-size: var(--text-sm); }
+.hv-table th { padding: 6px 8px; background: color-mix(in oklch, var(--muted) 45%, transparent); font-size: 10px; }
+.hv-table th:first-child { border-top-left-radius: 6px; }
+.hv-table th:last-child { border-top-right-radius: 6px; }
+.hv-table td { padding: 6px 8px; }
+.hv-table tbody tr:last-child td { border-bottom: none; }
+
+/* 4) 告警降噪:honest-note / stale / bar-note 从大块亮黄背景改为
+   左侧细条 + 透明底 + 柔和文字(信息仍在,噪音大减) */
+.hv-honest-note {
+  background: color-mix(in oklch, var(--card) 55%, transparent);
+  border: 1px solid color-mix(in oklch, var(--border) 85%, transparent);
+  border-left: 3px solid color-mix(in oklch, var(--warn) 55%, transparent);
+  color: var(--muted-foreground);
+}
+.hv-honest-note strong { color: var(--text-secondary, var(--foreground)); }
+.hv-trial-warn {
+  background: color-mix(in oklch, var(--card) 55%, transparent);
+  border-left: 3px solid color-mix(in oklch, var(--warn) 55%, transparent);
+  color: var(--muted-foreground);
+}
+.hv-bar-note { color: var(--muted-foreground); }
+
+/* 5) 宽屏数据密度:1200 → 1560,大屏不再两侧留白 */
+.hv-main { max-width: 1560px; }
+
+/* 6) 头部终端化:更紧凑 + UTC 时钟 + 连接健康点 */
+.hv-header { height: 48px; gap: 18px; }
+.hv-logo { font-size: var(--text-base); }
+.hv-head-right { display: flex; align-items: center; gap: 12px; margin-left: auto; }
+.hv-clock { font-size: var(--text-xs); color: var(--muted-foreground); letter-spacing: 0.02em; }
+.hv-conn { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--muted-foreground); }
+.hv-conn__dot { width: 7px; height: 7px; border-radius: 99px; background: var(--success); box-shadow: 0 0 6px color-mix(in oklch, var(--success) 60%, transparent); }
+.hv-conn[data-ok="false"] .hv-conn__dot { background: var(--destructive); box-shadow: 0 0 6px color-mix(in oklch, var(--destructive) 60%, transparent); animation: hv-pulse 1.2s ease-in-out infinite; }
+
+/* 7) 统一圆角 12px + 策略 tab 激活态改低调风(描边+浅底,不再实心大色块) */
+.hv-metric-card, .hv-strat-card, .hv-micro-card, .hv-chart-box, .hv-gate-result,
+.hv-audit-detail, .hv-dbars, .hv-uw, .hv-signal-logic, .hv-bar, .hv-status, .hv-ks-banner { border-radius: 12px; }
+.hv-strat-tab { padding: 6px 14px; }
+.hv-strat-tab[data-active="true"] {
+  background: color-mix(in oklch, var(--primary) 14%, transparent);
+  color: var(--primary); border-color: color-mix(in oklch, var(--primary) 45%, transparent);
+  font-weight: 600; box-shadow: none;
+}
+
+/* 8) KPI 值升格:大一号 + 数据字体(概览条一眼扫读) */
+.hv-bar { gap: 26px; padding: 12px 18px; }
+.hv-bar-val { font-size: var(--text-lg); font-weight: 650; }
+
+/* 9) 涨跌语义辅助类(与 quote 色一致) */
+.hv-up { color: var(--quote-up, var(--success)); }
+.hv-down { color: var(--quote-down, var(--destructive)); }
+
+/* 10) 面板内边距微调 + mini 卡数据字体已覆盖;面板标题左侧同款 tick */
+.hv-panel { box-shadow: 0 1px 2px color-mix(in oklch, black 22%, transparent), inset 0 1px 0 color-mix(in oklch, white 4%, transparent); }
+.hv-panel__title { display: flex; align-items: center; gap: 7px; }
+.hv-panel__title::before { content: ""; width: 3px; height: 11px; border-radius: 2px; background: color-mix(in oklch, var(--primary) 70%, transparent); flex-shrink: 0; }

@@ -1,0 +1,12 @@
+[Unit]
+Description=Helivex OHLCV adapter — backfill ohlcv_1h/5m (okx_swap) + ohlcv_1h (okx spot) from md.ohlcv (consolidation P2a + spot follow-up; DB->DB, no proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/soffy/projects/helivex
+# 纯 DB->DB(md 与 helivex 同在 platform-postgres localhost:5434),无 OKX egress,不需 Clash 代理。
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/ohlcv_from_md.py
+StandardOutput=append:/home/soffy/helivex_ohlcv_adapter.log
+StandardError=append:/home/soffy/helivex_ohlcv_adapter.log

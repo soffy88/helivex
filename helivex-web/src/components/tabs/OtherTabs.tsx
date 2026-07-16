@@ -1,18 +1,17 @@
 /**
- * 其余 Tab:Backtest / Executions / P&L / Audit
+ * 其余 Tab:Backtest + Executions(合并为「执行与验证」ExecVerifyTab)/ Audit(并入 Ensemble)
  * 全部真实数据(无 mock)。无数据 → 诚实空状态。
- * (Strategies tab 已废弃 — 平铺主页 OverviewTab 的策略选择器取代了它)
+ * IA 重构:P&L 已并入 Portfolio;策略钻取在 首页(HomeTab)。
  */
 'use client';
 
 import { useState } from 'react';
-import { OEquityCurveChart } from '@helios/blocks';
 import { SafeGateBadge } from '../SafeBadges';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
 import { DivergingBars } from '../charts';
-import { helivexApi, portfolioApi } from '@/lib/api-client';
+import { helivexApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
-import type { ExecutionsResponse, PortfolioEquity } from '@/types/api';
+import type { ExecutionsResponse } from '@/types/api';
 
 const fmt = (v: number | null | undefined, d = 1, suffix = '') =>
   v === null || v === undefined ? '—' : `${v.toFixed(d)}${suffix}`;
@@ -22,8 +21,51 @@ interface TrialInst { status: string; dsr: number; pbo: number; mean_oos: number
 interface Trial { trial_n: number; config: string; verdict: string; metrics: { instruments: Record<string, TrialInst>; overall: string }; }
 interface GateLedger { total_trials: number; history: Trial[]; }
 
+const GATE_CONFIGS = [
+  { path: 'strategies/trend_dual.yaml',   label: 'trend_dual (4H SWAP)' },
+  { path: 'strategies/vwap_mr_1h.yaml',   label: 'vwap_mr (1H SWAP)' },
+  { path: 'strategies/spot_trend_1d.yaml', label: 'spot_trend (1D)' },
+];
+
+function GateRunner({ onDone }: { onDone: () => void }) {
+  const [cfg, setCfg] = useState(GATE_CONFIGS[0].path);
+  const [running, setRunning] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const run = async () => {
+    setRunning(true); setMsg(null); setErr(null);
+    try {
+      const r = await helivexApi.gateRun(cfg);
+      setMsg(`Trial #${r.trial_n ?? '?'} 完成 — 裁决 ${r.overall_status ?? '?'}`);
+      onDone();  // refresh the ledger
+    } catch (e) {
+      // The gate engine (numpy/scipy + 3O + market data) is a heavy host-side
+      // component; if the gateway isn't provisioned to run it, say so plainly
+      // rather than surfacing a raw 500. Gates also run host-side via
+      // `python tools/strategy_gate.py --config <cfg>`.
+      setErr(`回测引擎未在网关启用(重活应在主机侧运行:tools/strategy_gate.py)。${String(e).slice(0, 120)}`);
+    } finally { setRunning(false); }
+  };
+
+  return (
+    <div className="hv-gate-runner" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+      <label htmlFor="gate-cfg" className="hv-honest-note">运行 gate:</label>
+      <select id="gate-cfg" value={cfg} onChange={e => setCfg(e.target.value)} disabled={running}
+        aria-label="选择策略配置">
+        {GATE_CONFIGS.map(c => <option key={c.path} value={c.path}>{c.label}</option>)}
+      </select>
+      <button className="hv-nav-item" onClick={run} disabled={running} aria-busy={running}>
+        {running ? '运行中…(walk-forward,约需数十秒)' : '运行 Gate'}
+      </button>
+      {msg && <span className="hv-honest-note" style={{ color: 'var(--ok, #3a3)' }}>{msg}</span>}
+      {err && <span className="hv-honest-note" style={{ color: 'var(--err, #c33)' }}>{err}</span>}
+    </div>
+  );
+}
+
 export function BacktestTab() {
-  const { data, loading, error, stale } = useApi(() => helivexApi.gateTrials() as unknown as Promise<GateLedger>, [], undefined, 'gate');
+  const { data, loading, error, stale, refetch } = useApi(() => helivexApi.gateTrials() as unknown as Promise<GateLedger>, [], undefined, 'gate');
   if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
   if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
   const hist = data?.history ?? [];
@@ -31,6 +73,7 @@ export function BacktestTab() {
   return (
     <div className="hv-tab">
       {stale && <StaleBanner error={error!} />}
+      <GateRunner onDone={refetch} />
       <div className="hv-section-title">Gate 账本(真实,全局 N = {data?.total_trials ?? 0})</div>
       {hist.length === 0 ? <EmptyState text="暂无 gate 记录" /> : (
         <>
@@ -127,24 +170,10 @@ export function ExecutionsTab() {
   );
 }
 
-// ── P&L Tab (真实合并资金曲线 /portfolio/equity) ────────────────────
-export function PnLTab() {
-  const { data, loading, error, stale } = useApi<PortfolioEquity>(() => portfolioApi.equity(), [], 30000, 'pnl');
-  if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
-  if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
-  const pts = data?.combined ?? [];
-  return (
-    <div className="hv-tab">
-      {stale && <StaleBanner error={error!} />}
-      <div className="hv-section-title">累计 P&L(真实成交派生)</div>
-      {pts.length < 2 ? <EmptyState text="数据不足" sub="需 ≥2 个成交点才能画曲线" /> : (
-        <div className="hv-chart-box">
-          <OEquityCurveChart points={pts.map(p => ({ date: p.date, equity: p.equity, drawdown: p.drawdown }))} showDrawdown />
-        </div>
-      )}
-      <div className="hv-honest-note">⚠️ Paper 短期 P&L ≠ 策略有效。当前 gate 全 FAIL/NO-GO,此曲线含运气成分,不代表可上 live。</div>
-    </div>
-  );
+// ── 执行与验证 Tab:成交保真(Executions)+ Gate 台账(Backtest)合并 ────────
+// IA 重构:两者都是"执行质量 / 策略验证",合成一个 tab。P&L 归因已并入 Portfolio。
+export function ExecVerifyTab() {
+  return <><ExecutionsTab /><BacktestTab /></>;
 }
 
 // ── Audit Tab (真实 GOLD 链 /audit/decisions) ───────────────────────

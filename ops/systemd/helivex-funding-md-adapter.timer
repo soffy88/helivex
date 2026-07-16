@@ -1,0 +1,9 @@
+[Unit]
+Description=Helivex funding md-adapter timer (every 10min — 8h funding settles infrequently; DB->DB idempotent)
+
+[Timer]
+OnCalendar=*:0/10
+Persistent=true
+
+[Install]
+WantedBy=timers.target

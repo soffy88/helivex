@@ -1,0 +1,14 @@
+[Unit]
+Description=Helivex CVaR portfolio risk adapter — 3O cvar_risk_workflow omodul, writes paper.portfolio_weights/position_caps (Stage A: observe-only, DB->DB, no proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/soffy/projects/helivex
+# 纯 DB->DB(market_data.ohlcv_1h 与 paper.* 同在 platform-postgres localhost:5434),
+# 无 OKX egress、不需 Clash 代理。计算逻辑在 platform/3O 的 oprim/oskill/omodul,本
+# 单元只负责调度。
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/cvar_risk_adapter.py --once
+StandardOutput=append:/home/soffy/helivex_cvar_risk_adapter.log
+StandardError=append:/home/soffy/helivex_cvar_risk_adapter.log

@@ -26,19 +26,25 @@ export const helivexApi = {
   putConfig:     (id: string, config: Record<string, unknown>) => req<{ ok: boolean; path: string }>(`/strategies/${id}/config`, { method: 'PUT', body: JSON.stringify(config) }),
   restartPaper:  () => req<{ ok: boolean; message?: string; reason?: string }>('/paper/restart', { method: 'POST' }),
   gateTrials:    () => req<unknown>('/gate/trials'),
+  gateRun:       (config: string, instrument?: string) =>
+    req<{ overall_status?: string; trial_n?: number; instruments?: Record<string, unknown> }>(
+      `/gate/run?config=${encodeURIComponent(config)}${instrument ? `&instrument=${encodeURIComponent(instrument)}` : ''}&quiet=true`,
+      { method: 'POST' }),
   runBacktest:   (body: unknown) => req<BacktestResult>('/backtest/run', { method: 'POST', body: JSON.stringify(body) }),
   executions:    () => req<ExecutionsResponse>('/executions'),
   decisions:     () => req<AuditDecision[]>('/audit/decisions'),
-  verifySig:     (eventId: string) => req<{ valid: boolean }>(`/audit/verify_signature?event_id=${eventId}`),
+  verifySig:     (rec: { fingerprint_hex: string; sig_b64: string; public_key_b64?: string }) =>
+    req<{ valid: boolean }>('/verify_signature', { method: 'POST', body: JSON.stringify(rec) }),
   chainHealth:   () => req<ChainHealth>('/audit/chain/verify'),
   account:       () => req<PaperAccount>('/paper/account'),
-  setMode:       (id: string, mode: string) => req<void>(`/strategies/${id}/mode`, { method: 'PUT', body: JSON.stringify({ mode }) }),
+  setMode:       (id: string, mode: string, force = false) =>
+    req<void>(`/strategies/${id}/mode?mode=${encodeURIComponent(mode)}${force ? '&force=true' : ''}`, { method: 'PUT' }),
 };
 
 // ── V2 策略详情 + Portfolio endpoint(§4)──────────
 import type {
   Position, Trade, StrategyEquity, SignalLog, StrategyStats, StrategyExecution,
-  PortfolioEquity, CorrelationMatrix, PortfolioSummary,
+  PortfolioEquity, CorrelationMatrix, PortfolioSummary, CvarWeights, PositionCaps, PortfolioAttributionResp,
 } from '@/types/api';
 
 export const detailApi = {
@@ -55,6 +61,9 @@ export const portfolioApi = {
   correlation: () => req<CorrelationMatrix>('/portfolio/correlation'),
   summary:     () => req<PortfolioSummary>('/portfolio/summary'),
   kill:        () => req<void>('/portfolio/kill', { method: 'POST' }),
+  cvarWeights: () => req<CvarWeights>('/portfolio/cvar_weights'),
+  positionCaps: () => req<PositionCaps>('/portfolio/position_caps'),
+  attribution: () => req<PortfolioAttributionResp>('/portfolio/attribution'),
 };
 
 // ── R14 risk layer + R16 L2 microstructure ──────────────
@@ -69,4 +78,47 @@ export const riskApi = {
 
 export const microApi = {
   latest: () => req<MicroLatest>('/microstructure/latest?series=60'),
+};
+
+// ── LER(HELIVEX-IMPL_SPEC-LER-001)数据积累进度 + 策略参数 ───────────
+import type { LerCoverage, LerConfig } from '@/types/api';
+
+export const lerApi = {
+  coverage: () => req<LerCoverage>('/research/ler/coverage'),
+  config: () => req<LerConfig>('/research/ler/config'),
+};
+
+// ── 3O 共识大脑(P2-P6)──────────
+import type { RegimeResp, EnginesResp, ConsensusResp, ConsensusRiskResp } from '@/types/api';
+
+import type { EngineWeightsResp, ConsensusConfigResp } from '@/types/api';
+
+export const ensembleApi = {
+  regime:   () => req<RegimeResp>('/regime'),
+  engines:  () => req<EnginesResp>('/engines'),
+  consensus: () => req<ConsensusResp>('/consensus'),
+  riskEval: () => req<ConsensusRiskResp>('/consensus/risk_eval'),
+  // 补齐 G: 共识层在线调参(observe-only,只调判据不下单)
+  weights:  () => req<EngineWeightsResp>('/engines/weights'),
+  consensusConfig: () => req<ConsensusConfigResp>('/consensus/config'),
+  putConsensusConfig: (base_threshold: number) =>
+    req<{ ok: boolean; base_threshold: number }>('/consensus/config', { method: 'PUT', body: JSON.stringify({ base_threshold }) }),
+  putEngineWeights: (weights: { engine: string; base_weight: number }[]) =>
+    req<{ ok: boolean; applied: { engine: string; base_weight: number }[] }>('/engines/weights', { method: 'PUT', body: JSON.stringify({ weights }) }),
+};
+
+// ── 补齐 C: K线 + 决策轨迹 ──────────
+import type { OhlcvResp, DecisionTrailResp } from '@/types/api';
+
+export const chartApi = {
+  ohlcv: (symbol: string, limit = 120) => req<OhlcvResp>(`/ohlcv/${encodeURIComponent(symbol)}?limit=${limit}`),
+  decisionTrail: (limit = 20) => req<DecisionTrailResp>(`/decision-trail/recent?limit=${limit}`),
+};
+
+// ── 补齐 I: FGI 情绪 + 统一事件时间线 ──────────
+import type { FgiResp, TimelineResp } from '@/types/api';
+
+export const streamApi = {
+  fgi: () => req<FgiResp>('/sentiment/fgi'),
+  timeline: (limit = 40) => req<TimelineResp>(`/events/timeline?limit=${limit}`),
 };

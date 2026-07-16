@@ -1,0 +1,13 @@
+[Unit]
+Description=Helivex consensus adapter — 多引擎共识大脑(3O),写 paper.consensus_signals(gated,observe;DB->DB)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/soffy/projects/helivex
+# 纯 DB->DB(paper.engine_signals/regime_state + md.sentiment/onchain 同在 platform-postgres)。
+# 计算在 platform/3O 的 oskill.consensus + omodul.consensus_workflow。只 promoted 引擎驱动执行。
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/consensus_adapter.py --once
+StandardOutput=append:/home/soffy/helivex_consensus_adapter.log
+StandardError=append:/home/soffy/helivex_consensus_adapter.log

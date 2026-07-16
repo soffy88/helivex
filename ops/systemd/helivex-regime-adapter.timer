@@ -1,0 +1,9 @@
+[Unit]
+Description=Helivex regime adapter timer (every 30min — regime shifts slowly; DB->DB cheap)
+
+[Timer]
+OnCalendar=*:0/30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

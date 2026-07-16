@@ -1,0 +1,52 @@
+strategy: futures_signal_port
+description: "helixa futures-signal-engine \u79FB\u690D \u2014 1H \u7A81\u7834 + \u6210\
+  \u4EA4\u91CF\u6FC0\u589E(\u22651.5\xD7) + RSI \u533A\u95F4(\u591A 45-75 / \u7A7A\
+  \ 25-55)"
+timeframe: 1H
+instruments:
+- BTC-USDT-SWAP
+- ETH-USDT-SWAP
+- SOL-USDT-SWAP
+db_table: market_data.ohlcv_1h
+# okx_swap_1h = 真 1H SWAP bars(backfill_1h_swap.py 补齐)。此前误写 okx(现货源),
+# gate 对 SWAP 标的会查无数据。
+db_source: okx_swap_1h
+indicators:
+  breakout:
+    enabled: true
+    period: 20
+  volume:
+    enabled: true
+    ma_period: 20
+    surge_mult: 1.5
+  rsi:
+    enabled: true
+    period: 14
+    long_min: 45
+    long_max: 75
+    short_min: 25
+    short_max: 55
+signal_logic:
+  min_confluence: 3
+  direction: dual
+risk:
+  cost_bps: 10
+  max_position_pct: 1
+live:
+  breakout_period: 20
+  vol_ma_period: 20
+  vol_surge_mult: 1.5
+  rsi_period: 14
+  qty_usd: 100
+  trade_enabled: true
+  use_ema: true
+  ema_period: 50
+  use_macd: true
+  macd_fast: 12
+  macd_slow: 26
+  macd_signal: 9
+mode: paper
+status: ported-paper
+gate:
+  n_splits: 6
+  embargo_bars: 50

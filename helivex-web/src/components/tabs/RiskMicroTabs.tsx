@@ -7,12 +7,12 @@
 
 import { useState } from 'react';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
-import { riskApi, microApi } from '@/lib/api-client';
+import { riskApi, microApi, portfolioApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
 import { Sparkline } from '../charts';
-import type { RiskStatus, RiskEvent, MicroLatest, MicroSeriesPoint } from '@/types/api';
+import type { RiskStatus, RiskEvent, MicroLatest, MicroSeriesPoint, CvarWeights, PositionCaps } from '@/types/api';
 
-const usd = (v: number) => (v >= 0 ? '+' : '−') + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
+const usd = (v: number) => (v >= 0 ? '+' : '-') + '$' + Math.abs(v).toLocaleString(undefined, { maximumFractionDigits: 2 });
 const sevColor = (s: string) => s === 'critical' ? 'var(--destructive)' : s === 'high' ? 'oklch(0.70 0.15 80)' : 'var(--muted-foreground)';
 
 /** utilization bar: value vs cap, fills + turns red as it approaches the cap */
@@ -46,7 +46,7 @@ function ImbalanceBar({ v }: { v: number }) {
 
 export function RiskTab() {
   const { data, loading, error, stale } = useApi(
-    () => Promise.all([riskApi.status(), riskApi.events()]),
+    () => Promise.all([riskApi.status(), riskApi.events(), portfolioApi.cvarWeights(), portfolioApi.positionCaps()]),
     [], 2000, 'risk',
   );
   const [confirm, setConfirm] = useState(false);
@@ -54,7 +54,7 @@ export function RiskTab() {
 
   if (loading && !data) return <div className="hv-tab"><Skeleton /></div>;
   if (error && !data) return <div className="hv-tab"><EmptyState text="网关连接失败" sub={error} /></div>;
-  const [st, events] = data as [RiskStatus, RiskEvent[]];
+  const [st, events, cvarWeights, positionCaps] = data as [RiskStatus, RiskEvent[], CvarWeights, PositionCaps];
   const ks = st.kill_switch;
 
   const doTrip = async () => { setBusy(true); try { await riskApi.kill('manual trip via dashboard'); } finally { setBusy(false); setConfirm(false); } };
@@ -110,6 +110,58 @@ export function RiskTab() {
         <div className="hv-metric-card"><span className="hv-metric-label">最大持仓数</span><span className="hv-metric-val">{st.caps.max_positions}</span></div>
       </div>
       <div className="hv-honest-note">回撤基于已实现 P&L(未标记未实现持仓);kill-switch 跨进程文件标志,monitor 每 120s 检查。软停只拦新开仓,平仓永远放行。</div>
+
+      {/* CVaR 组合权重(3O phase 1) */}
+      <div className="hv-section-title">CVaR 组合权重{cvarWeights.method && ` — ${cvarWeights.method === 'cvar_sharpe' ? 'CVaR-Sharpe' : '等权重降级'}`}</div>
+      {cvarWeights.weights.length === 0 ? (
+        <EmptyState text="暂无数据" sub="helivex-cvar-risk-adapter.timer 尚未跑过一轮(每小时)" />
+      ) : (
+        <>
+          <div className="hv-grid-3">
+            {cvarWeights.weights.map(w => (
+              <div key={w.instrument} className="hv-metric-card">
+                <span className="hv-metric-label">{w.instrument}</span>
+                <span className="hv-metric-val">{(w.weight * 100).toFixed(2)}%</span>
+              </div>
+            ))}
+          </div>
+          <div className="hv-honest-note">
+            {cvarWeights.fallback_reason
+              ? `等权重降级:${cvarWeights.fallback_reason}`
+              : `n_obs=${cvarWeights.n_obs}(${cvarWeights.lookback_days}天回看)· 组合 95% CVaR ≈ ${((cvarWeights.portfolio_cvar_95 ?? 0) * 100).toFixed(2)}%`}
+            {' · as of '}{cvarWeights.as_of ? new Date(cvarWeights.as_of).toLocaleString() : '—'}
+          </div>
+        </>
+      )}
+
+      {/* 三层仓位上限(3O phase 1) */}
+      <div className="hv-section-title">三层动态仓位上限</div>
+      {positionCaps.caps.length === 0 ? (
+        <EmptyState text="暂无数据" sub="helivex-cvar-risk-adapter.timer 尚未跑过一轮(每小时)" />
+      ) : (
+        <table className="hv-table" aria-label="三层动态仓位上限">
+          <thead>
+            <tr><th>标的</th><th>Tier1 余量</th><th>Tier2 ATR 上限</th><th>Tier3 相关性裁剪</th><th>生效上限</th><th>约束档位</th></tr>
+          </thead>
+          <tbody>
+            {positionCaps.caps.map(c => (
+              <tr key={c.instrument}>
+                <td>{c.instrument}</td>
+                <td>${c.tier1_headroom.toFixed(0)}</td>
+                <td>${c.tier2_atr_cap.toFixed(0)}</td>
+                <td>${c.tier3_corr_clip.toFixed(0)}</td>
+                <td>${c.effective_cap_usd.toFixed(0)}</td>
+                <td>{c.binding_tier}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="hv-honest-note">
+        当前模式:<strong>{positionCaps.enforce_mode === 'observe' ? '仅观察(observe)— 不接实盘拦截' : positionCaps.enforce_mode}</strong>
+        {' · as of '}{positionCaps.as_of ? new Date(positionCaps.as_of).toLocaleString() : '—'}
+        。observe 模式下这里的数字只做记录,不影响真实开仓判定(paper.risk.gate_entry 不变)。
+      </div>
 
       {/* events */}
       <div className="hv-section-title">风控事件(paper.risk_events)</div>

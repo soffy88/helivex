@@ -5,7 +5,7 @@
 'use client';
 
 import { useState } from 'react';
-import { OEquityCurveChart } from '@helios/blocks';
+import { EquityChart } from './charts';
 import { EmptyState, Skeleton } from './EmptyState';
 import { detailApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
@@ -74,7 +74,7 @@ export function EquityView({ id }: { id: string }) {
   if (pts.length < 2) return <EmptyState text="数据不足" sub="需 ≥2 个成交点" />;
   return (
     <div className="hv-chart-box">
-      <OEquityCurveChart points={pts.map(p => ({ date: p.date, equity: p.equity, drawdown: p.drawdown }))} showDrawdown />
+      <EquityChart pts={pts} h={230} />
     </div>
   );
 }
@@ -143,7 +143,7 @@ export function StatsView({ id }: { id: string }) {
         <Metric label="胜率" val={`${(s.win_rate * 100).toFixed(0)}%`} />
         <Metric label="盈亏比" val={s.profit_factor.toFixed(2)} />
         <Metric label="Forward Sharpe" val={s.forward_sharpe.toFixed(2)} />
-        <Metric label="最大回撤" val={`${(s.max_drawdown * 100).toFixed(0)}%`} />
+        <Metric label="最大回撤" val={`${(s.max_drawdown * 100).toFixed(2)}%`} />
         <Metric label="累计盈亏" val={`$${s.total_pnl?.toFixed?.(4) ?? s.total_pnl}`} />
       </div>
     </div>

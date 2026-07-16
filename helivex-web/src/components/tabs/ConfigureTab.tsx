@@ -7,13 +7,13 @@
 
 import { useEffect, useState } from 'react';
 import { EmptyState, Skeleton, StaleBanner } from '../EmptyState';
-import { helivexApi } from '@/lib/api-client';
+import { helivexApi, ensembleApi } from '@/lib/api-client';
 import { useApi } from '@/lib/use-api';
-import type { StrategyState } from '@/types/api';
+import type { StrategyState, EngineWeightsResp, ConsensusConfigResp } from '@/types/api';
 
 type Cfg = Record<string, unknown> & {
   description?: string; timeframe?: string; instruments?: string[];
-  live?: Record<string, number>;
+  live?: Record<string, number | boolean>;
   indicators?: Record<string, Record<string, unknown>>;
   signal_logic?: Record<string, unknown>; risk?: Record<string, unknown>;
 };
@@ -27,6 +27,40 @@ const LIVE_META: Record<string, { label: string; step: number; min?: number }> =
   hold:    { label: '持仓 bars (时间止损)', step: 1, min: 1 },
   bear_ma: { label: '熊市过滤 MA (0=关)', step: 1, min: 0 },
   qty_usd: { label: '每单名义 (USD)', step: 10, min: 0 },
+  // helixa 移植策略 — trend_follower
+  donchian_period:  { label: 'Donchian 周期 (bars)', step: 1, min: 2 },
+  adx_period:       { label: 'ADX 周期', step: 1, min: 2 },
+  adx_entry:        { label: 'ADX 入场门 (≥)', step: 1, min: 0 },
+  adx_exit:         { label: 'ADX 出场门 (<)', step: 1, min: 0 },
+  chandelier_period:{ label: 'Chandelier 周期 (bars)', step: 1, min: 2 },
+  chandelier_mult:  { label: 'Chandelier ATR 乘数', step: 0.1, min: 0 },
+  max_holding_days: { label: '最长持仓 (日)', step: 1, min: 1 },
+  // scalper_v2
+  bb_period:          { label: 'Bollinger 周期', step: 1, min: 2 },
+  bb_k:               { label: 'Bollinger K (σ)', step: 0.1, min: 0 },
+  rsi_period:         { label: 'RSI 周期', step: 1, min: 2 },
+  adx_enter_breakout: { label: 'ADX 进突破模式 (≥)', step: 1, min: 0 },
+  adx_exit_breakout:  { label: 'ADX 退突破模式 (<)', step: 1, min: 0 },
+  cooldown_bars:      { label: '模式切换冷却 (bars)', step: 1, min: 0 },
+  trailing_atr_mult:  { label: '突破移动止损 ATR 乘数', step: 0.1, min: 0 },
+  breakout_exit_adx:  { label: '突破持仓 ADX 平仓 (<)', step: 1, min: 0 },
+  max_holding_bars:   { label: '最长持仓 (bars)', step: 1, min: 1 },
+  // futures-signal-engine
+  breakout_period: { label: '突破窗口 (bars)', step: 1, min: 2 },
+  vol_ma_period:   { label: '量能均线周期', step: 1, min: 2 },
+  vol_surge_mult:  { label: '量能激增倍数 (×)', step: 0.1, min: 0 },
+  // 通用技术指标(EMA 趋势 + MACD 动量,汇合过滤)
+  ema_period:  { label: 'EMA 趋势周期', step: 1, min: 2 },
+  macd_fast:   { label: 'MACD 快线周期', step: 1, min: 2 },
+  macd_slow:   { label: 'MACD 慢线周期', step: 1, min: 2 },
+  macd_signal: { label: 'MACD 信号周期', step: 1, min: 2 },
+};
+
+// live params that are booleans → rendered as a toggle instead of a number input
+const LIVE_BOOL_META: Record<string, { label: string; onText: string; offText: string }> = {
+  trade_enabled: { label: '交易开关', onText: '● paper 交易(下单)', offText: '○ observe(只记录)' },
+  use_ema:  { label: 'EMA 趋势过滤', onText: '● 开', offText: '○ 关' },
+  use_macd: { label: 'MACD 动量过滤', onText: '● 开', offText: '○ 关' },
 };
 
 export function ConfigureTab() {
@@ -52,7 +86,7 @@ export function ConfigureTab() {
   const list = strategies ?? [];
   if (list.length === 0) return <div className="hv-tab"><EmptyState text="暂无策略" /></div>;
 
-  const setLive = (key: string, value: number) =>
+  const setLive = (key: string, value: number | boolean) =>
     setDraft(d => d ? { ...d, live: { ...(d.live ?? {}), [key]: value } } : d);
 
   const dirty = draft && cfg.data && JSON.stringify(draft) !== JSON.stringify(cfg.data);
@@ -106,20 +140,38 @@ export function ConfigureTab() {
           {liveKeys.length === 0 ? (
             <EmptyState text="该策略无实盘参数(live 块)" sub="paper/node.py 未声明可调 live 参数" />
           ) : (
-            <div className="hv-grid-3">
-              {liveKeys.map(k => {
-                const m = LIVE_META[k] ?? { label: k, step: 1 };
+            <>
+              {/* 布尔开关(如 trade_enabled:observe ↔ paper 交易)*/}
+              {liveKeys.filter(k => typeof draft.live![k] === 'boolean').map(k => {
+                const bm = LIVE_BOOL_META[k] ?? { label: k, onText: '开', offText: '关' };
+                const on = Boolean(draft.live![k]);
                 return (
-                  <div key={k} className="hv-metric-card" style={{ gap: 6 }}>
-                    <span className="hv-metric-label">{m.label}</span>
-                    <input className="hv-param-input" type="number" step={m.step} min={m.min}
-                      aria-label={m.label}
-                      value={draft.live![k]}
-                      onChange={e => setLive(k, Number(e.target.value))} />
+                  <div key={k} className="hv-metric-card" style={{ gap: 6, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span className="hv-metric-label">{bm.label}</span>
+                    <button type="button" className="hv-strat-tab" data-active={on ? 'true' : undefined}
+                      aria-pressed={on} onClick={() => setLive(k, !on)}
+                      style={{ color: on ? 'var(--success,#3fb950)' : 'var(--muted-foreground)' }}>
+                      {on ? bm.onText : bm.offText}
+                    </button>
                   </div>
                 );
               })}
-            </div>
+              {/* 数值参数 */}
+              <div className="hv-grid-3">
+                {liveKeys.filter(k => typeof draft.live![k] !== 'boolean').map(k => {
+                  const m = LIVE_META[k] ?? { label: k, step: 1 };
+                  return (
+                    <div key={k} className="hv-metric-card" style={{ gap: 6 }}>
+                      <span className="hv-metric-label">{m.label}</span>
+                      <input className="hv-param-input" type="number" step={m.step} min={m.min}
+                        aria-label={m.label}
+                        value={draft.live![k] as number}
+                        onChange={e => setLive(k, Number(e.target.value))} />
+                    </div>
+                  );
+                })}
+              </div>
+            </>
           )}
 
           <div className="hv-cfg-actions">
@@ -165,6 +217,82 @@ export function ConfigureTab() {
           )}
         </>
       )}
+
+      <ConsensusTuner />
+    </div>
+  );
+}
+
+/**
+ * ConsensusTuner — 共识层在线调参(补齐 G,helixa /strategy 页等价物,更强)。
+ * 全局(非 per-strategy):共识执行阈值 + 每引擎 base 权重。observe-only:只改"若执行
+ * 需多强共识/各引擎多大话语权"的判据,adapter 下一轮(~2min)读库生效,永不下单。
+ */
+function ConsensusTuner() {
+  const cfg = useApi<ConsensusConfigResp>(() => ensembleApi.consensusConfig(), [], 30000, 'cons-cfg');
+  const w = useApi<EngineWeightsResp>(() => ensembleApi.weights(), [], 30000, 'cons-w');
+
+  const [thr, setThr] = useState<number | null>(null);
+  const [wDraft, setWDraft] = useState<Record<string, number>>({});
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => { if (cfg.data) setThr(cfg.data.base_threshold); setMsg(null); }, [cfg.data]);
+  useEffect(() => {
+    if (w.data) setWDraft(Object.fromEntries(w.data.weights.map(x => [x.engine, x.base_weight])));
+  }, [w.data]);
+
+  if ((cfg.loading && !cfg.data) || (w.loading && !w.data)) return <div style={{ marginTop: 24 }}><Skeleton /></div>;
+  const engines = w.data?.weights ?? [];
+  const thrDirty = thr != null && cfg.data != null && thr !== cfg.data.base_threshold;
+  const wChanged = engines.filter(e => wDraft[e.engine] != null && wDraft[e.engine] !== e.base_weight);
+  const dirty = thrDirty || wChanged.length > 0;
+
+  const save = async () => {
+    setSaving(true); setMsg(null);
+    try {
+      if (thrDirty && thr != null) await ensembleApi.putConsensusConfig(thr);
+      if (wChanged.length > 0)
+        await ensembleApi.putEngineWeights(wChanged.map(e => ({ engine: e.engine, base_weight: wDraft[e.engine] })));
+      setMsg({ ok: true, text: '已保存 — 共识 adapter 下一轮(≤2min)生效' });
+      cfg.refetch?.(); w.refetch?.();
+    } catch (e) {
+      setMsg({ ok: false, text: `保存失败:${String((e as Error)?.message ?? e)}` });
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div className="hv-section-title">共识层在线调参(observe · 全局,不分策略)</div>
+      <div className="hv-grid-3">
+        <div className="hv-metric-card" style={{ gap: 6 }}>
+          <span className="hv-metric-label">共识执行阈值 base_threshold (0.1–0.9)</span>
+          <input className="hv-param-input" type="number" step={0.01} min={0.1} max={0.9}
+            aria-label="共识执行阈值"
+            value={thr ?? ''} onChange={e => setThr(Number(e.target.value))} />
+        </div>
+        {engines.map(e => (
+          <div key={e.engine} className="hv-metric-card" style={{ gap: 6 }}>
+            <span className="hv-metric-label">
+              {e.engine} base 权重 (0–5) · dyn {e.dyn_weight.toFixed(2)} · acc {e.accuracy != null ? (e.accuracy * 100).toFixed(0) + '%' : '—'}
+            </span>
+            <input className="hv-param-input" type="number" step={0.1} min={0} max={5}
+              aria-label={`${e.engine} base 权重`}
+              value={wDraft[e.engine] ?? ''} onChange={ev => setWDraft(d => ({ ...d, [e.engine]: Number(ev.target.value) }))} />
+          </div>
+        ))}
+      </div>
+      <div className="hv-cfg-actions">
+        <button className="hv-run-gate" onClick={save} disabled={saving || !dirty}>
+          {saving ? '保存中…' : dirty ? '保存共识调参' : '无改动'}
+        </button>
+        {msg && <span className="hv-gate-reason" style={{ color: msg.ok ? 'var(--success,#3fb950)' : 'var(--destructive)' }}>{msg.text}</span>}
+      </div>
+      <div className="hv-honest-note">
+        阈值 = 「共识分需多强才算可执行」;引擎 base 权重 = 各引擎在共识里的话语权(有归因数据后
+        EWMA 会在此基础上按胜率自适应 dyn 权重)。<strong>observe-only</strong>:只改判据,共识本身
+        不下单;写库后由共识 adapter 下一轮读取生效。
+      </div>
     </div>
   );
 }

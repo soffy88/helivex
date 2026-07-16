@@ -1,11 +1,16 @@
-"""Backfill market_data.ohlcv_1h and funding_rates from OKX public API.
+"""Backfill market_data.ohlcv_1h (OKX spot) from OKX public API.
 
 Usage:
     python ops/scripts/backfill_ohlcv.py [--months 12]
 
 No OKX API key required — uses public history-candles endpoint.
 Idempotent (ON CONFLICT DO NOTHING).
+
+Funding backfill was removed from this script: it duplicated funding_from_md.py
+(iris/md adapter, helivex-funding-md-adapter.timer), which now populates
+market_data.funding_rates from md.funding_settled every 10min.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,7 +24,6 @@ import httpx
 DB_DSN = "postgresql://helios:helios_dev_pass@localhost:5434/helivex"
 OKX_BASE = "https://www.okx.com"
 INSTRUMENTS = ["BTC-USDT", "ETH-USDT", "SOL-USDT"]
-SWAP_INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
 
 
 async def fetch_candles(
@@ -73,17 +77,19 @@ async def backfill_ohlcv(
             if ts_ms < cutoff_ms:
                 continue
             bar_close_ts = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
-            records.append((
-                inst_id,
-                bar_close_ts,
-                "okx",
-                float(row[1]),  # open
-                float(row[2]),  # high
-                float(row[3]),  # low
-                float(row[4]),  # close
-                float(row[5]),  # volume
-                float(row[6]) if len(row) > 6 else None,  # quote_volume
-            ))
+            records.append(
+                (
+                    inst_id,
+                    bar_close_ts,
+                    "okx",
+                    float(row[1]),  # open
+                    float(row[2]),  # high
+                    float(row[3]),  # low
+                    float(row[4]),  # close
+                    float(row[5]),  # volume
+                    float(row[6]) if len(row) > 6 else None,  # quote_volume
+                )
+            )
 
         if records:
             await conn.executemany(
@@ -108,77 +114,6 @@ async def backfill_ohlcv(
     return rows_inserted
 
 
-async def backfill_funding(
-    conn: asyncpg.Connection,
-    client: httpx.AsyncClient,
-    swap_id: str,
-) -> int:
-    """Backfill funding_rates for one SWAP instrument (full history). Returns rows inserted."""
-    total_inserted = 0
-    after_ms: int | None = None  # paginate backwards using 'after'
-
-    while True:
-        params: dict = {"instId": swap_id, "limit": "100"}
-        if after_ms is not None:
-            params["after"] = str(after_ms)
-
-        r = await client.get(
-            OKX_BASE + "/api/v5/public/funding-rate-history",
-            params=params,
-            timeout=15,
-        )
-        data = r.json()
-        if str(data.get("code", "1")) != "0":
-            print(f"  [funding] {swap_id}: API error {data.get('code')} {data.get('msg')}")
-            break
-
-        items = data.get("data", [])
-        if not items:
-            break
-
-        # OKX returns newest-first; use oldest ts to page further back
-        oldest_ms = int(items[-1]["fundingTime"])
-
-        records = []
-        for row in items:
-            ts = datetime.fromtimestamp(int(row["fundingTime"]) / 1000, tz=timezone.utc)
-            next_ts = (
-                datetime.fromtimestamp(int(row["nextFundingTime"]) / 1000, tz=timezone.utc)
-                if row.get("nextFundingTime")
-                else None
-            )
-            records.append((
-                swap_id,
-                ts,
-                "okx",
-                float(row.get("fundingRate", 0)),
-                float(row.get("realizedRate", row.get("fundingRate", 0))),
-                next_ts,
-            ))
-
-        if records:
-            await conn.executemany(
-                """
-                INSERT INTO market_data.funding_rates
-                    (instrument, ts, source, funding_rate, realized_rate, next_funding_time)
-                VALUES ($1, $2, $3, $4, $5, $6)
-                ON CONFLICT (instrument, ts, source) DO NOTHING
-                """,
-                records,
-            )
-            # asyncpg.executemany returns None, so count the batch we submitted.
-            # (ON CONFLICT DO NOTHING may dedupe some; this is an upper-bound row count.)
-            total_inserted += len(records)
-
-        if len(items) < 100:
-            break  # last page
-
-        after_ms = oldest_ms
-        await asyncio.sleep(0.12)
-
-    return total_inserted
-
-
 async def main(months: int = 12) -> None:
     conn = await asyncpg.connect(DB_DSN)
     headers = {"User-Agent": "helivex-backfill/1.0"}
@@ -190,14 +125,7 @@ async def main(months: int = 12) -> None:
             t0 = time.monotonic()
             n = await backfill_ohlcv(conn, client, inst, months)
             total_ohlcv += n
-            print(f"  {inst:15s}  {n:5d} rows  ({time.monotonic()-t0:.1f}s)")
-
-        print(f"\n=== Funding rate backfill (full available history) ===")
-        total_funding = 0
-        for swap in SWAP_INSTRUMENTS:
-            n = await backfill_funding(conn, client, swap)
-            total_funding += n
-            print(f"  {swap:20s}  {n:4d} rows")
+            print(f"  {inst:15s}  {n:5d} rows  ({time.monotonic() - t0:.1f}s)")
 
         # Row count summary
         print("\n=== DB row counts ===")
@@ -206,11 +134,6 @@ async def main(months: int = 12) -> None:
                 "SELECT COUNT(*) FROM market_data.ohlcv_1h WHERE instrument = $1", inst
             )
             print(f"  ohlcv_1h  {inst:15s}  {cnt} rows")
-        for swap in SWAP_INSTRUMENTS:
-            cnt = await conn.fetchval(
-                "SELECT COUNT(*) FROM market_data.funding_rates WHERE instrument = $1", swap
-            )
-            print(f"  funding   {swap:20s}  {cnt} rows")
 
         span = await conn.fetchrow(
             "SELECT MIN(bar_close_ts), MAX(bar_close_ts) FROM market_data.ohlcv_1h"
@@ -219,7 +142,6 @@ async def main(months: int = 12) -> None:
 
     await conn.close()
     print(f"\nTotal ohlcv rows inserted this run: {total_ohlcv}")
-    print(f"Total funding rows inserted this run: {total_funding}")
 
 
 if __name__ == "__main__":

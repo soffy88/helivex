@@ -1,0 +1,9 @@
+[Unit]
+Description=Helivex CVaR risk adapter timer (hourly — matches ohlcv_1h freshness; DB->DB, cheap batch compute)
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

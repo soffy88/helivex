@@ -1,0 +1,9 @@
+[Unit]
+Description=Helivex signal engines adapter timer (every 15min — TA/ML signal refresh; ML WFV is the cost, still cheap)
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target

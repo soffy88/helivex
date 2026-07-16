@@ -1,0 +1,9 @@
+[Unit]
+Description=Helivex consensus adapter timer (every 15min — after signal engines refresh)
+
+[Timer]
+OnCalendar=*:7/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target

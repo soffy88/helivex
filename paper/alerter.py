@@ -15,6 +15,7 @@ Usage (from paper/monitor.py):
   engine = build_alerter()
   engine.run()  # blocks; wrap in threading.Thread for background
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,28 +26,44 @@ from oservi.engines.alerter import AlerterEngine
 from paper.evaluators import (
     eval_audit_chain,
     eval_backup_freshness,
+    eval_burst_recurrence,
+    eval_circuit_breaker_events,
     eval_deadman_heartbeat,
+    eval_ensemble_freshness,
     eval_gateway_alive,
+    eval_ingestion_freshness,
     eval_l2_recorder_flow,
+    eval_persist_fidelity,
     eval_node_alive,
     eval_on_bar_trigger,
+    eval_regime_switch,
+    eval_trade_events,
+    eval_trading_allowed_heartbeat,
     eval_web_alive,
+    eval_entry_signal_without_fill,
     eval_write_freshness,
     eval_ws_tick_flow,
 )
-from paper.risk import eval_daily_loss, eval_portfolio_drawdown
+from paper.risk import (
+    eval_daily_loss,
+    eval_portfolio_drawdown,
+    eval_refresh_dynamic_caps,
+)
 
 log = logging.getLogger(__name__)
 
 
 # ── channels ──────────────────────────────────────────────────────────────────
 
+
 def log_channel(*, text: str, **_: object) -> None:
     """Always-on channel: emit alert to Python logger."""
     log.warning("[PAPER ALERT] %s", text)
 
 
-def tg_channel(*, text: str, bot_token: str = "", chat_id: str = "", **_: object) -> None:
+def tg_channel(
+    *, text: str, bot_token: str = "", chat_id: str = "", **_: object
+) -> None:
     """Telegram channel — active only when bot_token + chat_id are provided.
 
     The AlerterEngine invokes channels from within its running event loop, so
@@ -79,10 +96,11 @@ def tg_channel(*, text: str, bot_token: str = "", chat_id: str = "", **_: object
 
 # ── factory ───────────────────────────────────────────────────────────────────
 
+
 def build_alerter() -> AlerterEngine:
     """Build and return a configured AlerterEngine for helivex paper trading."""
-    tg_bot   = os.environ.get("TG_BOT_TOKEN", "")
-    tg_chat  = os.environ.get("TG_CHAT_ID", "")
+    tg_bot = os.environ.get("TG_BOT_TOKEN", "")
+    tg_chat = os.environ.get("TG_CHAT_ID", "")
 
     channels = [log_channel]
     if tg_bot and tg_chat:
@@ -102,20 +120,30 @@ def build_alerter() -> AlerterEngine:
             eval_web_alive,
             eval_portfolio_drawdown,
             eval_daily_loss,
+            eval_refresh_dynamic_caps,
+            eval_ensemble_freshness,
+            eval_regime_switch,
+            eval_burst_recurrence,
+            eval_trading_allowed_heartbeat,
+            eval_trade_events,
+            eval_circuit_breaker_events,
             eval_l2_recorder_flow,
+            eval_entry_signal_without_fill,
             eval_write_freshness,
+            eval_ingestion_freshness,
+            eval_persist_fidelity,
             eval_backup_freshness,
             eval_deadman_heartbeat,
         ],
         channels=channels,
         trigger={"on_interval": 120},  # check every 2 minutes
         config={
-            "throttle_seconds":      600,   # same alert max once per 10 min
-            "dedup_bucket_seconds":  3600,  # same alert max once per hour
+            "throttle_seconds": 600,  # same alert max once per 10 min
+            "dedup_bucket_seconds": 3600,  # same alert max once per hour
             "channel_configs": {
                 "tg_channel": {
                     "bot_token": tg_bot,
-                    "chat_id":   tg_chat,
+                    "chat_id": tg_chat,
                 },
             },
             "evaluator_configs": {
@@ -148,12 +176,19 @@ def build_alerter() -> AlerterEngine:
                 "eval_l2_recorder_flow": {
                     "stale_seconds": 5 * 60,
                 },
+                "eval_entry_signal_without_fill": {
+                    "grace_seconds": 120,
+                    "lookback_seconds": 3600,
+                },
                 "eval_write_freshness": {
                     "stale_seconds": 15 * 60,  # 3× the 5-min scalp signal cadence
                     "pid_file": "/tmp/helivex_paper_node.pid",
                 },
                 "eval_backup_freshness": {
                     "max_age_hours": 26,
+                },
+                "eval_ingestion_freshness": {
+                    "max_age_hours": 3.0,  # 1H/5M timers run hourly → 3 missed = dead
                 },
             },
         },

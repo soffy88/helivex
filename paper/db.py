@@ -1,4 +1,5 @@
 """paper.db — Schema creation + fill/signal logging for paper trading execution fidelity."""
+
 from __future__ import annotations
 
 import asyncio
@@ -81,8 +82,13 @@ async def log_signal(
             audit_record_id, fingerprint_hex, sig_b64, indicators)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
            RETURNING id""",
-        strategy_id, instrument, action, signal_price,
-        audit_record_id, fingerprint_hex, sig_b64,
+        strategy_id,
+        instrument,
+        action,
+        signal_price,
+        audit_record_id,
+        fingerprint_hex,
+        sig_b64,
         json.dumps(indicators) if indicators else None,
     )
     return row["id"]
@@ -105,7 +111,9 @@ async def log_fill(
     slippage_bps: float | None = None
     if signal_price and signal_price > 0:
         direction = 1 if side == "BUY" else -1
-        slippage_bps = direction * (actual_fill_price - signal_price) / signal_price * 10000
+        slippage_bps = (
+            direction * (actual_fill_price - signal_price) / signal_price * 10000
+        )
 
     await conn.execute(
         """INSERT INTO paper.fills
@@ -113,16 +121,27 @@ async def log_fill(
             signal_price, actual_fill_price, slippage_bps,
             order_id, venue_order_id, latency_ms, fill_type, signal_id)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)""",
-        strategy_id, instrument, side, quantity,
-        signal_price, actual_fill_price, slippage_bps,
-        order_id, venue_order_id, latency_ms, fill_type, signal_id,
+        strategy_id,
+        instrument,
+        side,
+        quantity,
+        signal_price,
+        actual_fill_price,
+        slippage_bps,
+        order_id,
+        venue_order_id,
+        latency_ms,
+        fill_type,
+        signal_id,
     )
 
 
-async def fidelity_report(conn: asyncpg.Connection, strategy_id: str = "") -> list[dict]:
+async def fidelity_report(
+    conn: asyncpg.Connection, strategy_id: str = ""
+) -> list[dict]:
     """Compute per-strategy execution fidelity from fill table."""
     where = "WHERE strategy_id = $1" if strategy_id else ""
-    args  = [strategy_id] if strategy_id else []
+    args = [strategy_id] if strategy_id else []
     rows = await conn.fetch(
         f"""SELECT
             strategy_id,
@@ -147,16 +166,50 @@ async def fidelity_report(conn: asyncpg.Connection, strategy_id: str = "") -> li
     for sig_row in rows:
         strat = sig_row["strategy_id"]
         f = fills_by_strat.get(strat, {})
-        results.append({
-            "strategy_id":       strat,
-            "n_signals":         sig_row["n_signals"],
-            "n_fills":           f.get("n_fills", 0),
-            "fill_rate":         f.get("n_fills", 0) / sig_row["n_signals"] if sig_row["n_signals"] else 0,
-            "mean_slippage_bps": f.get("mean_slippage"),
-            "p95_slippage_bps":  f.get("p95_slippage"),
-            "mean_latency_ms":   f.get("mean_latency"),
-        })
+        results.append(
+            {
+                "strategy_id": strat,
+                "n_signals": sig_row["n_signals"],
+                "n_fills": f.get("n_fills", 0),
+                "fill_rate": f.get("n_fills", 0) / sig_row["n_signals"]
+                if sig_row["n_signals"]
+                else 0,
+                "mean_slippage_bps": f.get("mean_slippage"),
+                "p95_slippage_bps": f.get("p95_slippage"),
+                "mean_latency_ms": f.get("mean_latency"),
+            }
+        )
     return results
+
+
+async def write_fidelity_summary(conn: asyncpg.Connection) -> int:
+    """Snapshot per-strategy execution fidelity into paper.fidelity_summary.
+
+    fidelity_report() computed exactly these columns but nothing ever persisted
+    them, leaving the table permanently empty (audit finding). This writes one
+    timestamped row per strategy so fidelity is queryable historically (drift in
+    slippage/latency over time), not only recomputable on-demand in the gateway.
+    Intended to be called periodically (the health monitor's 120s loop). Returns
+    the number of strategy rows written.
+    """
+    report = await fidelity_report(conn)
+    n = 0
+    for r in report:
+        await conn.execute(
+            """INSERT INTO paper.fidelity_summary
+               (strategy_id, n_signals, n_fills, fill_rate,
+                mean_slippage_bps, p95_slippage_bps, mean_latency_ms)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)""",
+            r["strategy_id"],
+            r["n_signals"],
+            r["n_fills"],
+            r["fill_rate"],
+            r["mean_slippage_bps"],
+            r["p95_slippage_bps"],
+            r["mean_latency_ms"],
+        )
+        n += 1
+    return n
 
 
 async def init_db() -> None:

@@ -10,6 +10,7 @@ safe to run on a short timer — steady state fetches 1-2 pages per instrument.
 OKX candle ts = bar OPEN time (ms); bar_close_ts stored = open_ts + 5m.
 Runs 3 instruments in parallel to reduce wall-clock time.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -19,42 +20,84 @@ import datetime
 import asyncpg
 import httpx
 
-DB_DSN          = "postgresql://helios:helios_dev_pass@localhost:5434/helivex"
-OKX_BASE        = "https://www.okx.com"
-INSTRUMENTS     = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
-BAR_INTERVAL    = "5m"
+DB_DSN = "postgresql://helios:helios_dev_pass@localhost:5434/helivex"
+OKX_BASE = "https://www.okx.com"
+INSTRUMENTS = ["BTC-USDT-SWAP", "ETH-USDT-SWAP", "SOL-USDT-SWAP"]
+BAR_INTERVAL = "5m"
 INTERVAL_MINUTES = 5
-TABLE           = "market_data.ohlcv_5m"
-SOURCE          = "okx_swap_5m"   # kept for continuity with migrated history
-SLEEP_MS        = 80   # ms between requests per instrument; 3 parallel ≈ 12 req/s total
+TABLE = "market_data.ohlcv_5m"
+SOURCE = "okx_swap_5m"  # kept for continuity with migrated history
+SLEEP_MS = 80  # ms between requests per instrument; 3 parallel ≈ 12 req/s total
 
 
-async def watermark_dt(conn: asyncpg.Connection, inst: str, default_days: int) -> datetime.datetime:
+async def watermark_dt(
+    conn: asyncpg.Connection, inst: str, default_days: int
+) -> datetime.datetime:
     """Newest bar_close_ts already stored for `inst`, or (now - default_days) if empty."""
     row = await conn.fetchrow(
         f"SELECT MAX(bar_close_ts) FROM {TABLE} WHERE instrument=$1 AND source=$2",
-        inst, SOURCE,
+        inst,
+        SOURCE,
     )
     if row[0] is not None:
         return row[0]
-    return datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(days=default_days)
+    return datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(
+        days=default_days
+    )
 
 
-async def fetch_page(client: httpx.AsyncClient, inst: str, after_ms: int | None) -> list[list]:
+async def earliest_dt(conn: asyncpg.Connection, inst: str) -> datetime.datetime | None:
+    """Oldest bar_close_ts already stored for `inst` (history-mode start point)."""
+    row = await conn.fetchrow(
+        f"SELECT MIN(bar_close_ts) FROM {TABLE} WHERE instrument=$1 AND source=$2",
+        inst,
+        SOURCE,
+    )
+    return row[0]
+
+
+async def fetch_page(
+    client: httpx.AsyncClient, inst: str, after_ms: int | None
+) -> list[list]:
     params: dict = {"instId": inst, "bar": BAR_INTERVAL, "limit": "100"}
     if after_ms is not None:
         params["after"] = str(after_ms)
-    r = await client.get(OKX_BASE + "/api/v5/market/history-candles", params=params, timeout=30)
+    r = await client.get(
+        OKX_BASE + "/api/v5/market/history-candles", params=params, timeout=30
+    )
     return r.json().get("data", [])
 
 
-async def backfill_instrument(pool: asyncpg.Pool, client: httpx.AsyncClient,
-                              inst: str, default_days: int) -> int:
-    async with pool.acquire() as conn:
-        floor_dt = await watermark_dt(conn, inst, default_days)
-
-    after_ms = None  # start from now (OKX returns newest), page backwards
-    inserted = 0; pages = 0
+async def backfill_instrument(
+    pool: asyncpg.Pool,
+    client: httpx.AsyncClient,
+    inst: str,
+    default_days: int,
+    mode: str = "forward",
+) -> int:
+    if mode == "history":
+        # 向历史方向加深:从已存最早 bar 往回翻页,直到 (now - days) 深度。
+        async with pool.acquire() as conn:
+            earliest = await earliest_dt(conn, inst)
+        floor_dt = datetime.datetime.now(tz=datetime.timezone.utc) - datetime.timedelta(
+            days=default_days
+        )
+        if earliest is None:
+            after_ms = None  # empty table → behave like forward-from-now
+        elif earliest <= floor_dt:
+            return 0  # already deep enough
+        else:
+            # OKX `after` 按 open ts 过滤:earliest_close - interval = earliest_open
+            after_ms = int(
+                (earliest - datetime.timedelta(minutes=INTERVAL_MINUTES)).timestamp()
+                * 1000
+            )
+    else:
+        async with pool.acquire() as conn:
+            floor_dt = await watermark_dt(conn, inst, default_days)
+        after_ms = None  # start from now (OKX returns newest), page backwards
+    inserted = 0
+    pages = 0
 
     while True:
         page = await fetch_page(client, inst, after_ms)
@@ -68,17 +111,23 @@ async def backfill_instrument(pool: asyncpg.Pool, client: httpx.AsyncClient,
             if confirm != "1":
                 continue
             open_ts_ms = int(candle[0])
-            open_dt    = datetime.datetime.fromtimestamp(open_ts_ms / 1000, tz=datetime.timezone.utc)
-            close_dt   = open_dt + datetime.timedelta(minutes=INTERVAL_MINUTES)
-            rows.append((
-                inst, close_dt, SOURCE,
-                float(candle[1]),  # open
-                float(candle[2]),  # high
-                float(candle[3]),  # low
-                float(candle[4]),  # close
-                float(candle[5]),  # volume (base)
-                float(candle[7]) if len(candle) > 7 else 0.0,  # quote volume
-            ))
+            open_dt = datetime.datetime.fromtimestamp(
+                open_ts_ms / 1000, tz=datetime.timezone.utc
+            )
+            close_dt = open_dt + datetime.timedelta(minutes=INTERVAL_MINUTES)
+            rows.append(
+                (
+                    inst,
+                    close_dt,
+                    SOURCE,
+                    float(candle[1]),  # open
+                    float(candle[2]),  # high
+                    float(candle[3]),  # low
+                    float(candle[4]),  # close
+                    float(candle[5]),  # volume (base)
+                    float(candle[7]) if len(candle) > 7 else 0.0,  # quote volume
+                )
+            )
 
         if rows:
             async with pool.acquire() as conn:
@@ -98,12 +147,14 @@ async def backfill_instrument(pool: asyncpg.Pool, client: httpx.AsyncClient,
         ) + datetime.timedelta(minutes=INTERVAL_MINUTES)
 
         if pages % 50 == 0:
-            print(f"  {inst}: page {pages}, inserted={inserted}, oldest={oldest_close_dt}")
+            print(
+                f"  {inst}: page {pages}, inserted={inserted}, oldest={oldest_close_dt}"
+            )
 
         # Reached data we already have (or the floor) → stop.
         if oldest_close_dt <= floor_dt:
             break
-        if len(page) < 100:   # OKX returned fewer than max → no older data
+        if len(page) < 100:  # OKX returned fewer than max → no older data
             break
 
         after_ms = oldest_open_ms
@@ -112,13 +163,16 @@ async def backfill_instrument(pool: asyncpg.Pool, client: httpx.AsyncClient,
     return inserted
 
 
-async def main(default_days: int) -> None:
-    print(f"=== 5m refresh → {TABLE} (incremental, fallback {default_days}d) ===\n")
+async def main(default_days: int, mode: str = "forward") -> None:
+    print(f"=== 5m {mode} → {TABLE} (fallback/depth {default_days}d) ===\n")
     pool = await asyncpg.create_pool(DB_DSN, min_size=1, max_size=6)
 
     async with httpx.AsyncClient() as client:
         results = await asyncio.gather(
-            *[backfill_instrument(pool, client, inst, default_days) for inst in INSTRUMENTS],
+            *[
+                backfill_instrument(pool, client, inst, default_days, mode)
+                for inst in INSTRUMENTS
+            ],
             return_exceptions=True,
         )
 
@@ -134,7 +188,8 @@ async def main(default_days: int) -> None:
             row = await conn.fetchrow(
                 f"""SELECT COUNT(*), MIN(bar_close_ts), MAX(bar_close_ts)
                    FROM {TABLE} WHERE instrument=$1 AND source=$2""",
-                inst, SOURCE,
+                inst,
+                SOURCE,
             )
             if row[0]:
                 print(f"  {inst}: {row[0]} bars  {row[1]} → {row[2]}")
@@ -145,8 +200,21 @@ async def main(default_days: int) -> None:
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Incremental 5m OHLCV refresh into ohlcv_5m")
-    parser.add_argument("--days", type=int, default=30,
-                        help="history window to fetch when the table is empty for an instrument")
+    parser = argparse.ArgumentParser(
+        description="Incremental 5m OHLCV refresh into ohlcv_5m"
+    )
+    parser.add_argument(
+        "--days",
+        type=int,
+        default=30,
+        help="history window to fetch when the table is empty for an instrument"
+        " (history mode: total depth back from now)",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=["forward", "history"],
+        default="forward",
+        help="forward=增量到水位(timer 用);history=从已存最早 bar 向历史加深到 --days",
+    )
     args = parser.parse_args()
-    asyncio.run(main(args.days))
+    asyncio.run(main(args.days, args.mode))

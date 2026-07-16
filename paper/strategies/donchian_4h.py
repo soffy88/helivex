@@ -11,6 +11,7 @@ Signal (same logic as R4.4 backtest, no HMM filter for live simplicity):
 
 One position per instrument at a time. Fixed quantity (small notional).
 """
+
 from __future__ import annotations
 
 import datetime
@@ -24,17 +25,24 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
 from paper.audit import sign_signal
-from paper.risk import RISK
+from paper.risk import RISK, log_risk_event
 from paper.db import DB_DSN, DDL, log_signal, log_fill
 from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
+from paper.strategies._guard import (
+    close_positions_okx_safe,
+    own_open_qty,
+    start_exposure_sync,
+    resync_position_from_venue,
+    survive,
+)
 
 
 class Donchian4HConfig(StrategyConfig, frozen=True):
     instrument_id: str
     bar_type: str
-    n_enter: int = 20   # Donchian window for entry
-    n_exit:  int = 10   # Donchian window for exit
+    n_enter: int = 20  # Donchian window for entry
+    n_exit: int = 10  # Donchian window for exit
     qty_usd: float = 200.0  # notional per trade in USD
 
 
@@ -47,30 +55,98 @@ class Donchian4H(Strategy):
         super().__init__(config)
         n = max(config.n_enter, config.n_exit)
         self._closes: deque[float] = deque(maxlen=n + 2)
-        self._position: int = 0       # 0=flat, +1=long, -1=short
+        self._position: int = 0  # 0=flat, +1=long, -1=short
         self._signal_price: float | None = None
         self._signal_ts: int | None = None
         self._pending_signal_id: int | None = None
         self._order_submit_ns: int | None = None
         self._db: ResilientPool | None = None
-        self._tick_count: int = 0     # probe: count trade ticks received
+        self._tick_count: int = 0  # probe: count trade ticks received
 
     def _strategy_id(self) -> str:
         inst = self.config.instrument_id.replace(".", "_").replace("-", "_").lower()
         return f"{self.STRATEGY_BASE}_{inst}"
 
+    @survive
     def on_start(self) -> None:
         import asyncio
-        self._bar_type     = BarType.from_str(self.config.bar_type)
+
+        self._bar_type = BarType.from_str(self.config.bar_type)
         self._instrument_id_obj = InstrumentId.from_str(self.config.instrument_id)
         self.subscribe_bars(self._bar_type)
+        start_exposure_sync(self)
         # Probe: explicit trade sub so on_trade fires — verifies public WS tick flow
         self.subscribe_trade_ticks(self._instrument_id_obj)
-        self.log.info(f"[{self._strategy_id()}] started, subscribing to {self._bar_type}")
+        self.log.info(
+            f"[{self._strategy_id()}] started, subscribing to {self._bar_type}"
+        )
         # Resilient pool: retries the boot race + self-heals on container restart.
         self._db = ResilientPool(DB_DSN, DDL, name=self._strategy_id(), logger=self.log)
-        asyncio.ensure_future(self._db.ensure())
+        asyncio.ensure_future(self._boot())
         asyncio.ensure_future(self._rehydrate_position())
+
+    async def _boot(self) -> None:
+        import asyncio
+
+        await self._db.ensure()
+        await self._seed_warmup()
+        # Catch-up: 慢周期策略每 4H 才有一次决策窗口,重启若恰好跨过 bar 收盘就
+        # 会错过并要再等 4h。若刚错过的收盘在 30min 内(重启窗口),补做一次真实
+        # 决策(helixa max_bar_lag 同款思路);更旧则等下一根,绝不评估陈旧数据。
+        await asyncio.sleep(12)  # 让 _rehydrate_position(10s)先落定,避免重复开仓
+        self._catchup_eval()
+
+    def _catchup_eval(self) -> None:
+        import datetime as _dt
+
+        last = getattr(self, "_seed_last_close", None)
+        if last is None or self._closes is None or not self._closes:
+            return
+        age = (_dt.datetime.now(_dt.timezone.utc) - last).total_seconds()
+        if age > 1800:
+            return  # 收盘已过 30min,不追;等下一根 live bar
+        self.log.info(
+            f"[{self._strategy_id()}] catch-up eval: missed 4H close {age:.0f}s ago during restart"
+        )
+        self._evaluate(self.clock.timestamp_ns())
+
+    async def _seed_warmup(self) -> None:
+        # Seed the close deque from market_data.ohlcv_1h resampled to 4H so a node
+        # restart no longer resets the 21-bar (~3.5 day) live warmup to zero. Seeds
+        # HISTORY ONLY — no evaluation here, so no order can fire from stale data;
+        # the next live bar close does the first real entry/exit decision.
+        sid = self._strategy_id()
+        if self._closes:  # live bars already arrived — don't splice history under them
+            return
+        inst_db = self.config.instrument_id.split(".")[0]
+        limit = self._closes.maxlen or 24
+        try:
+            rows = await self._db.execute(
+                lambda conn: conn.fetch(
+                    """SELECT date_bin('4 hours', bar_close_ts - interval '1 second',
+                                   TIMESTAMPTZ '2000-01-01') AS b,
+                          (array_agg(close ORDER BY bar_close_ts DESC))[1] AS c
+                     FROM market_data.ohlcv_1h
+                     WHERE instrument = $1 AND source = 'okx_swap'
+                       AND bar_close_ts <= date_bin('4 hours', now(), TIMESTAMPTZ '2000-01-01')
+                     GROUP BY 1 ORDER BY b DESC LIMIT $2""",
+                    inst_db,
+                    limit,
+                )
+            )
+        except Exception as exc:
+            self.log.warning(f"[{sid}] warmup seed skipped: {exc}")
+            return
+        if not rows:
+            self.log.warning(f"[{sid}] warmup seed: no 4H history for {inst_db}")
+            return
+        for r in reversed(rows):  # chronological
+            self._closes.append(float(r["c"]))
+        # date_bin 返回桶起点;桶收盘 = b + 4h。供 _catchup_eval 判断新鲜度。
+        import datetime as _dt
+
+        self._seed_last_close = rows[0]["b"] + _dt.timedelta(hours=4)
+        self.log.info(f"[{sid}] warmup seeded {len(rows)} 4H closes from ohlcv_1h")
 
     async def _rehydrate_position(self) -> None:
         # After a restart the venue may hold a position this strategy opened before
@@ -78,18 +154,28 @@ class Donchian4H(Strategy):
         # so logic state matches reality. Deferred (reconciliation settles) and
         # guarded (only when still flat) so it never overrides a live signal.
         import asyncio
+
         await asyncio.sleep(10)
         if self._position != 0:
             return
         try:
-            net = float(self.portfolio.net_position(InstrumentId.from_str(self.config.instrument_id)))
+            net = float(
+                self.portfolio.net_position(
+                    InstrumentId.from_str(self.config.instrument_id)
+                )
+            )
         except Exception as exc:
-            self.log.warning(f"[{self._strategy_id()}] position rehydrate skipped: {exc}")
+            self.log.warning(
+                f"[{self._strategy_id()}] position rehydrate skipped: {exc}"
+            )
             return
         self._position = 1 if net > 0 else (-1 if net < 0 else 0)
         if self._position != 0:
-            self.log.info(f"[{self._strategy_id()}] rehydrated _position={self._position} from venue net={net}")
+            self.log.info(
+                f"[{self._strategy_id()}] rehydrated _position={self._position} from venue net={net}"
+            )
 
+    @survive
     def on_trade_tick(self, tick: TradeTick) -> None:
         # Probe only the first few ticks to confirm WS flow at boot, then go quiet.
         # The old `% 100` logged thousands of lines/min and grew the log to 500MB+.
@@ -100,22 +186,33 @@ class Donchian4H(Strategy):
                 f"sz={tick.size} n={self._tick_count}"
             )
 
+    @survive
     def on_bar(self, bar: Bar) -> None:
         close = float(bar.close)
         self._closes.append(close)
-        self.log.info(f"[on_bar] {bar.bar_type} close={close:.4f} n={len(self._closes)}")
+        self.log.info(
+            f"[on_bar] {bar.bar_type} close={close:.4f} n={len(self._closes)}"
+        )
+        self._evaluate(int(bar.ts_event))
 
+    def _evaluate(self, ts_event: int) -> None:
+        close = float(self._closes[-1])
         c = self.config
         if len(self._closes) < c.n_enter + 1:
-            self._fire_signal(bar, "NEUTRAL", close, {"n_bars": len(self._closes), "warmup": True})
+            self._fire_signal(
+                ts_event,
+                "NEUTRAL",
+                close,
+                {"n_bars": len(self._closes), "warmup": True},
+            )
             return
 
         closes_list = list(self._closes)
 
-        high_enter = max(closes_list[-(c.n_enter + 1):-1])   # prior n_enter bars
-        low_enter  = min(closes_list[-(c.n_enter + 1):-1])
-        high_exit  = max(closes_list[-(c.n_exit + 1):-1])
-        low_exit   = min(closes_list[-(c.n_exit + 1):-1])
+        high_enter = max(closes_list[-(c.n_enter + 1) : -1])  # prior n_enter bars
+        low_enter = min(closes_list[-(c.n_enter + 1) : -1])
+        high_exit = max(closes_list[-(c.n_exit + 1) : -1])
+        low_exit = min(closes_list[-(c.n_exit + 1) : -1])
 
         action: str | None = None
 
@@ -133,15 +230,17 @@ class Donchian4H(Strategy):
 
         indic = {
             "high_enter": round(high_enter, 4),
-            "low_enter":  round(low_enter, 4),
-            "high_exit":  round(high_exit, 4),
-            "low_exit":   round(low_exit, 4),
-            "n_bars":     len(self._closes),
-            "position":   self._position,
+            "low_enter": round(low_enter, 4),
+            "high_exit": round(high_exit, 4),
+            "low_exit": round(low_exit, 4),
+            "n_bars": len(self._closes),
+            "position": self._position,
         }
-        self._fire_signal(bar, action or "NEUTRAL", close, indic)
+        self._fire_signal(ts_event, action or "NEUTRAL", close, indic)
 
-    def _fire_signal(self, bar: Bar, action: str, price: float, indicators: dict | None = None) -> None:
+    def _fire_signal(
+        self, ts_event: int, action: str, price: float, indicators: dict | None = None
+    ) -> None:
         import asyncio
 
         inst = self.config.instrument_id
@@ -149,33 +248,41 @@ class Donchian4H(Strategy):
 
         audit_body = {
             "strategy": strat,
-            "action":   action,
-            "price":    price,
-            "bar_ts":   bar.ts_event,
-            "n_enter":  self.config.n_enter,
-            "n_exit":   self.config.n_exit,
+            "action": action,
+            "price": price,
+            "bar_ts": ts_event,
+            "n_enter": self.config.n_enter,
+            "n_exit": self.config.n_exit,
         }
         rec = sign_signal(audit_body)
 
         # Persist signal (resilient pool: self-heals, logs loudly on failure)
         if self._db is not None:
             _indicators = indicators
+
             async def _store():
                 try:
-                    sid = await self._db.execute(lambda conn: log_signal(
-                        conn, strat, inst, action, price,
-                        audit_record_id=rec["record_id"],
-                        fingerprint_hex=rec["fingerprint_hex"],
-                        sig_b64=rec.get("sig_b64", ""),
-                        indicators=_indicators,
-                    ))
+                    sid = await self._db.execute(
+                        lambda conn: log_signal(
+                            conn,
+                            strat,
+                            inst,
+                            action,
+                            price,
+                            audit_record_id=rec["record_id"],
+                            fingerprint_hex=rec["fingerprint_hex"],
+                            sig_b64=rec.get("sig_b64", ""),
+                            indicators=_indicators,
+                        )
+                    )
                     self._pending_signal_id = sid
                 except Exception as exc:
                     self.log.error(f"[{strat}] SIGNAL PERSIST FAILED ({action}): {exc}")
+
             asyncio.ensure_future(_store())
 
         self._signal_price = price
-        self._signal_ts    = bar.ts_event
+        self._signal_ts = ts_event
         self.log.info(
             f"[{strat}] SIGNAL {action} @ {price:.2f}  "
             f"record={rec['record_id']}  tier={rec['tier']}"
@@ -189,6 +296,16 @@ class Donchian4H(Strategy):
             _dec = RISK.gate_entry(strat, inst, self.config.qty_usd)
             if not _dec.allowed:
                 self.log.warning(f"[{strat}] ENTRY BLOCKED by risk: {_dec.reason}")
+                import asyncio as _a
+
+                _blk = f"entry blocked: {_dec.reason}"
+                _a.ensure_future(
+                    self._db.execute(
+                        lambda conn: log_risk_event(
+                            conn, "block", f"{strat}/{inst}", "warning", _blk
+                        )
+                    )
+                )
                 return
             RISK.open_position(strat, inst, self.config.qty_usd)
         else:
@@ -202,17 +319,32 @@ class Donchian4H(Strategy):
             self.log.error(f"[{strat}] instrument not found in cache")
             return
 
-        qty = instrument.make_qty(self.config.qty_usd / float(instrument.settlement_price or 1))
+        # 名义美元 → 合约张数:OKX SWAP 数量单位是"张",1 张 = multiplier(ctVal)个币
+        # (BTC 0.01 / ETH 0.1 / SOL 1)。少乘 ctVal 会把张数少算 1/ctVal 倍,BTC 上
+        # make_qty 因取整到 0 抛 ValueError(2026-07-11 15:00 enter_long 实测被拦)。
+        px = float(self._closes[-1] or 1)
+        ct_val = float(instrument.multiplier or 1)
+        try:
+            qty = instrument.make_qty(self.config.qty_usd / (ct_val * px))
+        except ValueError:
+            qty = instrument.min_quantity
         if qty is None or float(str(qty)) < float(str(instrument.min_quantity)):
             qty = instrument.min_quantity
 
         if action == "enter_long":
-            side = OrderSide.BUY; self._position = 1
+            side = OrderSide.BUY
+            self._position = 1
         elif action == "enter_short":
-            side = OrderSide.SELL; self._position = -1
+            side = OrderSide.SELL
+            self._position = -1
         elif action in ("exit_long", "exit_short"):
             side = OrderSide.SELL if self._position == 1 else OrderSide.BUY
             self._position = 0
+            # 平仓用本策略实际持仓量,避免按现价重算导致的数量漂移残渣
+            _own = own_open_qty(self)
+            if _own is not None:
+                qty = instrument.make_qty(abs(_own))
+
         else:
             return
 
@@ -221,56 +353,98 @@ class Donchian4H(Strategy):
             order_side=side,
             quantity=qty,
             time_in_force=TimeInForce.IOC,
-            client_order_id=next_client_order_id(strat),   # OKX-safe alphanumeric clOrdId
+            client_order_id=next_client_order_id(
+                strat
+            ),  # OKX-safe alphanumeric clOrdId
         )
         self._order_submit_ns = self.clock.timestamp_ns()
         self.submit_order(order)
         self.log.info(f"[{strat}] ORDER submitted: {side} {qty}")
 
+    @survive
     def on_order_filled(self, event: Any) -> None:
         import asyncio
+
         if self._db is not None and self._signal_price is not None:
             fill_price = float(str(event.last_px))
-            side       = "BUY" if event.order_side == OrderSide.BUY else "SELL"
-            qty        = float(str(event.last_qty))
-            strat      = self._strategy_id()
-            inst       = self.config.instrument_id
-            sig_id     = self._pending_signal_id
+            side = "BUY" if event.order_side == OrderSide.BUY else "SELL"
+            qty = float(str(event.last_qty))
+            strat = self._strategy_id()
+            inst = self.config.instrument_id
+            sig_id = self._pending_signal_id
             # Reconcile risk exposure to the ACTUAL executed notional (price×qty),
             # replacing the nominal qty_usd estimate from _fire_signal. _position is
             # already updated by _fire_signal: non-zero = entry fill, 0 = exit fill.
             if self._position != 0:
-                RISK.open_position(strat, inst, fill_price * qty)
+                _i = self.cache.instrument(InstrumentId.from_str(inst))
+                _ct = float(_i.multiplier) if _i is not None else 1.0
+                RISK.open_position(strat, inst, fill_price * qty * _ct)
             else:
                 RISK.close_position(strat, inst)
-            fill_type  = "maker" if getattr(event, "liquidity_side", None) == LiquiditySide.MAKER else "taker"
+            fill_type = (
+                "maker"
+                if getattr(event, "liquidity_side", None) == LiquiditySide.MAKER
+                else "taker"
+            )
             latency_ms = None
             if self._order_submit_ns is not None:
-                latency_ms = max(0, int((self.clock.timestamp_ns() - self._order_submit_ns) / 1_000_000))
+                latency_ms = max(
+                    0,
+                    int(
+                        (self.clock.timestamp_ns() - self._order_submit_ns) / 1_000_000
+                    ),
+                )
 
             sig_price = self._signal_price
+
             async def _store():
                 try:
-                    await self._db.execute(lambda conn: log_fill(
-                        conn, strat, inst, side, qty,
-                        signal_price=sig_price,
-                        actual_fill_price=fill_price,
-                        order_id=str(event.client_order_id),
-                        venue_order_id=str(getattr(event, "venue_order_id", "")),
-                        latency_ms=latency_ms,
-                        fill_type=fill_type,
-                        signal_id=sig_id,
-                    ))
+                    await self._db.execute(
+                        lambda conn: log_fill(
+                            conn,
+                            strat,
+                            inst,
+                            side,
+                            qty,
+                            signal_price=sig_price,
+                            actual_fill_price=fill_price,
+                            order_id=str(event.client_order_id),
+                            venue_order_id=str(getattr(event, "venue_order_id", "")),
+                            latency_ms=latency_ms,
+                            fill_type=fill_type,
+                            signal_id=sig_id,
+                        )
+                    )
                 except Exception as exc:
                     self.log.error(f"[{strat}] FILL PERSIST FAILED: {exc}")
+
             asyncio.ensure_future(_store())
             self._pending_signal_id = None
             self._order_submit_ns = None
 
+    @survive
+    def on_order_rejected(self, event: Any) -> None:
+        resync_position_from_venue(self, "rejected")
+
+    @survive
+    def on_order_denied(self, event: Any) -> None:
+        resync_position_from_venue(self, "denied")
+
+    @survive
+    def on_order_canceled(self, event: Any) -> None:
+        # 本策略从不主动撤单 — cancel 只可能是 IOC 未成交,按拒单重同步
+        resync_position_from_venue(self, "canceled")
+
+    @survive
+    def on_order_expired(self, event: Any) -> None:
+        resync_position_from_venue(self, "expired")
+
+    @survive
     def on_stop(self) -> None:
         inst_id = InstrumentId.from_str(self.config.instrument_id)
-        self.close_all_positions(inst_id)
+        close_positions_okx_safe(self)
         if self._db is not None:
             import asyncio
+
             asyncio.ensure_future(self._db.close())
             self._db = None

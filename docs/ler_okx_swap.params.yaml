@@ -1,0 +1,109 @@
+# HELIVEX-IMPL_SPEC-LER-001 §5-§7 参数快照(机器可读,前端 LER tab 直接读)。
+#
+# status: research —— 明确不是 backtest/paper/live。此文件不放在 strategies/ 目录,
+# 不进 gateway.deps.STRATEGY_YAML_MAP,不接入 /strategies、Configure tab 的实盘调参 /
+# 重启节点流程。Phase 0(数据审计门)通过、8 配置 CPCV 判决 PASS 之前,禁止实盘/模拟盘下单
+# (spec §2 Out-of-scope)。
+
+strategy: ler_okx_swap
+spec_ref: HELIVEX-IMPL_SPEC-LER-001
+spec_version: v1.2
+status: blocked   # ⛔ B1 待 Wiki 裁决(spec §13)。不是 research —— 不得进 Phase 0。
+blocked_reason: >
+  B1: H0 关于全市场聚合强制流($100M+ 量级);OKX 单家爆仓 feed 实测 p99 仅 $188k/5m,
+  最大瀑布 $2.53M —— 噪声量级,无法检验 H0。v1.1 "换标的非换假设" 的理由已被证伪。
+  提请 Wiki 在「重开付费数据决策」与「REJECT」之间裁决。见 spec §13。
+description: "爆仓衰竭回归(Liquidation Exhaustion Regression)——OKX BTC/ETH/SOL-USDT-SWAP, 1m"
+instruments:
+  - BTC-USDT-SWAP
+  - ETH-USDT-SWAP
+  - SOL-USDT-SWAP
+timeframe: 1m
+
+# 数据语义(spec §5.1.1,v1.2 新增) —— 不遵守会静默产出错误信号
+data_semantics:
+  # C1: md.liquidations.size 是合约张数,不是币量。名义额 = size × ct_val × price。
+  #     直接 size*price 会使 BTC 名义额高估 100×。ct_val 取自 OKX
+  #     /api/v5/public/instruments(2026-07-11 实取,ctMult 均为 1)。
+  ct_val:
+    BTC-USDT-SWAP: 0.01   # BTC
+    ETH-USDT-SWAP: 0.1    # ETH
+    SOL-USDT-SWAP: 1      # SOL
+  # C2: OKX side 是「强平订单方向」,不是「被强平仓位方向」。
+  long_liquidation_side: sell    # side='sell' = 多头被强制平仓(卖出平多)
+  short_liquidation_side: buy    # side='buy'  = 空头被强制平仓
+  # C3: T1 取过去 30d 分位 → 30 天预热前 T1 在数学上不存在。
+  t1_warmup_days: 30
+  t1_first_evaluable_date: "2026-08-05"   # 爆仓采集起点 2026-07-06 + 30d
+
+trigger:
+  t1_liquidation_notional_percentile: 99   # p99, 过去 30d 分布, 5m 滚动名义额(按 ct_val 换算)
+  # T2′(v1.2 量纲修正,spec §5.2 B2): disp(W)/√W > 2 × ATR(60,1m)
+  # 原式 disp(W) > 2×ATR(60,1m) 是量纲错误(左 O(√W) vs 右 O(1)),实测通过率 99.9% —— 空过滤器。
+  # 修正只改归一化子,系数 k=2 原封不动、未重新拟合。修正后通过率 1.8%–7.6%。
+  t2_displacement_normalizer: sqrt_window_minutes   # ← v1.2 新增
+  t2_atr_displacement_multiple: 2.0                 # k=2,未动
+  cascade_window_timeout_min: 60
+
+exhaustion:
+  e1_liquidation_decay_ratio: 0.30   # 最近 1m 额 < 瀑布峰值 1m 额的 30%
+  e2_oi_min_change: 0.0              # OI 5m 变化 >= 0(停止收缩)
+  confirmation_timeout_min: 60
+
+regime_filters:
+  f1_trend_aligned_skip_return_pct: 10.0   # |24h 收益| > 10% 且方向一致 → skip
+  f2_cascade_chain_max_count: 3            # 过去 6h 内已 >= 3 次触发 → skip
+
+execution:
+  c0_maker:
+    order_type: post_only_limit
+    ttl_seconds: 30
+    fill_rule: strict_cross   # 仅当后续 K 线价格严格穿越限价才判成交,触及不算
+  c1_taker_control:
+    slippage_model: half_spread_plus_2bp
+
+exit:
+  tp_displacement_retrace_pct: 50.0
+  tp_alt: session_vwap_utc_day
+  sl_atr_multiple: 0.25
+  time_stop_min: 90
+  same_bar_conflict: sl_wins   # 同一 1m 内 SL/TP 均可触 → 记 SL
+
+risk:
+  risk_per_trade_bps: 25
+  max_concurrent_positions: 1
+  daily_stop_consecutive_losses: 3
+  daily_stop_loss_pct: 1.5
+
+# 预注册配置预算(spec §6)—— 全集 = 8,DSR trials = 8,不得追加
+configs:
+  - { id: C0, desc: "基准(maker)" }
+  - { id: C1, desc: "taker 对照(降级测试用)" }
+  - { id: C2, desc: "触发分位 p99 → p97" }
+  - { id: C3, desc: "衰竭比例 30% → 50%" }
+  - { id: C4, desc: "TP 回撤 50% → 62%" }
+  - { id: C5, desc: "SL 0.25 → 0.5 × ATR" }
+  - { id: C6, desc: "时间止损 90m → 45m" }
+  - { id: C7, desc: "过滤器消融(F1、F2 关闭)" }
+
+# spec §11 决策标记,原样映射(单一事实来源是 spec 文档,这里只是给前端渲染用)
+locked_params:
+  - trigger.t1_liquidation_notional_percentile
+  - trigger.t2_atr_displacement_multiple    # k=2 —— v1.2 的量纲修正未改此值
+  - exhaustion.e1_liquidation_decay_ratio
+  - exhaustion.e2_oi_min_change
+  - execution.c0_maker.fill_rule
+  - exit.tp_displacement_retrace_pct
+  - exit.sl_atr_multiple
+  - exit.time_stop_min
+  - exit.same_bar_conflict
+  - configs
+changeable_params:   # 可改,须 Wiki 批准并重新预注册
+  - execution.c1_taker_control.slippage_model
+  - risk.risk_per_trade_bps
+  - regime_filters.f1_trend_aligned_skip_return_pct
+already_amended:   # 量纲/事实订正,2026-07-11(见 spec §11/§12.4)
+  - trigger.t2_displacement_normalizer   # B2: 量纲修正,k 未动,不构成 p-hacking
+  - data_semantics                        # C1/C2/C3
+withdrawn_pending_wiki:   # ⛔ v1.1 的批准前提已被证伪,连同批准一并提请复议(spec §13)
+  - instruments   # Binance BTCUSDT → OKX。理由"换标的非换假设"错误 —— 这就是 B1

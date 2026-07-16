@@ -24,6 +24,7 @@ export interface StrategyState {
   indicators: IndicatorConfig[];
   signal_logic: { entry: string; exit: string; min_confluence: number; direction_mode: 'dual' | 'long_only' | 'short_only' };
   gate: { verdict: GateVerdict; dsr?: number; pbo?: number; reason?: string };
+  n_fills?: number; // paper.fills 计数,首页据此默认选中有成交的策略
 }
 
 export interface GateResult {
@@ -217,6 +218,31 @@ export interface PortfolioSummary {
   available: number;
 }
 
+// ── 3O CVaR 组合风险 Phase 1(观察期,见 paper/risk.py DYNAMIC_RISK_ENFORCE)──
+export interface CvarWeights {
+  as_of: string | null;
+  method: string | null;
+  fallback_reason: string | null;
+  portfolio_cvar_95: number | null;
+  lookback_days: number | null;
+  n_obs: number | null;
+  weights: { instrument: string; weight: number }[];
+}
+export interface PositionCap {
+  instrument: string;
+  tier1_headroom: number;
+  tier2_atr_cap: number;
+  tier3_corr_clip: number;
+  effective_cap_usd: number;
+  binding_tier: string;
+  reasons: string[];
+}
+export interface PositionCaps {
+  as_of: string | null;
+  enforce_mode: string;
+  caps: PositionCap[];
+}
+
 // ── R14 risk layer ──────────────────────────────────────────────
 export interface RiskStatus {
   kill_switch: { tripped: boolean; reason: string };
@@ -258,3 +284,114 @@ export interface MicroLatest {
   latest: MicroFeatures[];
   series: Record<string, MicroSeriesPoint[]>;
 }
+
+// ── LER(HELIVEX-IMPL_SPEC-LER-001)数据积累进度 ───────────
+export interface LerSourceCoverage {
+  symbol: string;
+  rows: number;
+  first_ts: string | null;
+  last_ts: string | null;
+  days_covered: number;
+  freshness_minutes: number | null;
+}
+export interface LerCoverage {
+  as_of: string;
+  venue: string;
+  sources: {
+    liquidations: LerSourceCoverage[];
+    ohlcv_1m: LerSourceCoverage[];
+    funding: LerSourceCoverage[];
+    oi: LerSourceCoverage[];
+  };
+  v3_threshold: {
+    required_n_trades_per_config: number;
+    n_configs: number;
+    note: string;
+  };
+}
+
+export interface LerConfigVariant { id: string; desc: string }
+export interface LerConfig {
+  strategy: string;
+  spec_ref: string;
+  spec_version: string;
+  status: string;
+  description: string;
+  instruments: string[];
+  timeframe: string;
+  trigger: Record<string, number>;
+  exhaustion: Record<string, number>;
+  regime_filters: Record<string, number>;
+  execution: Record<string, Record<string, string | number>>;
+  exit: Record<string, string | number>;
+  risk: Record<string, number>;
+  configs: LerConfigVariant[];
+  locked_params: string[];
+  changeable_params: string[];
+  already_amended: string[];
+}
+
+// ── 3O 共识大脑(P2-P6)—— regime / engines / consensus / consensus-risk ──────
+export interface RegimeItem {
+  instrument: string; state: string; confidence: number | null;
+  method_used: string; rows_used: number; detail: Record<string, unknown>;
+}
+export interface RegimeResp { as_of: string | null; advisory: boolean; regimes: RegimeItem[]; }
+
+export interface EngineSignalItem {
+  engine: string; instrument: string; direction: string;
+  score: number | null; confidence: number | null; promoted: boolean;
+  detail: Record<string, unknown>;
+}
+export interface EnginesResp { as_of: string | null; engines: EngineSignalItem[]; }
+
+export interface ConsensusItem {
+  instrument: string; final_direction: string; consensus_score: number | null;
+  kelly_position: number | null; agreement_ratio: number | null;
+  is_divergent: boolean; should_execute: boolean; n_promoted: number;
+  regime_state: string; sentiment_bias: number | null; onchain_bias: number | null;
+  detail: Record<string, unknown>;
+}
+export interface EngineWeight { engine: string; base_weight: number; accuracy: number | null; dyn_weight: number; }
+export interface ConsensusResp { as_of: string | null; consensus: ConsensusItem[]; weights: EngineWeight[]; }
+
+export interface ConsensusRiskItem {
+  instrument: string; direction: string; should_execute: boolean; approved: boolean;
+  final_notional: number | null; blocking_stage: string | null; crisis_scaled: boolean;
+  reasons: string[];
+}
+export interface ConsensusRiskResp { as_of: string | null; enforce_mode: string; evals: ConsensusRiskItem[]; }
+
+// ── 补齐 C: OHLCV K线 + 决策轨迹 + 归因 ──────────────
+export interface OhlcvResp {
+  instrument: string;
+  candles: { ts: string; o: number; h: number; l: number; c: number }[];
+  markers: { ts: string; side: string; price: number; strategy: string; burst?: boolean }[];
+}
+export interface DecisionTrailItem {
+  kind: string; instrument: string; fingerprint: string | null; ts: string;
+  steps: { layer: string; callable: string; status: string }[] | null;
+}
+export interface DecisionTrailResp { decision_trail: DecisionTrailItem[]; }
+
+// 补齐 G: 共识层在线调参
+export interface EngineWeightItem {
+  engine: string; base_weight: number; accuracy: number | null; dyn_weight: number; updated_at: string | null;
+}
+export interface EngineWeightsResp { weights: EngineWeightItem[]; }
+export interface ConsensusConfigResp { base_threshold: number; updated_at: string | null; }
+
+// 补齐 H: 每策略 P&L 归因
+export interface AttributionItem {
+  strategy_id: string; realized_pnl: number; n_trades: number;
+  win_rate: number | null; avg_pnl: number | null; best: number | null; worst: number | null; pct_of_gross: number;
+}
+export interface PortfolioAttributionResp { as_of: string; total_realized: number; by_strategy: AttributionItem[]; }
+
+// 补齐 I: FGI + 统一事件时间线
+export interface FgiResp {
+  value: number | null; classification: string | null;
+  contrarian_bias: number; contrarian_stance?: string; ts: string | null;
+}
+export interface TimelineEvent { ts: string; category: string; label: string; detail: string; }
+export interface TimelineResp { events: TimelineEvent[]; }

@@ -1,0 +1,13 @@
+[Unit]
+Description=Helivex signal engines adapter — TA/ML/LLM 三引擎(3O),写 paper.engine_signals(gated,DB->DB,no proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/soffy/projects/helivex
+# 纯 DB->DB(md.ohlcv 与 paper.* 同在 platform-postgres),无 egress。计算在
+# platform/3O 的 oskill.signal + omodul.{ml,llm}_signal_workflow。ML 门在 omodul 内。
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/signal_engines_adapter.py --once
+StandardOutput=append:/home/soffy/helivex_signal_engines_adapter.log
+StandardError=append:/home/soffy/helivex_signal_engines_adapter.log

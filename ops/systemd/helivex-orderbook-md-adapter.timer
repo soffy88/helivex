@@ -1,0 +1,9 @@
+[Unit]
+Description=Helivex orderbook md-adapter timer (every 30s — md collects OKX books every 10s; watermark catches up multiple rows/run)
+
+[Timer]
+OnCalendar=*:*:0/30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

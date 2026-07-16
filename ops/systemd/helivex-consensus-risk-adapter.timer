@@ -1,0 +1,9 @@
+[Unit]
+Description=Helivex consensus->risk adapter timer (every 15min — :12 offset, after consensus)
+
+[Timer]
+OnCalendar=*:12/15
+Persistent=true
+
+[Install]
+WantedBy=timers.target
