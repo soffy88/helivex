@@ -1,5 +1,5 @@
 {
-  "total_trials": 27,
+  "total_trials": 29,
   "history": [
     {
       "trial_n": 1,
@@ -838,6 +838,126 @@
           }
         },
         "overall": "FAIL"
+      }
+    },
+    {
+      "trial_n": 28,
+      "config": "ops/scripts/gbm_compound_b2_gate.py (Compound-B2: factor-lib+helios GBM)",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "BTC-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -1.105640008733777,
+            "pbo": 0.4,
+            "mean_oos": 0.2264335472612213,
+            "gross_sharpe": 1.63270706211799,
+            "net_taker_sharpe": 0.3282202920356129,
+            "oos_ic": 0.08459985778273493,
+            "dir_hit": 0.5409496164213146,
+            "turnover_day": 3.253146276047039
+          },
+          "ETH-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -2.710301149559416,
+            "pbo": 0.6,
+            "mean_oos": 0.23794277991182075,
+            "gross_sharpe": 0.9383928330671927,
+            "net_taker_sharpe": 0.15026735040653305,
+            "oos_ic": 0.10721073741642075,
+            "dir_hit": 0.542272262026612,
+            "turnover_day": 2.6058260338154406
+          },
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -2.7193522236702945,
+            "pbo": 0.5333333333333333,
+            "mean_oos": -0.6229101209183484,
+            "gross_sharpe": 0.10038156520359179,
+            "net_taker_sharpe": -0.5272788324031012,
+            "oos_ic": -0.035820249805458754,
+            "dir_hit": 0.4962128966223132,
+            "turnover_day": 2.2733754328783866
+          }
+        },
+        "overall": "FAIL",
+        "note": "Compound-B2 GBM, public TS factor lib + helios per-asset, 1h H=24, IC-select\u226415, honest 5bps"
+      }
+    },
+    {
+      "trial_n": 29,
+      "config": "ops/scripts/tpb_v1_gate.py (TPB-001 trend_pullback_v1)",
+      "verdict": "REJECT",
+      "metrics": {
+        "overall": "REJECT",
+        "kill_1": false,
+        "gross_sharpe": 0.618,
+        "net_sharpe": 0.0086,
+        "dsr": -0.7906,
+        "dsr_threshold": 2.0594,
+        "adj_dsr": -2.8499,
+        "pbo_cscv": 0.8714,
+        "pbo_cross_config": 0.5,
+        "dsr_real_nongating": 0.0159,
+        "n_trades": 550,
+        "per_asset_net": {
+          "BTC-USDT-SWAP": -643.37,
+          "ETH-USDT-SWAP": 806.4,
+          "SOL-USDT-SWAP": -145.95
+        },
+        "perturbation_gross_pos": "5/7",
+        "halves_sharpe": [
+          -0.954,
+          0.776
+        ],
+        "cost_breakdown": {
+          "gross": 1214.05,
+          "maker": 348.31,
+          "taker_slip": 678.27,
+          "funding": 170.39,
+          "net": 17.08
+        },
+        "crisis": [
+          {
+            "window": "2024-08-05",
+            "n_entries": 8,
+            "net_pnl": 381.96,
+            "gross_pnl": 391.83,
+            "note": "\u6709\u5165\u573a"
+          },
+          {
+            "window": "2025-10-10",
+            "n_entries": 7,
+            "net_pnl": -209.28,
+            "gross_pnl": -193.4,
+            "note": "\u6709\u5165\u573a"
+          }
+        ],
+        "freq": {
+          "n_trades": 550,
+          "trades_per_day_per_asset": 0.2546,
+          "avg_hold_bars": 20.1,
+          "orders_placed": 5249,
+          "fills": 550,
+          "maker_fill_rate": 0.1048,
+          "touch_rejects": 1,
+          "capacity_events": 81,
+          "exit_reasons": {
+            "stop": 344,
+            "regime": 62,
+            "stop_be": 129,
+            "stop_entrybar": 12,
+            "time": 3
+          }
+        },
+        "checks": {
+          "DSR > \u95e8\u69db": false,
+          "PBO_cscv < 0.5": false,
+          "net Sharpe > 0": true,
+          "\u22652/3 \u8d44\u4ea7 net > 0": false,
+          "\u6270\u52a8 \u22656/7 gross>0": false
+        },
+        "note": "\u7a97\u53e3 2024-07-20\u21922026-07-10(719d,1h\u6570\u636e\u6240\u9650,\u975e spec \u671f\u671b\u7684 \u22652021);FTX-2022 1h \u65e0\u8986\u76d6\u6545\u6392\u9664;funding veto OFF(F4,dydx \u4ec5\u8986\u76d6\u7a97\u53e334%);embargo=50/purge=48(F6/F6b,\u975e v51 \u5b57\u9762\u9ed8\u8ba40)\u3002"
       }
     }
   ]

@@ -1,0 +1,71 @@
+{
+  "overall": "REJECT",
+  "kill_1": false,
+  "gross_sharpe": 0.618,
+  "net_sharpe": 0.0086,
+  "dsr": -0.7906,
+  "dsr_threshold": 2.0594,
+  "adj_dsr": -2.8499,
+  "pbo_cscv": 0.8714,
+  "pbo_cross_config": 0.5,
+  "dsr_real_nongating": 0.0159,
+  "n_trades": 550,
+  "per_asset_net": {
+    "BTC-USDT-SWAP": -643.37,
+    "ETH-USDT-SWAP": 806.4,
+    "SOL-USDT-SWAP": -145.95
+  },
+  "perturbation_gross_pos": "5/7",
+  "halves_sharpe": [
+    -0.954,
+    0.776
+  ],
+  "cost_breakdown": {
+    "gross": 1214.05,
+    "maker": 348.31,
+    "taker_slip": 678.27,
+    "funding": 170.39,
+    "net": 17.08
+  },
+  "crisis": [
+    {
+      "window": "2024-08-05",
+      "n_entries": 8,
+      "net_pnl": 381.96,
+      "gross_pnl": 391.83,
+      "note": "有入场"
+    },
+    {
+      "window": "2025-10-10",
+      "n_entries": 7,
+      "net_pnl": -209.28,
+      "gross_pnl": -193.4,
+      "note": "有入场"
+    }
+  ],
+  "freq": {
+    "n_trades": 550,
+    "trades_per_day_per_asset": 0.2546,
+    "avg_hold_bars": 20.1,
+    "orders_placed": 5249,
+    "fills": 550,
+    "maker_fill_rate": 0.1048,
+    "touch_rejects": 1,
+    "capacity_events": 81,
+    "exit_reasons": {
+      "stop": 344,
+      "regime": 62,
+      "stop_be": 129,
+      "stop_entrybar": 12,
+      "time": 3
+    }
+  },
+  "checks": {
+    "DSR > 门槛": false,
+    "PBO_cscv < 0.5": false,
+    "net Sharpe > 0": true,
+    "≥2/3 资产 net > 0": false,
+    "扰动 ≥6/7 gross>0": false
+  },
+  "note": "窗口 2024-07-20→2026-07-10(719d,1h数据所限,非 spec 期望的 ≥2021);FTX-2022 1h 无覆盖故排除;funding veto OFF(F4,dydx 仅覆盖窗口34%);embargo=50/purge=48(F6/F6b,非 v51 字面默认0)。"
+}
