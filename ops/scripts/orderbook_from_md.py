@@ -49,22 +49,48 @@ _FEATURE_COLS = (
 )
 
 
-async def sync(md: asyncpg.Pool, hv: asyncpg.Pool) -> int:
-    # md.symbol(BTC-USDT) + inst_id(BTC-USDT-SWAP) -> helivex.instrument(BTC-USDT-SWAP.OKX)
-    md_rows = await md.fetch(
-        """
-        SELECT symbol, inst_id, ts, best_bid, best_ask, mid, microprice, spread, spread_bps,
-               bid_sz1, ask_sz1, bid_depth5, ask_depth5, imbalance1, imbalance5
-        FROM md.orderbook_features
-        WHERE venue='okx' AND inst_id IS NOT NULL
-        ORDER BY ts ASC
-        """
-    )
+_BATCH_SIZE = 50_000
+
+
+async def sync(
+    md: asyncpg.Pool, hv: asyncpg.Pool, batch_size: int = _BATCH_SIZE
+) -> int:
     # watermark: 每 instrument helivex 已存的 max(ts)
     wm_rows = await hv.fetch(
         "SELECT instrument, MAX(ts) AS max_ts FROM market_data.orderbook_features GROUP BY instrument"
     )
     watermark = {r["instrument"]: r["max_ts"] for r in wm_rows}
+    # md 表按 10s/inst 持续累积(千万行级), 之前无 ts 下限 + 无 LIMIT 导致每 30s 全表 fetch
+    # 进内存 OOM。下推最早 watermark 到 SQL, 配合 LIMIT 分批追, per-instrument 的精确去重
+    # 仍靠下面的 Python watermark 比对(不同 instrument 的 watermark 可能不齐)。
+    global_wm = min(watermark.values()) if watermark else None
+
+    # md.symbol(BTC-USDT) + inst_id(BTC-USDT-SWAP) -> helivex.instrument(BTC-USDT-SWAP.OKX)
+    if global_wm is None:
+        md_rows = await md.fetch(
+            """
+            SELECT symbol, inst_id, ts, best_bid, best_ask, mid, microprice, spread, spread_bps,
+                   bid_sz1, ask_sz1, bid_depth5, ask_depth5, imbalance1, imbalance5
+            FROM md.orderbook_features
+            WHERE venue='okx' AND inst_id IS NOT NULL
+            ORDER BY ts ASC
+            LIMIT $1
+            """,
+            batch_size,
+        )
+    else:
+        md_rows = await md.fetch(
+            """
+            SELECT symbol, inst_id, ts, best_bid, best_ask, mid, microprice, spread, spread_bps,
+                   bid_sz1, ask_sz1, bid_depth5, ask_depth5, imbalance1, imbalance5
+            FROM md.orderbook_features
+            WHERE venue='okx' AND inst_id IS NOT NULL AND ts > $1
+            ORDER BY ts ASC
+            LIMIT $2
+            """,
+            global_wm,
+            batch_size,
+        )
 
     n = 0
     for r in md_rows:
