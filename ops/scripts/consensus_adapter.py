@@ -145,11 +145,16 @@ async def _weights(hv: asyncpg.Pool) -> dict[str, float]:
 
 async def _sentiment_onchain(
     md: asyncpg.Pool, inst: str
-) -> tuple[float | None, dict | None]:
+) -> tuple[float | None, float | None, dict | None]:
     async with md.acquire() as conn:
         fgi = await conn.fetchval(
             """SELECT value FROM md.sentiment
                WHERE source='alternative.me' AND metric='fear_greed_index'
+               ORDER BY ts DESC LIMIT 1"""
+        )
+        news = await conn.fetchval(
+            """SELECT value FROM md.sentiment
+               WHERE metric='news_sentiment'
                ORDER BY ts DESC LIMIT 1"""
         )
         asset = _ONCHAIN_ASSET.get(inst)
@@ -167,7 +172,11 @@ async def _sentiment_onchain(
                     "flow_out": m.get("FlowOutExNtv", 0.0),
                     "mvrv": m.get("CapMVRVCur", 1.0),
                 }
-    return (float(fgi) if fgi is not None else None), onchain
+    return (
+        (float(fgi) if fgi is not None else None),
+        (float(news) if news is not None else None),
+        onchain,
+    )
 
 
 async def _tradfi(md: asyncpg.Pool) -> dict | None:
@@ -220,7 +229,7 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
             if not signals:
                 continue
             regime_state = await _regime(hv, inst)
-            fgi, onchain = await _sentiment_onchain(md, inst)
+            fgi, news_sentiment, onchain = await _sentiment_onchain(md, inst)
             r = consensus_workflow(
                 ConsensusConfig(instrument=inst, base_threshold=base_threshold),
                 {
@@ -228,6 +237,7 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
                     "weights": weights,
                     "regime_state": regime_state,
                     "fgi": fgi,
+                    "news_sentiment": news_sentiment,
                     "onchain": onchain,
                     "tradfi": tradfi,
                 },
