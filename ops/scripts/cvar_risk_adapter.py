@@ -88,12 +88,18 @@ CREATE INDEX IF NOT EXISTS position_caps_cycle_ts
 
 
 async def load_returns(conn: asyncpg.Connection) -> pd.DataFrame:
-    """30-day hourly close-price pct_change returns, OKX swap, wide (instrument columns)."""
+    """30-day hourly close-price pct_change returns, OKX swap, wide (instrument columns).
+
+    source='okx_swap_1h' — NOT 'okx_swap', which despite the ohlcv_1h table name is
+    actually 4h-bar data (confirmed: every gap in that source is exactly 14400s).
+    Using it silently starved this to ~180 4h-observations over 30 days instead of
+    ~720 true hourly ones, degenerating the CVaR optimizer into corner solutions.
+    """
     rows = await conn.fetch(
         """
         SELECT instrument, bar_close_ts, close
         FROM market_data.ohlcv_1h
-        WHERE source = 'okx_swap' AND instrument = ANY($1)
+        WHERE source = 'okx_swap_1h' AND instrument = ANY($1)
           AND bar_close_ts >= now() - ($2 || ' days')::interval
         ORDER BY bar_close_ts ASC
         """,
@@ -118,7 +124,7 @@ async def compute_atr_pct(conn: asyncpg.Connection) -> dict[str, float]:
         rows = await conn.fetch(
             """
             SELECT high, low, close FROM market_data.ohlcv_1h
-            WHERE source = 'okx_swap' AND instrument = $1
+            WHERE source = 'okx_swap_1h' AND instrument = $1
             ORDER BY bar_close_ts DESC LIMIT $2
             """,
             inst,
@@ -140,12 +146,20 @@ async def compute_atr_pct(conn: asyncpg.Connection) -> dict[str, float]:
 
 
 async def current_positions_usd(conn: asyncpg.Connection) -> dict[str, float]:
-    """Aggregate open notional per instrument across all strategies (paper.risk)."""
+    """Aggregate open notional per instrument across all strategies (paper.risk).
+
+    paper.fills.instrument is NT-style with venue suffix ("BTC-USDT-SWAP.OKX");
+    INSTRUMENTS here is bare ("BTC-USDT-SWAP") to match market_data.ohlcv_1h's
+    instrument column. Strip the suffix before matching — an exact-match bug here
+    silently zeroed current_positions_usd for every instrument, which made Tier 1
+    (headroom) always compute against an empty book.
+    """
     positions = await open_positions(conn)
     out: dict[str, float] = {inst: 0.0 for inst in INSTRUMENTS}
     for (_strategy_id, instrument), (qty, avg_cost) in positions.items():
-        if instrument in out:
-            out[instrument] += abs(qty * avg_cost)
+        bare = instrument.split(".")[0]
+        if bare in out:
+            out[bare] += abs(qty * avg_cost)
     return out
 
 

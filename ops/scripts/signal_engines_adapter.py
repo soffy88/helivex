@@ -131,7 +131,7 @@ def _ta_signal(closes_by_tf: dict[str, list[float]]) -> dict:
         "direction": direction,
         "score": score,
         "confidence": abs(score),
-        "detail": {"per_tf": per_tf},
+        "detail": {"per_tf": per_tf, "promotion_basis": "rule_based_unconditional"},
     }
 
 
@@ -177,6 +177,15 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
                 sig = fn()
                 if sig is None:
                     continue
+                # tf_trend/tf_scalp/ta_multi are hand-coded technical rules, not
+                # fit models — promoted=TRUE here is an unconditional design
+                # choice (no overfitting surface to gate against), unlike
+                # ml_lgb's promoted below which is a real DSR-threshold result.
+                # Stamp which kind this is so consensus/dashboard consumers
+                # don't read "promoted" as "passed a statistical gate" for all
+                # five engines uniformly.
+                detail = dict(sig.get("votes", {}))
+                detail["promotion_basis"] = "rule_based_unconditional"
                 await conn.execute(
                     """INSERT INTO paper.engine_signals
                        (cycle_ts, engine, instrument, direction, score, confidence, promoted, detail, fingerprint)
@@ -187,7 +196,7 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
                     sig["direction"],
                     sig["score"],
                     sig["confidence"],
-                    json.dumps(sig.get("votes", {}), default=str),
+                    json.dumps(detail, default=str),
                 )
                 written.append({"engine": engine_name, "inst": inst, **sig})
 
@@ -210,15 +219,18 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
                         f["promoted"],
                         json.dumps(
                             {
-                                k: f[k]
-                                for k in (
-                                    "wfv_accuracy",
-                                    "oos_sharpe",
-                                    "dsr",
-                                    "deflated_sharpe",
-                                    "n_folds",
-                                    "promoted",
-                                )
+                                **{
+                                    k: f[k]
+                                    for k in (
+                                        "wfv_accuracy",
+                                        "oos_sharpe",
+                                        "dsr",
+                                        "deflated_sharpe",
+                                        "n_folds",
+                                        "promoted",
+                                    )
+                                },
+                                "promotion_basis": "dsr_gate",
                             },
                             default=str,
                         ),

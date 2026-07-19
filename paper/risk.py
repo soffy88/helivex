@@ -357,8 +357,13 @@ def gate_entry_dynamic(
         return static
 
     try:
+        # DYNAMIC_CAPS is keyed bare ("BTC-USDT-SWAP", matching cvar_risk_adapter's
+        # INSTRUMENTS / market_data.ohlcv_1h.instrument), while callers pass the
+        # NT-style venue-suffixed id ("BTC-USDT-SWAP.OKX") — strip the suffix before
+        # lookup, or this always misses and Stage A never actually observes anything.
+        bare_instrument = instrument.split(".")[0]
         with _dynamic_caps_lock:
-            caps = DYNAMIC_CAPS.get(instrument)
+            caps = DYNAMIC_CAPS.get(bare_instrument)
         if caps is None:
             return static  # no cycle yet (cold start) — static gate stands alone
 

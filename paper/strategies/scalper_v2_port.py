@@ -37,7 +37,7 @@ from nautilus_trader.model.identifiers import InstrumentId
 from nautilus_trader.trading.strategy import Strategy
 
 from paper.audit import sign_signal
-from paper.risk import RISK, log_risk_event
+from paper.risk import RISK, gate_entry_dynamic, log_risk_event
 from paper.db import DB_DSN, DDL, log_signal, log_fill
 from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
@@ -420,7 +420,7 @@ class ScalperV2Port(Strategy):
             self.config.qty_usd,
         )
         if action.startswith("enter"):
-            dec = RISK.gate_entry(strat, inst, qty_usd)
+            dec = gate_entry_dynamic(strat, inst, qty_usd)
             if not dec.allowed:
                 self.log.warning(f"[{strat}] ENTRY BLOCKED by risk: {dec.reason}")
                 import asyncio as _a
