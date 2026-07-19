@@ -48,6 +48,7 @@ from paper.strategies._guard import (
     resync_position_from_venue,
     survive,
 )
+from paper.strategies._sizing import risk_sized_qty_usd
 from paper.strategies._indicators import (
     wilder_atr,
     wilder_adx,
@@ -78,6 +79,10 @@ class ScalperV2PortConfig(StrategyConfig, frozen=True):
     atr_health_min: float = 0.0005
     atr_health_max: float = 0.05
     qty_usd: float = 50.0
+    risk_pct: float = (
+        0.0  # >0 → 风险定仓(每笔风险 = base 的 risk_pct%);0 = 固定 qty_usd
+    )
+    max_qty_usd: float = 1000.0  # 风险定仓的单笔名义上限
     sl_atr_mult: float = 1.0  # MR 模式止损距离 = sl_atr_mult × 入场 ATR
     min_rr: float = 1.5  # MR 模式止盈 = min_rr × 止损距离(盈亏比下限)
     cooldown_after_sl: int = 0  # 止损后 N 根 bar 内禁止再入场(0=关)
@@ -314,7 +319,11 @@ class ScalperV2Port(Strategy):
                 action = "exit_short"
 
         if action in ("enter_long", "enter_short"):
-            self._pending_sl = atr * c.sl_atr_mult
+            # 定仓用的初始止损距离按模式取真实值:MR = sl_atr_mult×ATR 括号,
+            # BO = trailing_atr_mult×ATR 初始追踪距离
+            self._pending_sl = atr * (
+                c.sl_atr_mult if self._mode == "mr" else c.trailing_atr_mult
+            )
 
         indic = {
             "mode": self._mode,
@@ -403,8 +412,15 @@ class ScalperV2Port(Strategy):
 
     def _submit(self, action: str) -> None:
         strat, inst = self._strategy_id(), self.config.instrument_id
+        qty_usd = risk_sized_qty_usd(
+            self.config.risk_pct,
+            float(self._closes[-1] or 0),
+            self._pending_sl,
+            self.config.max_qty_usd,
+            self.config.qty_usd,
+        )
         if action.startswith("enter"):
-            dec = RISK.gate_entry(strat, inst, self.config.qty_usd)
+            dec = RISK.gate_entry(strat, inst, qty_usd)
             if not dec.allowed:
                 self.log.warning(f"[{strat}] ENTRY BLOCKED by risk: {dec.reason}")
                 import asyncio as _a
@@ -421,7 +437,7 @@ class ScalperV2Port(Strategy):
                     )
                 )
                 return
-            RISK.open_position(strat, inst, self.config.qty_usd)
+            RISK.open_position(strat, inst, qty_usd)
         else:
             RISK.close_position(strat, inst)
 
@@ -435,7 +451,7 @@ class ScalperV2Port(Strategy):
         px = float(self._closes[-1] or 1)
         ct_val = float(instrument.multiplier or 1)
         try:
-            qty = instrument.make_qty(self.config.qty_usd / (ct_val * px))
+            qty = instrument.make_qty(qty_usd / (ct_val * px))
         except ValueError:
             qty = instrument.min_quantity
         if qty is None or float(str(qty)) < float(str(instrument.min_quantity)):

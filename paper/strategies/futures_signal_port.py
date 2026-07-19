@@ -43,7 +43,8 @@ from paper.strategies._guard import (
     resync_position_from_venue,
     survive,
 )
-from paper.strategies._indicators import wilder_rsi, ema, macd
+from paper.strategies._indicators import wilder_atr, wilder_rsi, ema, macd
+from paper.strategies._sizing import risk_sized_qty_usd
 
 
 class FuturesSignalPortConfig(StrategyConfig, frozen=True):
@@ -58,6 +59,15 @@ class FuturesSignalPortConfig(StrategyConfig, frozen=True):
     rsi_short_min: float = 25.0
     rsi_short_max: float = 55.0
     qty_usd: float = 100.0
+    # SL/TP 括号:原策略只靠反向突破/RSI 离场,一笔逆势单可无限扛 — 加 ATR 止损
+    # + min_rr 止盈,结构性锁定盈亏比 ≥ 1:min_rr
+    atr_period: int = 14
+    sl_atr_mult: float = 2.0  # 止损距离 = sl_atr_mult × 入场 ATR
+    min_rr: float = 1.5  # 止盈 = min_rr × 止损距离
+    risk_pct: float = (
+        0.0  # >0 → 风险定仓(每笔风险 = base 的 risk_pct%);0 = 固定 qty_usd
+    )
+    max_qty_usd: float = 1000.0  # 风险定仓的单笔名义上限
     use_ema: bool = True
     ema_period: int = 50
     use_macd: bool = True
@@ -89,6 +99,9 @@ class FuturesSignalPort(Strategy):
         self._closes: deque[float] = deque(maxlen=maxn + 2)
         self._vols: deque[float] = deque(maxlen=maxn + 2)
         self._position: int = 0
+        self._entry_px: float | None = None  # SL/TP 括号锚点(rehydrate 无锚点→原出场)
+        self._sl_dist: float | None = None
+        self._pending_sl: float | None = None
         self._signal_price: float | None = None
         self._signal_ts: int | None = None
         self._pending_signal_id: int | None = None
@@ -200,6 +213,7 @@ class FuturesSignalPort(Strategy):
             self._fire(ts_event, "NEUTRAL", close, {"warmup": True})
             return
         vol_surge = vol_ma > 0 and vol_now > c.vol_surge_mult * vol_ma
+        atr = wilder_atr(highs, lows, closes, c.atr_period)
         # optional confluence filters (EMA trend + MACD momentum) — tunable from前端
         ema_v = ema(closes, c.ema_period) if c.use_ema else None
         mac = (
@@ -232,13 +246,27 @@ class FuturesSignalPort(Strategy):
             ):
                 action = "enter_short"
         elif self._position == 1:
+            # SL/TP 括号优先(结构性盈亏比 ≥ 1:min_rr);rehydrate 无锚点时退回原出场
+            if self._entry_px is not None and self._sl_dist:
+                if close <= self._entry_px - self._sl_dist:
+                    action = "exit_long"
+                elif close >= self._entry_px + c.min_rr * self._sl_dist:
+                    action = "exit_long"
             # symmetric exit: opposite breakout or RSI leaves the long band (added for a
             # self-contained strategy; helixa's engine was signal-only)
-            if close < low_bo or rsi > c.rsi_long_max:
+            if action is None and (close < low_bo or rsi > c.rsi_long_max):
                 action = "exit_long"
         elif self._position == -1:
-            if close > high_bo or rsi < c.rsi_short_min:
+            if self._entry_px is not None and self._sl_dist:
+                if close >= self._entry_px + self._sl_dist:
+                    action = "exit_short"
+                elif close <= self._entry_px - c.min_rr * self._sl_dist:
+                    action = "exit_short"
+            if action is None and (close > high_bo or rsi < c.rsi_short_min):
                 action = "exit_short"
+
+        if action in ("enter_long", "enter_short"):
+            self._pending_sl = atr * c.sl_atr_mult if atr else None
 
         indic = {
             "high_bo": round(high_bo, 4),
@@ -247,6 +275,7 @@ class FuturesSignalPort(Strategy):
             "vol_now": round(vol_now, 2),
             "vol_surge": vol_surge,
             "rsi": round(rsi, 1),
+            "atr": round(atr, 4) if atr is not None else None,
             "ema": round(ema_v, 4) if ema_v is not None else None,
             "macd_hist": round(macd_hist, 4) if macd_hist is not None else None,
             "position": self._position,
@@ -299,10 +328,13 @@ class FuturesSignalPort(Strategy):
         if not self.config.trade_enabled:
             if action == "enter_long":
                 self._position = 1
+                self._entry_px, self._sl_dist = price, self._pending_sl
             elif action == "enter_short":
                 self._position = -1
+                self._entry_px, self._sl_dist = price, self._pending_sl
             elif action in ("exit_long", "exit_short"):
                 self._position = 0
+                self._entry_px = self._sl_dist = None
             self.log.info(f"[{strat}] OBSERVE — no order submitted for {action}")
             return
 
@@ -310,8 +342,15 @@ class FuturesSignalPort(Strategy):
 
     def _submit(self, action: str) -> None:
         strat, inst = self._strategy_id(), self.config.instrument_id
+        qty_usd = risk_sized_qty_usd(
+            self.config.risk_pct,
+            float(self._closes[-1] or 0),
+            self._pending_sl,
+            self.config.max_qty_usd,
+            self.config.qty_usd,
+        )
         if action.startswith("enter"):
-            dec = RISK.gate_entry(strat, inst, self.config.qty_usd)
+            dec = RISK.gate_entry(strat, inst, qty_usd)
             if not dec.allowed:
                 self.log.warning(f"[{strat}] ENTRY BLOCKED by risk: {dec.reason}")
                 import asyncio as _a
@@ -328,7 +367,7 @@ class FuturesSignalPort(Strategy):
                     )
                 )
                 return
-            RISK.open_position(strat, inst, self.config.qty_usd)
+            RISK.open_position(strat, inst, qty_usd)
         else:
             RISK.close_position(strat, inst)
 
@@ -342,7 +381,7 @@ class FuturesSignalPort(Strategy):
         px = float(self._closes[-1] or 1)
         ct_val = float(instrument.multiplier or 1)
         try:
-            qty = instrument.make_qty(self.config.qty_usd / (ct_val * px))
+            qty = instrument.make_qty(qty_usd / (ct_val * px))
         except ValueError:
             qty = instrument.min_quantity
         if qty is None or float(str(qty)) < float(str(instrument.min_quantity)):
@@ -350,11 +389,14 @@ class FuturesSignalPort(Strategy):
 
         if action == "enter_long":
             side, self._position = OrderSide.BUY, 1
+            self._entry_px, self._sl_dist = px, self._pending_sl
         elif action == "enter_short":
             side, self._position = OrderSide.SELL, -1
+            self._entry_px, self._sl_dist = px, self._pending_sl
         elif action in ("exit_long", "exit_short"):
             side = OrderSide.SELL if self._position == 1 else OrderSide.BUY
             self._position = 0
+            self._entry_px = self._sl_dist = None
             # 平仓用本策略实际持仓量,避免按现价重算导致的数量漂移残渣
             _own = own_open_qty(self)
             if _own is not None:

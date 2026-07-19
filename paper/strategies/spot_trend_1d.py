@@ -22,6 +22,7 @@ from paper.risk import RISK, log_risk_event
 from paper.db import DB_DSN, DDL, log_signal, log_fill
 from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
+from paper.strategies._sizing import risk_sized_qty_usd
 from paper.strategies._guard import (
     close_positions_okx_safe,
     own_open_qty,
@@ -38,6 +39,10 @@ class SpotTrend1DConfig(StrategyConfig, frozen=True):
     n_exit: int = 10  # Donchian channel for exit
     bear_ma: int = 200  # MA period for bear filter
     qty_usd: float = 200.0
+    risk_pct: float = (
+        0.0  # >0 → 风险定仓(每笔风险 = base 的 risk_pct%);0 = 固定 qty_usd
+    )
+    max_qty_usd: float = 1000.0  # 风险定仓的单笔名义上限
 
 
 class SpotTrend1D(Strategy):
@@ -50,6 +55,7 @@ class SpotTrend1D(Strategy):
         maxlen = max(config.n_enter, config.n_exit, config.bear_ma) + 2
         self._closes: deque[float] = deque(maxlen=maxlen)
         self._position: int = 0  # 0=flat, 1=long
+        self._pending_sl: float | None = None  # 入场时刻到出场通道的距离(定仓用)
         self._signal_price: float | None = None
         self._pending_signal_id: int | None = None
         self._order_submit_ns: int | None = None
@@ -203,6 +209,8 @@ class SpotTrend1D(Strategy):
         if self._position == 0:
             if not bear and close > high_enter:
                 action = "enter_long"
+                # 初始风险距离 = 到出场通道(turtle 式定仓;出场逻辑不变)
+                self._pending_sl = max(close - low_exit, 0.0) or None
         elif self._position == 1:
             if close < low_exit:
                 action = "exit_long"
@@ -270,8 +278,15 @@ class SpotTrend1D(Strategy):
             return
 
         # ── portfolio risk gate (pre-trade) — see paper/risk.py ──
+        qty_usd = risk_sized_qty_usd(
+            self.config.risk_pct,
+            price,
+            self._pending_sl,
+            self.config.max_qty_usd,
+            self.config.qty_usd,
+        )
         if action.startswith("enter"):
-            _dec = RISK.gate_entry(strat, inst, self.config.qty_usd)
+            _dec = RISK.gate_entry(strat, inst, qty_usd)
             if not _dec.allowed:
                 self.log.warning(f"[{strat}] ENTRY BLOCKED by risk: {_dec.reason}")
                 import asyncio as _a
@@ -285,7 +300,7 @@ class SpotTrend1D(Strategy):
                     )
                 )
                 return
-            RISK.open_position(strat, inst, self.config.qty_usd)
+            RISK.open_position(strat, inst, qty_usd)
         else:
             RISK.close_position(strat, inst)
 
@@ -295,7 +310,16 @@ class SpotTrend1D(Strategy):
         if instrument is None:
             return
 
-        qty = instrument.min_quantity
+        # 名义美元 → 现货数量(SPOT multiplier=1)。原实现入场写死 min_quantity,
+        # qty_usd 只喂风控 gate 不进订单 — 仓位永远最小单位。
+        px = price if price > 0 else 1.0
+        ct_val = float(instrument.multiplier or 1)
+        try:
+            qty = instrument.make_qty(qty_usd / (ct_val * px))
+        except ValueError:
+            qty = instrument.min_quantity
+        if qty is None or float(str(qty)) < float(str(instrument.min_quantity)):
+            qty = instrument.min_quantity
 
         if action == "enter_long":
             side = OrderSide.BUY

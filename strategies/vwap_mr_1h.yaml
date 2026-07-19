@@ -43,6 +43,8 @@ live:
   z_thr: 2.0
   hold: 6
   qty_usd: 200
+  risk_pct: 1.0
+  max_qty_usd: 1000
 mode: paper
 gate:
   n_splits: 6

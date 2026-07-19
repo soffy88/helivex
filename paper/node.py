@@ -127,6 +127,8 @@ def build_node() -> TradingNode:
         n_enter=int(td.get("n_enter", 20)),
         n_exit=int(td.get("n_exit", 10)),
         qty_usd=float(td.get("qty_usd", 200.0)),
+        risk_pct=float(td.get("risk_pct", 0.0)),
+        max_qty_usd=float(td.get("max_qty_usd", 1000.0)),
     )
     donchian_eth = Donchian4HConfig(
         instrument_id="ETH-USDT-SWAP.OKX",
@@ -134,6 +136,8 @@ def build_node() -> TradingNode:
         n_enter=int(td.get("n_enter", 20)),
         n_exit=int(td.get("n_exit", 10)),
         qty_usd=float(td.get("qty_usd", 200.0)),
+        risk_pct=float(td.get("risk_pct", 0.0)),
+        max_qty_usd=float(td.get("max_qty_usd", 1000.0)),
     )
     donchian_sol = Donchian4HConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
@@ -141,6 +145,8 @@ def build_node() -> TradingNode:
         n_enter=int(td.get("n_enter", 20)),
         n_exit=int(td.get("n_exit", 10)),
         qty_usd=float(td.get("qty_usd", 200.0)),
+        risk_pct=float(td.get("risk_pct", 0.0)),
+        max_qty_usd=float(td.get("max_qty_usd", 1000.0)),
     )
 
     # Strategy 2 — VWAP-MR 1H SWAP (SOL)
@@ -151,6 +157,8 @@ def build_node() -> TradingNode:
         z_thr=float(vw.get("z_thr", 2.0)),
         hold=int(vw.get("hold", 6)),
         qty_usd=float(vw.get("qty_usd", 200.0)),
+        risk_pct=float(vw.get("risk_pct", 0.0)),
+        max_qty_usd=float(vw.get("max_qty_usd", 1000.0)),
         sl_std=float(vw.get("sl_std", 1.0)),
         min_rr=float(vw.get("min_rr", 1.5)),
         cooldown_after_sl=int(vw.get("cooldown_after_sl", 0)),
@@ -164,6 +172,8 @@ def build_node() -> TradingNode:
         n_exit=int(sp.get("n_exit", 10)),
         bear_ma=int(sp.get("bear_ma", 200)),
         qty_usd=float(sp.get("qty_usd", 200.0)),
+        risk_pct=float(sp.get("risk_pct", 0.0)),
+        max_qty_usd=float(sp.get("max_qty_usd", 1000.0)),
     )
     spot_eth = SpotTrend1DConfig(
         instrument_id="ETH-USDT.OKX",
@@ -172,6 +182,8 @@ def build_node() -> TradingNode:
         n_exit=int(sp.get("n_exit", 10)),
         bear_ma=int(sp.get("bear_ma", 200)),
         qty_usd=float(sp.get("qty_usd", 200.0)),
+        risk_pct=float(sp.get("risk_pct", 0.0)),
+        max_qty_usd=float(sp.get("max_qty_usd", 1000.0)),
     )
 
     node_config = TradingNodeConfig(
@@ -258,6 +270,8 @@ def build_node() -> TradingNode:
                     chandelier_mult=float(tf.get("chandelier_mult", 3.0)),
                     max_holding_days=int(tf.get("max_holding_days", 30)),
                     qty_usd=float(tf.get("qty_usd", 200.0)),
+                    risk_pct=float(tf.get("risk_pct", 0.0)),
+                    max_qty_usd=float(tf.get("max_qty_usd", 1000.0)),
                     use_ema=bool(tf.get("use_ema", True)),
                     ema_period=int(tf.get("ema_period", 50)),
                     use_macd=bool(tf.get("use_macd", True)),
@@ -294,6 +308,8 @@ def build_node() -> TradingNode:
                     breakout_exit_adx=float(sv.get("breakout_exit_adx", 15.0)),
                     max_holding_bars=int(sv.get("max_holding_bars", 48)),
                     qty_usd=float(sv.get("qty_usd", 50.0)),
+                    risk_pct=float(sv.get("risk_pct", 0.0)),
+                    max_qty_usd=float(sv.get("max_qty_usd", 1000.0)),
                     use_ema=bool(sv.get("use_ema", True)),
                     ema_period=int(sv.get("ema_period", 50)),
                     use_macd=bool(sv.get("use_macd", True)),
@@ -320,6 +336,11 @@ def build_node() -> TradingNode:
                     vol_surge_mult=float(fs.get("vol_surge_mult", 1.5)),
                     rsi_period=int(fs.get("rsi_period", 14)),
                     qty_usd=float(fs.get("qty_usd", 100.0)),
+                    atr_period=int(fs.get("atr_period", 14)),
+                    sl_atr_mult=float(fs.get("sl_atr_mult", 2.0)),
+                    min_rr=float(fs.get("min_rr", 1.5)),
+                    risk_pct=float(fs.get("risk_pct", 0.0)),
+                    max_qty_usd=float(fs.get("max_qty_usd", 1000.0)),
                     use_ema=bool(fs.get("use_ema", True)),
                     ema_period=int(fs.get("ema_period", 50)),
                     use_macd=bool(fs.get("use_macd", True)),

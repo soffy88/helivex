@@ -28,6 +28,7 @@ from paper.strategies._guard import (
     resync_position_from_venue,
     survive,
 )
+from paper.strategies._sizing import risk_sized_qty_usd
 
 
 class VwapMR1HConfig(StrategyConfig, frozen=True):
@@ -37,6 +38,10 @@ class VwapMR1HConfig(StrategyConfig, frozen=True):
     z_thr: float = 2.0
     hold: int = 6  # bars before time-exit
     qty_usd: float = 200.0
+    risk_pct: float = (
+        0.0  # >0 → 风险定仓(每笔风险 = base 的 risk_pct%);0 = 固定 qty_usd
+    )
+    max_qty_usd: float = 1000.0  # 风险定仓的单笔名义上限
     sl_std: float = 1.0  # 止损距离 = sl_std × 入场时收盘σ
     min_rr: float = 1.5  # 止盈 = min_rr × 止损距离 — 结构性保证盈亏比 ≥ min_rr
     cooldown_after_sl: int = 0  # 止损后 N 根 bar 内禁止再入场(0=关);对付单边行情绞肉机
@@ -295,8 +300,15 @@ class VwapMR1H(Strategy):
             return
 
         # ── portfolio risk gate (pre-trade) — see paper/risk.py ──
+        qty_usd = risk_sized_qty_usd(
+            self.config.risk_pct,
+            price,
+            self._pending_sl,
+            self.config.max_qty_usd,
+            self.config.qty_usd,
+        )
         if action.startswith("enter"):
-            _dec = RISK.gate_entry(strat, inst, self.config.qty_usd)
+            _dec = RISK.gate_entry(strat, inst, qty_usd)
             if not _dec.allowed:
                 self.log.warning(f"[{strat}] ENTRY BLOCKED by risk: {_dec.reason}")
                 import asyncio as _a
@@ -310,7 +322,7 @@ class VwapMR1H(Strategy):
                     )
                 )
                 return
-            RISK.open_position(strat, inst, self.config.qty_usd)
+            RISK.open_position(strat, inst, qty_usd)
         else:
             RISK.close_position(strat, inst)
 
@@ -320,7 +332,16 @@ class VwapMR1H(Strategy):
         if instrument is None:
             return
 
-        qty = instrument.min_quantity
+        # 名义美元 → 合约张数(OKX SWAP 单位是"张",1 张 = ctVal 个币)。原实现入场
+        # 写死 min_quantity,qty_usd 只喂风控 gate 不进订单 — 仓位永远最小 1 张。
+        px = price if price > 0 else 1.0
+        ct_val = float(instrument.multiplier or 1)
+        try:
+            qty = instrument.make_qty(qty_usd / (ct_val * px))
+        except ValueError:
+            qty = instrument.min_quantity
+        if qty is None or float(str(qty)) < float(str(instrument.min_quantity)):
+            qty = instrument.min_quantity
 
         if action == "enter_short":
             side = OrderSide.SELL

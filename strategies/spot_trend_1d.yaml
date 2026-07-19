@@ -35,6 +35,8 @@ live:
   n_exit: 10
   bear_ma: 200
   qty_usd: 200
+  risk_pct: 1.0
+  max_qty_usd: 1000
 mode: paper
 gate:
   n_splits: 6

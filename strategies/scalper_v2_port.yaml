@@ -50,6 +50,8 @@ live:
   breakout_exit_adx: 15
   max_holding_bars: 48
   qty_usd: 50
+  risk_pct: 1.0
+  max_qty_usd: 1000
   trade_enabled: true
   use_ema: true
   ema_period: 50

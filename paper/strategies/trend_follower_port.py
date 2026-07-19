@@ -54,6 +54,7 @@ from paper.strategies._guard import (
 
 
 from paper.strategies._indicators import wilder_atr, wilder_adx, ema, macd
+from paper.strategies._sizing import risk_sized_qty_usd
 
 
 class TrendFollowerPortConfig(StrategyConfig, frozen=True):
@@ -69,6 +70,10 @@ class TrendFollowerPortConfig(StrategyConfig, frozen=True):
     atr_health_max: float = 0.10
     max_holding_days: int = 30
     qty_usd: float = 200.0
+    risk_pct: float = (
+        0.0  # >0 → 风险定仓(每笔风险 = base 的 risk_pct%);0 = 固定 qty_usd
+    )
+    max_qty_usd: float = 1000.0  # 风险定仓的单笔名义上限
     use_ema: bool = True
     ema_period: int = 50
     use_macd: bool = True
@@ -100,6 +105,9 @@ class TrendFollowerPort(Strategy):
         self._closes: deque[float] = deque(maxlen=maxn + 2)
         self._position: int = 0
         self._bars_held: int = 0
+        self._pending_sl: float | None = (
+            None  # 入场时刻到 Chandelier 止损的距离(定仓用)
+        )
         self._signal_price: float | None = None
         self._signal_ts: int | None = None
         self._pending_signal_id: int | None = None
@@ -268,8 +276,11 @@ class TrendFollowerPort(Strategy):
         if self._position == 0:
             if close > don_hi and adx >= c.adx_entry and health_ok and long_conf:
                 action = "enter_long"
+                # 初始风险距离 = 到 Chandelier 止损(turtle 式定仓;出场逻辑不变)
+                self._pending_sl = max(close - chand_long, 0.0) or None
             elif close < don_lo and adx >= c.adx_entry and health_ok and short_conf:
                 action = "enter_short"
+                self._pending_sl = max(chand_short - close, 0.0) or None
         elif self._position == 1:
             if (
                 close < chand_long
@@ -365,8 +376,15 @@ class TrendFollowerPort(Strategy):
 
     def _submit(self, action: str) -> None:
         strat, inst = self._strategy_id(), self.config.instrument_id
+        qty_usd = risk_sized_qty_usd(
+            self.config.risk_pct,
+            float(self._closes[-1] or 0),
+            self._pending_sl,
+            self.config.max_qty_usd,
+            self.config.qty_usd,
+        )
         if action.startswith("enter"):
-            dec = RISK.gate_entry(strat, inst, self.config.qty_usd)
+            dec = RISK.gate_entry(strat, inst, qty_usd)
             if not dec.allowed:
                 self.log.warning(f"[{strat}] ENTRY BLOCKED by risk: {dec.reason}")
                 import asyncio as _a
@@ -383,7 +401,7 @@ class TrendFollowerPort(Strategy):
                     )
                 )
                 return
-            RISK.open_position(strat, inst, self.config.qty_usd)
+            RISK.open_position(strat, inst, qty_usd)
         else:
             RISK.close_position(strat, inst)
 
@@ -397,7 +415,7 @@ class TrendFollowerPort(Strategy):
         px = float(self._closes[-1] or 1)
         ct_val = float(instrument.multiplier or 1)
         try:
-            qty = instrument.make_qty(self.config.qty_usd / (ct_val * px))
+            qty = instrument.make_qty(qty_usd / (ct_val * px))
         except ValueError:
             qty = instrument.min_quantity
         if qty is None or float(str(qty)) < float(str(instrument.min_quantity)):

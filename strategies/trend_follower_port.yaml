@@ -42,6 +42,8 @@ live:
   chandelier_mult: 3
   max_holding_days: 30
   qty_usd: 200
+  risk_pct: 1.0
+  max_qty_usd: 1000
   trade_enabled: true
   use_ema: true
   ema_period: 50

@@ -38,6 +38,11 @@ live:
   vol_surge_mult: 1.5
   rsi_period: 14
   qty_usd: 100
+  atr_period: 14
+  sl_atr_mult: 2.0
+  min_rr: 1.5
+  risk_pct: 1.0
+  max_qty_usd: 1000
   trade_enabled: true
   use_ema: true
   ema_period: 50
