@@ -1,0 +1,14 @@
+[Unit]
+Description=Helivex 独立 P&L 核算 — 从 paper.fills 原始成交独立重算已实现盈亏,和 paper.risk.realized_pnl 对账(helixa freqtrade-validator 能力等价物;DB->DB,no proxy)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/soffy/projects/helivex
+# 纯 DB->DB(paper.fills/paper.risk_events 同在 platform-postgres localhost:5434),
+# 无 OKX egress、不需 Clash 代理。核算逻辑独立手写在本脚本内,不复用 paper/risk.py
+# 的 realized_pnl() 实现——见脚本内 docstring。
+ExecStart=/home/soffy/projects/helivex/venv/bin/python /home/soffy/projects/helivex/ops/scripts/pnl_reconcile.py --once
+StandardOutput=append:/home/soffy/helivex_pnl_reconcile.log
+StandardError=append:/home/soffy/helivex_pnl_reconcile.log

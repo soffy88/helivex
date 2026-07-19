@@ -1,0 +1,9 @@
+[Unit]
+Description=Helivex独立 P&L 核算 timer(每日一次 — 独立执行路径核对已实现盈亏,helixa freqtrade-validator 能力等价物)
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+
+[Install]
+WantedBy=timers.target
