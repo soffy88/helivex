@@ -1018,6 +1018,12 @@ def _fmt_duration(delta) -> str:
     return f"{s}s"
 
 
+# OKX USDT-perp taker 费率。paper.fills 实测 fill_type 100% taker(全部策略只发
+# IOC 市价单),故两条腿均按 taker 估算;maker 费率留作将来接 post-only 后使用。
+TAKER_FEE_RATE = 0.0005
+MAKER_FEE_RATE = 0.0002
+
+
 def _round_trips(rows: list) -> list[dict]:
     """FIFO round-trip extraction from fills (ts-ASC). Each reducing fill closes
     open lots oldest-first and emits a realized trade. Total realized P&L matches
@@ -1044,8 +1050,15 @@ def _round_trips(rows: list) -> list[dict]:
             lot_sign = 1.0 if lot[0] > 0 else -1.0
             q_sign = 1.0 if q > 0 else -1.0
             closed = min(abs(lot[0]), abs(q))
-            pnl = lot_sign * (px - lot[1]) * closed * ctv
+            gross = lot_sign * (px - lot[1]) * closed * ctv
             entry_notional = lot[1] * closed * ctv
+            exit_notional = px * closed * ctv
+            # 手续费此前硬编码 0,而 paper.fills 实测 100% taker(1888/1888 笔),
+            # 于是所有 P&L 口径显示的都是毛值。venue 不回报手续费,故按 OKX taker
+            # 费率估算两条腿。估算值单列 fees,并从 realized_pnl 扣除 —— 后者被
+            # 三条净值曲线 + stats + 归因共用,单点扣费才能让全站口径一致。
+            fees = (entry_notional + exit_notional) * TAKER_FEE_RATE
+            pnl = gross - fees
             seq += 1
             trades.append(
                 {
@@ -1061,7 +1074,8 @@ def _round_trips(rows: list) -> list[dict]:
                     "realized_pnl_pct": round(pnl / entry_notional * 100, 4)
                     if entry_notional
                     else 0.0,
-                    "fees": 0.0,
+                    "gross_pnl": round(gross, 6),
+                    "fees": round(fees, 6),
                     "holding_duration": _fmt_duration(ts - lot[2]),
                     "trigger_signal": "—",
                     "exit_reason": "close",
