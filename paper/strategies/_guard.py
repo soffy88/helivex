@@ -141,6 +141,81 @@ def close_positions_okx_safe(strategy: Any) -> None:
     )
 
 
+def start_manual_close_poll(strategy: Any, interval: float = 20.0) -> None:
+    """轮询本策略自己的手动强平请求(paper.manual_close_requests,gateway 写入)。
+
+    helixa dashboard 有单笔强平页,helivex 之前只有全局熔断(挡新开仓,不动
+    已有持仓)——这是缺口的补全。每个策略实例各自轮询、按 strategy_id 精确
+    认领自己的请求(不能像 start_exposure_sync 那样全局单例:强平必须路由到
+    持有该仓位的那个具体策略实例的 order_factory/submit_order)。命中后复用
+    close_positions_okx_safe(和停机平仓、断连重同步走同一条 OKX-safe 平仓
+    路径,不是另起一套下单逻辑)。要求 strategy._db 已就绪(on_start 里
+    `self._db = ResilientPool(...)` 之后调用)。
+    """
+    import asyncio
+
+    strat_id = strategy._strategy_id()
+    inst_id = strategy.config.instrument_id
+
+    async def _loop() -> None:
+        await asyncio.sleep(15)  # 等 _db.ensure() 落定
+        while True:
+            try:
+                row = await strategy._db.execute(
+                    lambda conn: conn.fetchrow(
+                        """SELECT id, instrument FROM paper.manual_close_requests
+                           WHERE strategy_id=$1 AND status='pending'
+                           ORDER BY requested_at ASC LIMIT 1""",
+                        strat_id,
+                    )
+                )
+                if row is not None:
+                    if row["instrument"] != inst_id:
+                        # 请求的 instrument 和本实例不符(理论上不该发生,
+                        # gateway 按 strategy_id 精确路由)——标 failed 而不是
+                        # 悄悄误平别的标的。
+                        await strategy._db.execute(
+                            lambda conn: conn.execute(
+                                """UPDATE paper.manual_close_requests
+                                   SET status='failed', processed_at=now(),
+                                       note='instrument mismatch' WHERE id=$1""",
+                                row["id"],
+                            )
+                        )
+                    else:
+                        try:
+                            close_positions_okx_safe(strategy)
+                            await strategy._db.execute(
+                                lambda conn: conn.execute(
+                                    """UPDATE paper.manual_close_requests
+                                       SET status='done', processed_at=now() WHERE id=$1""",
+                                    row["id"],
+                                )
+                            )
+                            strategy.log.info(
+                                f"[guard] 手动强平请求 #{row['id']} 已执行"
+                            )
+                        except Exception as exc:
+                            note = str(exc)[:200]
+                            await strategy._db.execute(
+                                lambda conn: conn.execute(
+                                    """UPDATE paper.manual_close_requests
+                                       SET status='failed', processed_at=now(), note=$2
+                                       WHERE id=$1""",
+                                    row["id"],
+                                    note,
+                                )
+                            )
+            except Exception as exc:
+                try:
+                    strategy.log.warning(f"[guard] 手动强平轮询失败: {exc!r}")
+                except Exception:
+                    pass
+            await asyncio.sleep(interval)
+
+    asyncio.ensure_future(_loop())
+
+
 def resync_position_from_venue(strategy: Any, kind: str) -> int:
     """订单被拒/未成交后,从 venue 真实净仓重同步 _position。
 

@@ -47,6 +47,22 @@ CREATE TABLE IF NOT EXISTS paper.fills (
     signal_id           BIGINT REFERENCES paper.signals(id)
 );
 
+-- 手动强平请求(gateway 写入,策略实例各自轮询认领自己的 strategy_id)。
+-- helixa dashboard 的 execution 页有单笔强平能力,helivex 之前完全没有等价物
+-- (熔断只挡新开仓,不动已有持仓)——见 paper/strategies/_guard.py 的轮询实现。
+CREATE TABLE IF NOT EXISTS paper.manual_close_requests (
+    id           BIGSERIAL PRIMARY KEY,
+    requested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    strategy_id  TEXT NOT NULL,
+    instrument   TEXT NOT NULL,
+    requested_by TEXT,
+    status       TEXT NOT NULL DEFAULT 'pending',
+    processed_at TIMESTAMPTZ,
+    note         TEXT
+);
+CREATE INDEX IF NOT EXISTS manual_close_requests_pending
+    ON paper.manual_close_requests (strategy_id, status);
+
 CREATE TABLE IF NOT EXISTS paper.fidelity_summary (
     id              BIGSERIAL PRIMARY KEY,
     computed_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -210,6 +226,21 @@ async def write_fidelity_summary(conn: asyncpg.Connection) -> int:
         )
         n += 1
     return n
+
+
+async def request_manual_close(
+    conn: asyncpg.Connection, strategy_id: str, instrument: str, requested_by: str = ""
+) -> int:
+    """Queue a manual close request; the target strategy instance polls and
+    claims it (see paper/strategies/_guard.py::start_manual_close_poll)."""
+    row = await conn.fetchrow(
+        """INSERT INTO paper.manual_close_requests (strategy_id, instrument, requested_by)
+           VALUES ($1,$2,$3) RETURNING id""",
+        strategy_id,
+        instrument,
+        requested_by,
+    )
+    return row["id"]
 
 
 async def init_db() -> None:

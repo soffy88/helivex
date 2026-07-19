@@ -42,6 +42,7 @@ from paper.strategies._guard import (
     close_positions_okx_safe,
     own_open_qty,
     start_exposure_sync,
+    start_manual_close_poll,
     resync_position_from_venue,
     survive,
 )
@@ -100,6 +101,7 @@ class Scalp5M(Strategy):
             f"subscribing to {self._bar_type}"
         )
         self._db = ResilientPool(DB_DSN, DDL, name=self._strategy_id(), logger=self.log)
+        start_manual_close_poll(self)
         asyncio.ensure_future(self._boot())
         asyncio.ensure_future(self._rehydrate_position())
 

@@ -962,6 +962,48 @@ async def get_strategy_positions(strategy_id: str) -> list:
     return positions
 
 
+@app.post(
+    "/strategies/{strategy_id}/positions/close",
+    dependencies=[Depends(require_token)],
+)
+async def post_close_position(strategy_id: str, body: dict = Body(...)) -> dict:
+    """Queue a manual close for one instrument under this strategy family.
+
+    helixa dashboard has an execution page with per-position manual close;
+    helivex previously only had the global kill-switch (blocks new entries,
+    never touches existing positions — paper/risk.py's `trip()` is
+    deliberately exits-never-blocked). This is the missing per-position
+    capability. Cross-process: gateway can't submit Nautilus orders directly
+    (that requires a live Strategy instance's order_factory, which only
+    exists inside the paper container), so this queues a row in
+    paper.manual_close_requests; the target strategy instance polls and
+    claims its own requests (paper/strategies/_guard.py::start_manual_close_poll)
+    and executes the same OKX-safe close path used for shutdown/reconnect.
+    """
+    instrument = body.get("instrument")
+    if not instrument:
+        raise HTTPException(400, "instrument required")
+    prefix = _prefix_for(strategy_id)  # "{base}_%"
+    base = prefix.removesuffix("_%")
+    inst_key = instrument.replace(".", "_").replace("-", "_").lower()
+    exact_strategy_id = f"{base}_{inst_key}"
+
+    from paper.db import request_manual_close
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        req_id = await request_manual_close(
+            conn, exact_strategy_id, instrument, requested_by="dashboard"
+        )
+    return {
+        "ok": True,
+        "request_id": req_id,
+        "strategy_id": exact_strategy_id,
+        "instrument": instrument,
+        "status": "pending",
+    }
+
+
 # ─── /strategies/{id}/trades ──────────────────────────────────────────────────
 
 

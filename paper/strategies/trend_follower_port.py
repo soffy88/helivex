@@ -48,6 +48,7 @@ from paper.strategies._guard import (
     close_positions_okx_safe,
     own_open_qty,
     start_exposure_sync,
+    start_manual_close_poll,
     resync_position_from_venue,
     survive,
 )
@@ -131,6 +132,7 @@ class TrendFollowerPort(Strategy):
             f"[{self._strategy_id()}] started [{mode}], bars={self._bar_type}"
         )
         self._db = ResilientPool(DB_DSN, DDL, name=self._strategy_id(), logger=self.log)
+        start_manual_close_poll(self)
         # Warm up ADX/ATR/Donchian from helivex's own daily OHLC (resampled from
         # market_data.ohlcv_1h) instead of a ~45-bar live wait. OKX doesn't serve
         # daily history via internal tick aggregation, so request_bars is a no-op
