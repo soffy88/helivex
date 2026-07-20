@@ -60,6 +60,10 @@ class Scalp5MConfig(StrategyConfig, frozen=True):
     min_rr: float = 1.5  # 止盈 = min_rr × 止损距离 — 结构性保证盈亏比 ≥ min_rr
     cooldown_after_sl: int = 0  # 止损后 N 根 bar 内禁止再入场(0=关);对付单边行情绞肉机
     entry_enabled: bool = True  # False=退役中:只挡入场,平仓照走(见 on_bar 退役闸)
+    # ── maker 实验(R5 假设 97% maker 从未被实测:IOC 市价单结构上只能吃单)──
+    maker_mode: bool = False  # True=入场/TP/时间平仓走 post-only 挂单
+    maker_timeout_bars: int = 1  # 挂单等这么多根 bar 不成交就撤;入场作废,平仓回退市价
+    quote_max_age_ms: int = 2000  # 报价超过这个龄就不挂单、回退市价(防按陈旧价穿价被撤)
 
 
 class Scalp5M(Strategy):
@@ -86,6 +90,8 @@ class Scalp5M(Strategy):
         self._pending_signal_id: int | None = None
         self._order_submit_ns: int | None = None
         self._db: ResilientPool | None = None
+        # maker 模式下正在盘口挂着的单:{"id","action","bars","canceling"}
+        self._resting: dict[str, Any] | None = None
 
     def _strategy_id(self) -> str:
         inst = self.config.instrument_id.replace(".", "_").replace("-", "_").lower()
@@ -97,6 +103,10 @@ class Scalp5M(Strategy):
 
         self._bar_type = BarType.from_str(self.config.bar_type)
         self.subscribe_bars(self._bar_type)
+        if self.config.maker_mode:
+            # post-only 定价必须贴盘口:挂到对手价会被 venue 以 post-only 拒单,
+            # 挂太远则永不成交 —— 两种都测不出成交率。
+            self.subscribe_quote_ticks(InstrumentId.from_str(self.config.instrument_id))
         start_exposure_sync(self)
         self.log.info(
             f"[{self._strategy_id()}] started (NO-GO observation) — "
@@ -170,6 +180,22 @@ class Scalp5M(Strategy):
         self.log.info(
             f"[on_bar] {bar.bar_type} close={close:.4f} n={len(self._closes)}"
         )
+
+        # ── maker 挂单超时 ── 挂着没成交的单先处理,否则会和新信号打架
+        if self._resting is not None and not self._resting["canceling"]:
+            self._resting["bars"] += 1
+            if self._resting["bars"] >= self.config.maker_timeout_bars:
+                self._resting["canceling"] = True
+                try:
+                    self.cancel_order(self.cache.order(self._resting["id"]))
+                    self.log.info(
+                        f"[{self._strategy_id()}] 挂单超时撤销 "
+                        f"({self._resting['action']}, 等了 {self._resting['bars']} 根)"
+                    )
+                except Exception as exc:
+                    self.log.error(f"[{self._strategy_id()}] 撤单失败: {exc!r}")
+                    self._resting = None
+            return  # 本根不发新信号,等撤单回调落定
 
         # SL/TP 括号(先于时间平仓):SL = sl_std×入场σ,TP = min_rr×SL。
         # 时间平仓保留作兜底(先到先出)。
@@ -382,22 +408,80 @@ class Scalp5M(Strategy):
         else:
             return
 
-        order = self.order_factory.market(
-            instrument_id=instrument.id,
-            order_side=side,
-            quantity=qty,
-            time_in_force=TimeInForce.IOC,
-            client_order_id=next_client_order_id(
-                strat
-            ),  # OKX-safe alphanumeric clOrdId
-        )
+        # ── maker 实验:入场/TP/时间平仓挂 post-only,止损永远吃单 ──
+        # 止损不做 maker:挂单不成交 = 敞口无上限地扛着,这正是止损要防的事。
+        # 宁可为止损付 taker 费,也不能让"省 3bps"把尾部风险打开。
+        px = self._passive_px(instrument, side) if action != "stop_loss" else None
+        if px is not None:
+            order = self.order_factory.limit(
+                instrument_id=instrument.id,
+                order_side=side,
+                quantity=qty,
+                price=px,
+                time_in_force=TimeInForce.GTC,
+                post_only=True,
+                client_order_id=next_client_order_id(strat),
+            )
+            self._resting = {
+                "id": order.client_order_id,
+                "action": action,
+                "bars": 0,
+                "canceling": False,
+            }
+            kind = f"POST-ONLY @ {px}"
+        else:
+            order = self.order_factory.market(
+                instrument_id=instrument.id,
+                order_side=side,
+                quantity=qty,
+                time_in_force=TimeInForce.IOC,
+                client_order_id=next_client_order_id(
+                    strat
+                ),  # OKX-safe alphanumeric clOrdId
+            )
+            kind = "MARKET"
         self._order_submit_ns = self.clock.timestamp_ns()
         self.submit_order(order)
-        self.log.info(f"[{strat}] ORDER submitted: {side} {qty}  [NO-GO obs]")
+        self.log.info(f"[{strat}] ORDER submitted: {side} {qty} {kind}")
+
+    def _passive_px(self, instrument: Any, side: OrderSide) -> Any:
+        """post-only 的被动价:买挂买一、卖挂卖一。无盘口→None(调用方回退市价)。
+
+        贴同侧最优价而不是穿价,保证 post-only 不被拒;成交与否交给市场,
+        这正是本实验要测的量(R5 假设 97% maker)。
+        """
+        if not self.config.maker_mode:
+            return None
+        q = self.cache.quote_tick(InstrumentId.from_str(self.config.instrument_id))
+        if q is None:
+            self.log.warning(f"[{self._strategy_id()}] 无盘口报价 — 回退市价单")
+            return None
+        # 陈旧报价比没有报价更危险:按几秒前的价挂出去,post-only 一穿价就被 venue
+        # 撤单(实测过一次),而我们还以为单子挂在盘口上等成交。宁可吃单也不挂错价。
+        age_ms = (self.clock.timestamp_ns() - q.ts_init) / 1_000_000
+        if age_ms > self.config.quote_max_age_ms:
+            self.log.warning(
+                f"[{self._strategy_id()}] 报价过期 {age_ms:.0f}ms "
+                f"(>{self.config.quote_max_age_ms}) — 回退市价单"
+            )
+            return None
+        px = q.bid_price if side == OrderSide.BUY else q.ask_price
+        self.log.info(
+            f"[{self._strategy_id()}] 挂单定价 {px} "
+            f"(bid {q.bid_price}/ask {q.ask_price}, 报价龄 {age_ms:.0f}ms)"
+        )
+        return px
 
     @survive
     def on_order_filled(self, event: Any) -> None:
         import asyncio
+
+        if self._resting is not None and event.client_order_id == self._resting["id"]:
+            # 只在全部成交时松手 —— 部分成交若清掉 _resting,剩余那部分就脱离
+            # 超时管理、永远挂在盘口占着敞口。
+            o = self.cache.order(event.client_order_id)
+            if o is None or o.is_closed:
+                self._resting = None
 
         if self._db is not None and self._signal_price is not None:
             fill_price = float(str(event.last_px))
@@ -455,8 +539,13 @@ class Scalp5M(Strategy):
                     self.log.error(f"[{strat}] FILL PERSIST FAILED: {exc}")
 
             asyncio.ensure_future(_store())
-            self._pending_signal_id = None
-            self._order_submit_ns = None
+            # 只在整笔成交后清空:部分成交若提前清掉,后续分片会以 signal_id=NULL 落库,
+            # 归因时看起来像"无信号孤儿单"。donchian_4h 实测 20 笔逻辑订单里 8 笔部分成交,
+            # 45 笔 fill 中 26 笔因此丢了关联,曾被误判为停机风暴清理单。
+            _o = self.cache.order(event.client_order_id)
+            if _o is None or _o.is_closed:
+                self._pending_signal_id = None
+                self._order_submit_ns = None
 
     @survive
     def on_order_rejected(self, event: Any) -> None:
@@ -468,8 +557,57 @@ class Scalp5M(Strategy):
 
     @survive
     def on_order_canceled(self, event: Any) -> None:
-        # 本策略从不主动撤单 — cancel 只可能是 IOC 未成交,按拒单重同步
+        # 撤单来源有两种,处置相同、只在日志上区分:
+        #   ① 我们的超时撤单(canceling=True)
+        #   ② venue 撤的 —— post-only 若会穿价,OKX 直接撤单而不是拒单。实测
+        #      03:20:00 挂 BUY@76.81,450ms 后就被撤(报价滞后/价格已下行)。
+        # 关键:不论谁撤的都必须清 _resting。早先只认 ① 的写法会把死订单留在状态里,
+        # 5 分钟后超时逻辑对着 CANCELED 订单再撤一次(Cannot cancel: state is CANCELED),
+        # 还因为 return 跳过了那一根的平仓重试 —— 仓位靠下一根碰巧自愈,不是靠设计。
+        r = self._resting
+        if r is not None and event.client_order_id == r["id"]:
+            by_venue = not r["canceling"]
+            self._resting = None
+            if by_venue:
+                self.log.warning(
+                    f"[{self._strategy_id()}] 挂单被 venue 撤销(post-only 会穿价)"
+                    f" — {r['action']}"
+                )
+            if r["action"].startswith("enter"):
+                # 没进场 — 信号作废,复位到 flat(_fire_signal 已乐观置过 ±1)
+                self._position = 0
+                self._bars_left = 0
+                self._entry_px = self._sl_dist = None
+                RISK.close_position(self._strategy_id(), self.config.instrument_id)
+                self.log.info(f"[{self._strategy_id()}] 入场挂单未成交 — 信号作废")
+            else:
+                # 平仓单撤了必须补上,否则仓位悬着没人管 —— 回退市价吃单
+                self.log.warning(
+                    f"[{self._strategy_id()}] 平仓挂单未成交 — 回退市价 ({r['action']})"
+                )
+                self._submit_market_exit(r["action"])
+            return
         self._handle_order_failure("canceled")
+
+    def _submit_market_exit(self, action: str) -> None:
+        """maker 平仓单超时后的 taker 兜底。方向按 venue 上本策略的实际持仓定,
+        不用 _position —— 后者此刻已被 _fire_signal 置 0(乐观更新)。"""
+        inst_id = InstrumentId.from_str(self.config.instrument_id)
+        instrument = self.cache.instrument(inst_id)
+        own = own_open_qty(self)
+        if instrument is None or own is None or own == 0:
+            self.log.info(f"[{self._strategy_id()}] 兜底平仓:已无持仓,跳过")
+            return
+        order = self.order_factory.market(
+            instrument_id=instrument.id,
+            order_side=OrderSide.SELL if own > 0 else OrderSide.BUY,
+            quantity=instrument.make_qty(abs(own)),
+            time_in_force=TimeInForce.IOC,
+            client_order_id=next_client_order_id(self._strategy_id()),
+        )
+        self._order_submit_ns = self.clock.timestamp_ns()
+        self.submit_order(order)
+        self.log.info(f"[{self._strategy_id()}] 兜底 MARKET 平仓 {abs(own)} ({action})")
 
     @survive
     def on_order_expired(self, event: Any) -> None:

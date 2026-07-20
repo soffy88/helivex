@@ -35,11 +35,21 @@ live:
   sl_std: 1.0
   min_rr: 1.5
   cooldown_after_sl: 0
-  # 退役(2026-07-20):R5 实验的两个待测量已有答案 —— 滑点 0.82bps、fill_type 100%
-  # taker(1888/1888)。100% taker 是 IOC 市价单的结构必然,声明的"测 97% maker 成交率"
-  # 在当前实现下不可达成,继续跑只产生确认性噪音。改 true 前先按 docs §4.1(b) 换成
-  # post-only 限价单,否则测的还是同一个已知答案。
-  entry_enabled: false
+  # 2026-07-20 撤销退役,转 maker 实验。依据:1135 回合逐回合配对,毛收益
+  # +1.48bps/回合、95%CI [-0.80,+3.77]、t=1.27 —— 与零不可区分且点估计为正,
+  # 是全系统唯一毛边际不为负的策略。压死它的是 10bps taker 成本,而 100% taker
+  # 是 IOC 市价单的实现选择、不是策略性质。
+  entry_enabled: true
+  # post-only 挂单:入场/TP/时间平仓走 maker,止损永远吃单(挂单不成交=敞口无上限)。
+  # 待测量:① 实际 maker 成交率(R5 假设 97%,从未实测)② 逆向选择有多贵 ——
+  # 挂单只在市场走向你时成交,填单的那批天然更差,毛边际会低于 +1.48,低多少只能实测。
+  # 费率算术(OKX 标准档 maker 2bps/taker 5bps):双腿 maker 4bps/回合 → 净 -2.5bps,
+  # 点估计仍为负但落在 CI 内。本实验的产出是知识不是收益,别按盈利预期看。
+  maker_mode: true
+  maker_timeout_bars: 1
+  # 实测 03:20 用滞后报价挂 BUY@76.81(市价已跌到 76.71),post-only 穿价被
+  # OKX 450ms 内撤单。超过此龄不挂单、直接吃单。
+  quote_max_age_ms: 2000
   vwap_n: 12
   z_thr: 2.0
   hold: 6

@@ -218,6 +218,9 @@ def build_node() -> TradingNode:
         min_rr=float(sc.get("min_rr", 1.5)),
         cooldown_after_sl=int(sc.get("cooldown_after_sl", 0)),
         entry_enabled=bool(sc.get("entry_enabled", True)),
+        maker_mode=bool(sc.get("maker_mode", False)),
+        maker_timeout_bars=int(sc.get("maker_timeout_bars", 1)),
+        quote_max_age_ms=int(sc.get("quote_max_age_ms", 2000)),
     )
     scalp_eth = Scalp5MConfig(
         instrument_id="ETH-USDT-SWAP.OKX",
@@ -230,6 +233,9 @@ def build_node() -> TradingNode:
         min_rr=float(sc.get("min_rr", 1.5)),
         cooldown_after_sl=int(sc.get("cooldown_after_sl", 0)),
         entry_enabled=bool(sc.get("entry_enabled", True)),
+        maker_mode=bool(sc.get("maker_mode", False)),
+        maker_timeout_bars=int(sc.get("maker_timeout_bars", 1)),
+        quote_max_age_ms=int(sc.get("quote_max_age_ms", 2000)),
     )
     scalp_sol = Scalp5MConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
@@ -242,6 +248,9 @@ def build_node() -> TradingNode:
         min_rr=float(sc.get("min_rr", 1.5)),
         cooldown_after_sl=int(sc.get("cooldown_after_sl", 0)),
         entry_enabled=bool(sc.get("entry_enabled", True)),
+        maker_mode=bool(sc.get("maker_mode", False)),
+        maker_timeout_bars=int(sc.get("maker_timeout_bars", 1)),
+        quote_max_age_ms=int(sc.get("quote_max_age_ms", 2000)),
     )
 
     node.trader.add_strategy(Donchian4H(donchian_btc))
