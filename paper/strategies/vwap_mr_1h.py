@@ -390,7 +390,17 @@ class VwapMR1H(Strategy):
             if self._position != 0:
                 _i = self.cache.instrument(InstrumentId.from_str(inst))
                 _ct = float(_i.multiplier) if _i is not None else 1.0
-                RISK.open_position(strat, inst, fill_price * qty * _ct)
+                # 用本策略【实际持仓】而不是本次成交量:open_position 是赋值不是
+                # 累加,一笔订单被拆成多次成交时,最后一个分片会覆盖掉整单金额,
+                # 账本因此低估敞口(donchian 实测单笔被拆到 8 次)。读 cache 的
+                # 持仓天然对部分成交免疫,也不必维护"首笔覆盖、后续累加"的状态。
+                _own = own_open_qty(self)
+                _notional = (
+                    abs(_own) * _ct * fill_price
+                    if _own is not None
+                    else fill_price * qty * _ct
+                )
+                RISK.open_position(strat, inst, _notional)
             else:
                 RISK.close_position(strat, inst)
             fill_type = (
