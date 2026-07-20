@@ -96,6 +96,37 @@ def own_open_qty(strategy: Any) -> float | None:
         return None
 
 
+def own_net_position(strategy: Any) -> float | None:
+    """【本策略自己】的净仓(张,含符号)。查询失败返回 None;确实空仓返回 0.0。
+
+    None 与 0.0 必须分开:调用方对"查不到"和"确实没仓"的处置不同(重启恢复时
+    查不到要保持 flat,订单被拒重同步时查不到要保留原值)。
+
+    ⚠ 绝不能用 portfolio.net_position —— 与 close_positions_okx_safe 同一条禁令。
+    那是账户级净仓,BTC/ETH/SOL 各被 4-6 个策略实例共享,拿它当策略级方向用,
+    每个实例都会继承别人的方向。2026-07-20 实测:账户三个标的均为净空
+    (BTC -0.06/ETH -0.27/SOL -5.24),scalp_5m 自己账面是净多,重启后三个实例
+    全部 rehydrate 成 _position=-1,随后的 time_exit 各发一笔 BUY —— 没平掉自己
+    任何仓,反而每次重启凭空加一笔多(SOL 从 flat 变成 +0.01)。
+
+    归属不了就返回 None、让调用方保持 flat,而不是回退到账户级:宁可漏认自己的
+    仓(最坏是重复入场一次,金额受 qty_usd/风险定仓封顶),也不能继承别人的方向
+    (会放大成反向敞口,07-12 账户 4998→933 就是这个放大)。
+    """
+    from nautilus_trader.model.identifiers import InstrumentId
+
+    try:
+        ps = strategy.cache.positions_open(
+            instrument_id=InstrumentId.from_str(strategy.config.instrument_id),
+            strategy_id=strategy.id,
+        )
+        net = float(sum(p.signed_qty for p in ps))
+    except Exception as exc:
+        strategy.log.warning(f"[guard] 策略级持仓查询失败: {exc!r}")
+        return None
+    return net
+
+
 def close_positions_okx_safe(strategy: Any) -> None:
     """OKX-safe 的停机平仓,替代 on_stop 里的 close_all_positions()。
 
@@ -223,20 +254,18 @@ def resync_position_from_venue(strategy: Any, kind: str) -> int:
     幻影仓位运行,后续"平仓"单会在 venue 开出反向真实仓位。返回重同步
     后的方向(-1/0/1),调用方据此复位各自的辅助状态。
     """
-    from nautilus_trader.model.identifiers import InstrumentId
-
-    inst = strategy.config.instrument_id
     prev = strategy._position
-    try:
-        net = float(strategy.portfolio.net_position(InstrumentId.from_str(inst)))
-    except Exception as exc:
+    # 策略级,不用 portfolio.net_position:后者是账户级,重同步会把别的策略的方向
+    # 灌进来 —— 本函数正是为消除幻影仓位而存在,用账户级反而制造幻影。
+    net = own_net_position(strategy)
+    if net is None:
         strategy.log.error(
-            f"[guard] order {kind} 但仓位重同步失败: {exc!r} — 保留 _position={prev}"
+            f"[guard] order {kind} 但仓位重同步失败 — 保留 _position={prev}"
         )
         return prev
     pos = 1 if net > 0 else (-1 if net < 0 else 0)
     strategy._position = pos
     strategy.log.error(
-        f"[guard] order {kind} — _position {prev} -> {pos} (venue net={net})"
+        f"[guard] order {kind} — _position {prev} -> {pos} (own net={net})"
     )
     return pos

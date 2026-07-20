@@ -47,7 +47,11 @@ live:
   trade_enabled: true
   use_ema: true
   ema_period: 50
-  use_macd: true
+  # 关闭(2026-07-20):近 177 次日线评估的逐项通过率 —— 突破 2.8% / ADX≥20 76.8% /
+  # ATR健康 100% / EMA 59.9% / MACD 仅 20.3% / 全部同时 1.7%。MACD(12,26,9) 在日线是
+  # 滞后指标,要求它在突破 bar 已翻正 = 要求趋势已走过一段,与"突破入场"自相矛盾,
+  # 把本就低频的策略压到全历史 2 次入场。保留 EMA50(过滤强度温和)。
+  use_macd: false
   macd_fast: 12
   macd_slow: 26
   macd_signal: 9

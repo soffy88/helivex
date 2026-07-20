@@ -23,6 +23,7 @@ from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
 from paper.strategies._guard import (
     close_positions_okx_safe,
+    own_net_position,
     own_open_qty,
     start_exposure_sync,
     start_manual_close_poll,
@@ -131,22 +132,15 @@ class VwapMR1H(Strategy):
         await asyncio.sleep(10)
         if self._position != 0:
             return
-        try:
-            net = float(
-                self.portfolio.net_position(
-                    InstrumentId.from_str(self.config.instrument_id)
-                )
-            )
-        except Exception as exc:
-            self.log.warning(
-                f"[{self._strategy_id()}] position rehydrate skipped: {exc}"
-            )
+        # 策略级归属;不可归属 → 保持 flat,绝不回退到账户级 net_position(见 _guard)
+        net = own_net_position(self)
+        if net is None:
             return
         self._position = 1 if net > 0 else (-1 if net < 0 else 0)
         if self._position != 0:
             self._bars_left = self.config.hold
             self.log.info(
-                f"[{self._strategy_id()}] rehydrated _position={self._position} from venue net={net}"
+                f"[{self._strategy_id()}] rehydrated _position={self._position} from own net={net}"
             )
 
     @survive

@@ -10,8 +10,9 @@ instruments:
 # gross Sharpe +1.33 但 taker 成本 307%/yr
 # 净回报: deeply negative OOS
 # 运行目的: 测量真实 fill rate / 滑点 vs backtest 假设 (97% maker, 2bps)
-gate_status: no-go
-gate_reason: "R5: taker 307%/yr 成本碾死, gross +1.33 net deeply negative. 观察对象."
+gate_status: retired
+gate_reason: "R5: taker 307%/yr 成本碾死, gross +1.33 net deeply negative. 2026-07-20 退役:
+  1072 回合实测毛 P&L −$0.25(≈打平)+ 100% taker × 5bps/边 ⇒ 净值必负,R5 判决被生产数据确认."
 gross_sharpe_backtest: 1.33
 taker_cost_pct_yr: 307.0
 
@@ -34,6 +35,11 @@ live:
   sl_std: 1.0
   min_rr: 1.5
   cooldown_after_sl: 0
+  # 退役(2026-07-20):R5 实验的两个待测量已有答案 —— 滑点 0.82bps、fill_type 100%
+  # taker(1888/1888)。100% taker 是 IOC 市价单的结构必然,声明的"测 97% maker 成交率"
+  # 在当前实现下不可达成,继续跑只产生确认性噪音。改 true 前先按 docs §4.1(b) 换成
+  # post-only 限价单,否则测的还是同一个已知答案。
+  entry_enabled: false
   vwap_n: 12
   z_thr: 2.0
   hold: 6

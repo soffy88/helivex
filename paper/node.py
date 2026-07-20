@@ -217,6 +217,7 @@ def build_node() -> TradingNode:
         sl_std=float(sc.get("sl_std", 1.0)),
         min_rr=float(sc.get("min_rr", 1.5)),
         cooldown_after_sl=int(sc.get("cooldown_after_sl", 0)),
+        entry_enabled=bool(sc.get("entry_enabled", True)),
     )
     scalp_eth = Scalp5MConfig(
         instrument_id="ETH-USDT-SWAP.OKX",
@@ -228,6 +229,7 @@ def build_node() -> TradingNode:
         sl_std=float(sc.get("sl_std", 1.0)),
         min_rr=float(sc.get("min_rr", 1.5)),
         cooldown_after_sl=int(sc.get("cooldown_after_sl", 0)),
+        entry_enabled=bool(sc.get("entry_enabled", True)),
     )
     scalp_sol = Scalp5MConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
@@ -239,6 +241,7 @@ def build_node() -> TradingNode:
         sl_std=float(sc.get("sl_std", 1.0)),
         min_rr=float(sc.get("min_rr", 1.5)),
         cooldown_after_sl=int(sc.get("cooldown_after_sl", 0)),
+        entry_enabled=bool(sc.get("entry_enabled", True)),
     )
 
     node.trader.add_strategy(Donchian4H(donchian_btc))

@@ -40,6 +40,7 @@ from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
 from paper.strategies._guard import (
     close_positions_okx_safe,
+    own_net_position,
     own_open_qty,
     start_exposure_sync,
     start_manual_close_poll,
@@ -58,6 +59,7 @@ class Scalp5MConfig(StrategyConfig, frozen=True):
     sl_std: float = 1.0  # 止损距离 = sl_std × 入场时收盘σ
     min_rr: float = 1.5  # 止盈 = min_rr × 止损距离 — 结构性保证盈亏比 ≥ min_rr
     cooldown_after_sl: int = 0  # 止损后 N 根 bar 内禁止再入场(0=关);对付单边行情绞肉机
+    entry_enabled: bool = True  # False=退役中:只挡入场,平仓照走(见 on_bar 退役闸)
 
 
 class Scalp5M(Strategy):
@@ -149,21 +151,14 @@ class Scalp5M(Strategy):
         await asyncio.sleep(10)
         if self._position != 0:
             return
-        try:
-            net = float(
-                self.portfolio.net_position(
-                    InstrumentId.from_str(self.config.instrument_id)
-                )
-            )
-        except Exception as exc:
-            self.log.warning(
-                f"[{self._strategy_id()}] position rehydrate skipped: {exc}"
-            )
+        # 策略级归属;不可归属 → 保持 flat,绝不回退到账户级 net_position(见 _guard)
+        net = own_net_position(self)
+        if net is None:
             return
         self._position = 1 if net > 0 else (-1 if net < 0 else 0)
         if self._position != 0:
             self.log.info(
-                f"[{self._strategy_id()}] rehydrated _position={self._position} from venue net={net}"
+                f"[{self._strategy_id()}] rehydrated _position={self._position} from own net={net}"
             )
 
     @survive
@@ -324,6 +319,15 @@ class Scalp5M(Strategy):
         )
 
         if action == "NEUTRAL":
+            return
+
+        # ── 退役闸 ── entry_enabled=False 时只挡入场,time_exit/stop_loss/take_profit
+        # 照常提交:R5 实验的两个待测量(滑点 0.82bps、fill_type 100% taker)已有答案,
+        # 继续入场只产生确认性噪音,还先到先得吃满单标的 $1000 上限把 scalper_v2 锁死
+        # (24h 64 次 block / 0 成交)。不做全量封禁是因为本策略有在场持仓,一刀切会把
+        # 它们留成孤儿平仓污染统计(见 docs §8.4)——放行平仓让存量自然排空到 flat。
+        if action.startswith("enter") and not self.config.entry_enabled:
+            self.log.info(f"[{strat}] RETIRED — entry suppressed ({action})")
             return
 
         # ── portfolio risk gate (pre-trade) — see paper/risk.py ──
