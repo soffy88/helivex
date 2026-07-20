@@ -500,8 +500,13 @@ class TrendFollowerPort(Strategy):
                 self.log.error(f"[{strat}] FILL PERSIST FAILED: {exc}")
 
         asyncio.ensure_future(_store())
-        self._pending_signal_id = None
-        self._order_submit_ns = None
+        # 只在整笔成交后清空:部分成交若提前清掉,后续分片会以 signal_id=NULL 落库,
+        # 归因时看起来像"无信号孤儿单"。donchian_4h 实测 20 笔逻辑订单里 8 笔部分成交,
+        # 45 笔 fill 中 26 笔因此丢了关联,曾被误判为停机风暴清理单。
+        _o = self.cache.order(event.client_order_id)
+        if _o is None or _o.is_closed:
+            self._pending_signal_id = None
+            self._order_submit_ns = None
 
     @survive
     def on_order_rejected(self, event: Any) -> None:
