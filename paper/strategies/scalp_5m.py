@@ -383,7 +383,20 @@ class Scalp5M(Strategy):
             self.log.error(f"[{strat}] instrument not found in cache")
             return
 
-        qty = instrument.min_quantity
+        # 名义美元 → 合约张数(OKX SWAP 单位是"张",1 张 = ctVal 个币)。此前写死
+        # min_quantity,qty_usd 只喂风控 gate 不进订单 —— 实测单笔名义 SOL $0.77 /
+        # ETH $1.79 / BTC $6.33,而配置写的是 $50,差 8~65 倍。vwap_mr 在 718f7dc
+        # 已修,scalp_5m 当时因"刻意固定 $50 不接风险定仓"被漏掉,这里补齐。
+        # 仓位太小的代价不只是不赚钱:$1.79 的单在 P&L 里全是噪音,毛边际 +1.48bps
+        # 与 0 根本无法分辨,任何策略结论都测不出来。
+        px = price if price > 0 else 1.0
+        ct_val = float(instrument.multiplier or 1)
+        try:
+            qty = instrument.make_qty(self.config.qty_usd / (ct_val * px))
+        except ValueError:
+            qty = instrument.min_quantity
+        if qty is None or float(str(qty)) < float(str(instrument.min_quantity)):
+            qty = instrument.min_quantity
 
         if action == "enter_short":
             side = OrderSide.SELL
