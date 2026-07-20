@@ -57,15 +57,32 @@ def start_exposure_sync(strategy: Any, interval: float = 60.0) -> None:
         await asyncio.sleep(20)  # 等启动对账落定
         while True:
             try:
-                by_inst: dict[str, float] = {}
+                # 按标的【轧差】而不是取绝对值相加。NT 按 strategy_id 分别记仓,
+                # 同一标的上多个策略持相反方向是常态(每标的 4-6 个策略共享,趋势与
+                # 均值回归天然对开),abs 求和会把对冲仓算成两倍敞口。而账户是净持仓
+                # 模式,真实市场风险就是净额 —— 2026-07-20 实测:三笔 EXTERNAL 空仓被
+                # 等量多仓抵平后,venue 的 margin_maint=0(零维持保证金,即无实际敞口),
+                # 但 abs 口径仍报 ~980 把三个标的全部挡死。
+                signed: dict[str, float] = {}
                 for p in strategy.cache.positions_open():
                     inst = strategy.cache.instrument(p.instrument_id)
                     ct = float(inst.multiplier) if inst is not None else 1.0
                     key = str(p.instrument_id)
-                    by_inst[key] = by_inst.get(key, 0.0) + abs(
-                        float(p.signed_qty)
+                    signed[key] = signed.get(key, 0.0) + float(
+                        p.signed_qty
                     ) * ct * float(p.avg_px_open)
+                by_inst: dict[str, float] = {k: abs(v) for k, v in signed.items()}
                 RISK.sync_external_exposure(by_inst)
+                # 归属明细:cap 只看总额,但"这笔敞口是谁的、有没有人管"才是清场
+                # 的前提。NT 的 position 带 strategy_id(本进程开的)或 EXTERNAL
+                # (重启后从 venue 对账回来、归属已不可恢复)—— 后者就是孤儿候选。
+                # 2026-07-20:幻影平仓单堆出的敞口让三标的全部超 cap,donchian 修复
+                # 后第一次发真实 enter_long 就被自己造的敞口挡住,当时无处查归属。
+                for p in strategy.cache.positions_open():
+                    strategy.log.info(
+                        f"[guard][敞口明细] {p.instrument_id} qty={float(p.signed_qty):+.4f} "
+                        f"avg={float(p.avg_px_open)} strategy={p.strategy_id}"
+                    )
             except Exception as exc:
                 try:
                     strategy.log.warning(f"[guard] 敞口对账失败: {exc!r}")
@@ -172,6 +189,54 @@ def close_positions_okx_safe(strategy: Any) -> None:
     )
 
 
+def close_external_positions_okx_safe(strategy: Any) -> None:
+    """只平本标的上的 EXTERNAL 仓位 —— 重启后从 venue 对账回来、归属已永久丢失的孤儿。
+
+    为什么需要单独一条路径:close_positions_okx_safe 按 strategy_id 过滤(这是对的,
+    防 07-12 那种 6 实例各平一次账户净仓的放大),但 EXTERNAL 仓位不属于任何策略,
+    没有实例会去平它,而它照样占 per-instrument cap。2026-07-20 实测三笔 EXTERNAL
+    (BTC -0.06/ETH -0.27/SOL -5.24)把三个标的全顶过 $1000,donchian 修复后第一次
+    发出真实 enter_long 即被挡,系统实际"只出不进"。
+
+    数量取自 NT cache(从 venue 对账而来),不用 paper.fills 账面 —— 两者早已脱钩
+    (账面记策略意图流水,venue 留的是历次事故沉淀),按账面下单会打到别人头上。
+    """
+    from nautilus_trader.model.enums import OrderSide, TimeInForce
+    from nautilus_trader.model.identifiers import InstrumentId
+    from paper.order_ids import next_client_order_id
+
+    inst_id = InstrumentId.from_str(strategy.config.instrument_id)
+    try:
+        ext = [
+            p
+            for p in strategy.cache.positions_open(instrument_id=inst_id)
+            if str(p.strategy_id) == "EXTERNAL"
+        ]
+        net = float(sum(p.signed_qty for p in ext))
+    except Exception as exc:
+        strategy.log.error(f"[guard] EXTERNAL 持仓查询失败: {exc!r}")
+        return
+    if net == 0:
+        strategy.log.info(f"[guard] {inst_id} 无 EXTERNAL 孤儿仓,跳过")
+        return
+    instrument = strategy.cache.instrument(inst_id)
+    if instrument is None:
+        strategy.log.error("[guard] close-external: instrument 不在 cache")
+        return
+    order = strategy.order_factory.market(
+        instrument_id=inst_id,
+        order_side=OrderSide.SELL if net > 0 else OrderSide.BUY,
+        quantity=instrument.make_qty(abs(net)),
+        time_in_force=TimeInForce.IOC,
+        client_order_id=next_client_order_id(strategy._strategy_id()),
+    )
+    strategy.submit_order(order)
+    strategy.log.warning(
+        f"[guard] close-external: 平 {inst_id} 孤儿仓 net={net}"
+        f"({len(ext)} pos) → {order.side}"
+    )
+
+
 def start_manual_close_poll(strategy: Any, interval: float = 20.0) -> None:
     """轮询本策略自己的手动强平请求(paper.manual_close_requests,gateway 写入)。
 
@@ -194,7 +259,7 @@ def start_manual_close_poll(strategy: Any, interval: float = 20.0) -> None:
             try:
                 row = await strategy._db.execute(
                     lambda conn: conn.fetchrow(
-                        """SELECT id, instrument FROM paper.manual_close_requests
+                        """SELECT id, instrument, note FROM paper.manual_close_requests
                            WHERE strategy_id=$1 AND status='pending'
                            ORDER BY requested_at ASC LIMIT 1""",
                         strat_id,
@@ -215,7 +280,12 @@ def start_manual_close_poll(strategy: Any, interval: float = 20.0) -> None:
                         )
                     else:
                         try:
-                            close_positions_okx_safe(strategy)
+                            # note='close_external' → 只平 EXTERNAL 孤儿仓;
+                            # 否则走常规路径(只平本策略自己的仓)
+                            if (row["note"] or "") == "close_external":
+                                close_external_positions_okx_safe(strategy)
+                            else:
+                                close_positions_okx_safe(strategy)
                             await strategy._db.execute(
                                 lambda conn: conn.execute(
                                     """UPDATE paper.manual_close_requests
