@@ -36,6 +36,10 @@ risk:
   hold_bars: 6
 # live paper params (read by paper/node.py → VwapMR1H; edit via Configure tab)
 live:
+  # 2026-07-23 退役(docs/R5.4_VWAP_MR_MAKER_GATE.md,trial #30):gate FAIL×3(taker)
+  # → 07-22 出场重设计+z网格穷尽全负 → R5.4 证明 maker 化也救不了(最乐观 4bps 双腿
+  # maker 仍 -0.68)。false = 节点不再注册该策略(paper/node.py);复活须过新 gate。
+  trade_enabled: false
   sl_std: 1.0
   min_rr: 1.5
   cooldown_after_sl: 0

@@ -1,5 +1,5 @@
 {
-  "total_trials": 29,
+  "total_trials": 30,
   "history": [
     {
       "trial_n": 1,
@@ -958,6 +958,82 @@
           "\u6270\u52a8 \u22656/7 gross>0": false
         },
         "note": "\u7a97\u53e3 2024-07-20\u21922026-07-10(719d,1h\u6570\u636e\u6240\u9650,\u975e spec \u671f\u671b\u7684 \u22652021);FTX-2022 1h \u65e0\u8986\u76d6\u6545\u6392\u9664;funding veto OFF(F4,dydx \u4ec5\u8986\u76d6\u7a97\u53e334%);embargo=50/purge=48(F6/F6b,\u975e v51 \u5b57\u9762\u9ed8\u8ba40)\u3002"
+      }
+    },
+    {
+      "trial_n": 30,
+      "config": "ops/scripts/vwap_mr_maker_gate_r54.py (R5.4)",
+      "verdict": "FAIL",
+      "metrics": {
+        "instruments": {
+          "SOL-USDT-SWAP": {
+            "status": "FAIL",
+            "dsr": -0.643,
+            "pbo": 1.0,
+            "pbo_cscv": null,
+            "mean_oos": 0.657,
+            "fill_rate": 0.982,
+            "adverse_selection": {
+              "filled_fwd_bps": 15.21,
+              "missed_fwd_bps": 2.56
+            },
+            "cost_model": "maker\u51652bps+taker\u51fa5bps,\u9650\u4ef7\u7a7f\u8d8a\u6210\u4ea4\u6a21\u578b timeout=1bar"
+          }
+        },
+        "overall": "FAIL",
+        "secondary_variant_B_live_sigma24": {
+          "status": "failed",
+          "mean_oos": -0.971,
+          "pbo_cscv": null
+        },
+        "cycles": {
+          "Bull2024b": 1.773,
+          "Chop2025": 0.496,
+          "Bear2025": 0.963,
+          "2026H1": -0.824
+        },
+        "scenarios": {
+          "A_r53_sigma4": {
+            "4bps \u53cc\u817fmaker(\u4e50\u89c2\u754c)": {
+              "sharpe": 1.312,
+              "fill_rate": 0.982,
+              "n_signals": 2095,
+              "n_filled": 2058
+            },
+            "7bps maker\u5165+taker\u51fa(\u57fa\u51c6)": {
+              "sharpe": 0.867,
+              "fill_rate": 0.982,
+              "n_signals": 2095,
+              "n_filled": 2058
+            },
+            "10bps \u5168taker(\u53c2\u7167)": {
+              "sharpe": 0.421,
+              "fill_rate": 0.982,
+              "n_signals": 2095,
+              "n_filled": 2058
+            }
+          },
+          "B_live_sigma24": {
+            "4bps \u53cc\u817fmaker(\u4e50\u89c2\u754c)": {
+              "sharpe": -0.675,
+              "fill_rate": 0.996,
+              "n_signals": 487,
+              "n_filled": 485
+            },
+            "7bps maker\u5165+taker\u51fa(\u57fa\u51c6)": {
+              "sharpe": -0.875,
+              "fill_rate": 0.996,
+              "n_signals": 487,
+              "n_filled": 485
+            },
+            "10bps \u5168taker(\u53c2\u7167)": {
+              "sharpe": -1.075,
+              "fill_rate": 0.996,
+              "n_signals": 487,
+              "n_filled": 485
+            }
+          }
+        }
       }
     }
   ]

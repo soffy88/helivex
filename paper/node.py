@@ -260,7 +260,11 @@ def build_node() -> TradingNode:
     node.trader.add_strategy(Donchian4H(donchian_btc))
     node.trader.add_strategy(Donchian4H(donchian_eth))
     node.trader.add_strategy(Donchian4H(donchian_sol))
-    node.trader.add_strategy(VwapMR1H(vwap_sol))
+    # vwap_mr_1h 2026-07-23 退役(R5.4/trial#30):gate FAIL×3 → 出场重设计穷尽
+    # → maker 化最乐观 4bps 仍负,修正菜单已空;执行测量已被 scalp_5m 以 10 倍
+    # 样本率覆盖。复活须过新 gate。
+    if bool(vw.get("trade_enabled", False)):
+        node.trader.add_strategy(VwapMR1H(vwap_sol))
     node.trader.add_strategy(SpotTrend1D(spot_btc))
     node.trader.add_strategy(SpotTrend1D(spot_eth))
     node.trader.add_strategy(Scalp5M(scalp_btc))
