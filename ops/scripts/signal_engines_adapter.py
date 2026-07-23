@@ -4,9 +4,11 @@ helixa→helivex 3O 替换 Phase 4。计算在 platform/3O(oskill.signal + omodu
 本脚本读 OHLCV、跑引擎、落库。每引擎的 promoted 反映它是否过自己的门:
   - ta_multi:规则型多指标(EMA/MACD/RSI/BB/slope),多周期(5m+1h)对齐。透明、无过拟合
     风险 → promoted=True(仍受 P5 共识 + observe→enforce 分阶段治理)。
-  - ml_lgb:LightGBM+三重障碍+walk-forward,DSR 门。promoted=<门结果>。真实数据上模型
-    不 predictive(准确率≈0.5)→ 门正确拒绝晋级(observe-only)——这是超越 helixa 的点
-    (它的门 VALIDATION_STRICT=false 从未生效,0.2315 的模型照投)。
+  - ml_lgb:LightGBM+三重障碍+walk-forward,DSR 门(费后口径)。promoted=<门结果>。
+    2026-07-23 起喂全量 helixa Alpha158 因子(51 维):毛口径 ETH/SOL 可过门
+    (DSR 1.0),但 5m 换手的 taker 费是毛 alpha 的 ~4.6x → 费后 Sharpe 深负,
+    门正确拒绝晋级(observe-only)。门从无摩擦改为费后,防止晋级一个费后亏损模型
+    ——helixa 的门 VALIDATION_STRICT=false 从未生效,0.2315 的模型照投。
   - llm_persona:LLM 人格槽,默认禁用(零成本)→ promoted=False。
 
 用法: python ops/scripts/signal_engines_adapter.py [--once]
@@ -70,18 +72,20 @@ async def _closes(md: asyncpg.Pool, symbol: str, tf: str) -> list[float]:
 
 async def _ohlcv(
     md: asyncpg.Pool, symbol: str, tf: str
-) -> tuple[list[float], list[float], list[float]]:
+) -> tuple[list[float], list[float], list[float], list[float], list[float]]:
     rows = await md.fetch(
-        """SELECT high, low, close FROM md.ohlcv
+        """SELECT open, high, low, close, volume FROM md.ohlcv
            WHERE venue='okx' AND instrument_type='perp' AND timeframe=$1 AND symbol=$2
            ORDER BY bar_open_ts ASC""",
         tf,
         symbol,
     )
     return (
+        [float(r["open"]) for r in rows],
         [float(r["high"]) for r in rows],
         [float(r["low"]) for r in rows],
         [float(r["close"]) for r in rows],
+        [float(r["volume"]) for r in rows],
     )
 
 
@@ -168,8 +172,8 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
             written.append({"engine": "ta_multi", "inst": inst, **ta})
 
             # trend_follower(P7,Donchian+ADX+Chandelier,h4)+ intraday_scalper(5m 双模)
-            h4, l4, c4 = await _ohlcv(md, sym, "h4")
-            h5, l5, c5 = await _ohlcv(md, sym, "m5")
+            _o4, h4, l4, c4, _v4 = await _ohlcv(md, sym, "h4")
+            o5, h5, l5, c5, v5 = await _ohlcv(md, sym, "m5")
             for engine_name, fn in (
                 ("tf_trend", lambda: _tf_trend(h4, l4, c4)),
                 ("tf_scalp", lambda: _tf_scalp(c5, h5, l5)),
@@ -200,10 +204,18 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
                 )
                 written.append({"engine": engine_name, "inst": inst, **sig})
 
-            # ML(gated)
-            if inst in ML_ENABLED and len(closes_5m) > 600:
+            # ML(gated)— 全量 OHLCV 因子集(helixa Alpha158 补齐)
+            if inst in ML_ENABLED and len(c5) > 600:
                 r = ml_signal_workflow(
-                    MlSignalConfig(symbol=inst), {"closes": closes_5m}, out_dir
+                    MlSignalConfig(symbol=inst),
+                    {
+                        "closes": c5,
+                        "opens": o5,
+                        "highs": h5,
+                        "lows": l5,
+                        "volumes": v5,
+                    },
+                    out_dir,
                 )
                 if r["status"] == "completed":
                     f = r["findings"]
@@ -224,9 +236,12 @@ async def run_once(hv: asyncpg.Pool, md: asyncpg.Pool) -> list[dict]:
                                     for k in (
                                         "wfv_accuracy",
                                         "oos_sharpe",
+                                        "oos_sharpe_net",
+                                        "fee_drag_pct",
                                         "dsr",
                                         "deflated_sharpe",
                                         "n_folds",
+                                        "n_features",
                                         "promoted",
                                     )
                                 },
