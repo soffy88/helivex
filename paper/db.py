@@ -63,6 +63,19 @@ CREATE TABLE IF NOT EXISTS paper.manual_close_requests (
 CREATE INDEX IF NOT EXISTS manual_close_requests_pending
     ON paper.manual_close_requests (strategy_id, status);
 
+-- 策略锚点状态持久化。_entry_px/_sl_dist(硬止损/SL-TP 括号的锚点)此前只存在
+-- 于策略内存,重启即蒸发:donchian 硬止损对旧仓失效、futures_signal 括号消失且
+-- 误判 flat 后在后续突破上重复入场(07-11~07-19 ETH 连续加仓 5 次直到打满
+-- $1000 cap,挡掉其他策略 150+ 次入场,即此事故)。状态迁移时 upsert,
+-- rehydrate 时读回(见 _guard.py::persist_strategy_state)。
+CREATE TABLE IF NOT EXISTS paper.strategy_state (
+    strategy_id TEXT PRIMARY KEY,
+    position    INTEGER NOT NULL,
+    entry_px    DOUBLE PRECISION,
+    sl_dist     DOUBLE PRECISION,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS paper.fidelity_summary (
     id              BIGSERIAL PRIMARY KEY,
     computed_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -226,6 +239,35 @@ async def write_fidelity_summary(conn: asyncpg.Connection) -> int:
         )
         n += 1
     return n
+
+
+async def save_strategy_state(
+    conn: asyncpg.Connection,
+    strategy_id: str,
+    position: int,
+    entry_px: float | None,
+    sl_dist: float | None,
+) -> None:
+    await conn.execute(
+        """INSERT INTO paper.strategy_state (strategy_id, position, entry_px, sl_dist)
+           VALUES ($1,$2,$3,$4)
+           ON CONFLICT (strategy_id) DO UPDATE
+           SET position=$2, entry_px=$3, sl_dist=$4, updated_at=now()""",
+        strategy_id,
+        position,
+        entry_px,
+        sl_dist,
+    )
+
+
+async def load_strategy_state(
+    conn: asyncpg.Connection, strategy_id: str
+) -> asyncpg.Record | None:
+    return await conn.fetchrow(
+        """SELECT position, entry_px, sl_dist, updated_at
+           FROM paper.strategy_state WHERE strategy_id=$1""",
+        strategy_id,
+    )
 
 
 async def request_manual_close(

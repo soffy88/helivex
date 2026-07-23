@@ -144,6 +144,48 @@ def own_net_position(strategy: Any) -> float | None:
     return net
 
 
+def persist_strategy_state(strategy: Any) -> None:
+    """状态迁移即落库(fire-and-forget)。
+
+    _position/_entry_px/止损锚点是内存态,重启即蒸发:donchian 硬止损对旧仓
+    失效、futures_signal 括号消失且误判 flat 后重复入场(07-11~07-19 ETH 被
+    连续加仓 5 次直到打满 instrument cap)。每次迁移写 paper.strategy_state,
+    rehydrate 用 load_persisted_state 读回。锚点字段名两家不同
+    (donchian=_hard_sl_dist / futures_signal=_sl_dist),按存在者取。
+    """
+    import asyncio
+
+    db = getattr(strategy, "_db", None)
+    if db is None:
+        return
+    from paper.db import save_strategy_state
+
+    sid = strategy._strategy_id()
+    pos = int(strategy._position)
+    entry = strategy._entry_px
+    sl = getattr(strategy, "_hard_sl_dist", None)
+    if sl is None:
+        sl = getattr(strategy, "_sl_dist", None)
+    asyncio.ensure_future(
+        db.execute(lambda conn: save_strategy_state(conn, sid, pos, entry, sl))
+    )
+
+
+async def load_persisted_state(strategy: Any) -> Any:
+    """读回本策略最近一次落库的锚点状态;无记录/失败返回 None。"""
+    db = getattr(strategy, "_db", None)
+    if db is None:
+        return None
+    from paper.db import load_strategy_state
+
+    sid = strategy._strategy_id()
+    try:
+        return await db.execute(lambda conn: load_strategy_state(conn, sid))
+    except Exception as exc:
+        strategy.log.warning(f"[guard] 持久化状态读取失败: {exc!r}")
+        return None
+
+
 def close_positions_okx_safe(strategy: Any) -> None:
     """OKX-safe 的停机平仓,替代 on_stop 里的 close_all_positions()。
 
@@ -335,6 +377,9 @@ def resync_position_from_venue(strategy: Any, kind: str) -> int:
         return prev
     pos = 1 if net > 0 else (-1 if net < 0 else 0)
     strategy._position = pos
+    # 重同步后的方向要落库,否则 crash-restart 的 rehydrate 会读回幻影仓位。
+    # 锚点不动:pos=0 时 rehydrate 根本不读锚点,pos!=0 时锚点仍属当前仓。
+    persist_strategy_state(strategy)
     strategy.log.error(
         f"[guard] order {kind} — _position {prev} -> {pos} (own net={net})"
     )

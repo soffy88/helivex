@@ -32,7 +32,9 @@ from paper.order_ids import next_client_order_id
 from paper.strategies._sizing import risk_sized_qty_usd
 from paper.strategies._guard import (
     close_positions_okx_safe,
+    load_persisted_state,
     own_net_position,
+    persist_strategy_state,
     own_open_qty,
     start_exposure_sync,
     start_manual_close_poll,
@@ -175,14 +177,30 @@ class Donchian4H(Strategy):
         await asyncio.sleep(10)
         if self._position != 0:
             return
-        # 策略级归属;不可归属 → 保持 flat,绝不回退到账户级 net_position(见 _guard)
+        # 策略级归属;不可归属 → 不回退到账户级 net_position(见 _guard),
+        # 但可以信自己上次落库的状态(paper.strategy_state):重启后 NT 常把
+        # 旧仓归为 EXTERNAL,own_net_position 拿不到 → 旧逻辑保持 flat,下一根
+        # 突破 bar 再入一次场 —— 07-11~07-19 ETH 被这样连续加仓 5 次直到打满
+        # instrument cap。持久化状态是本策略自己写的,不存在跨策略串仓风险;
+        # 陈旧风险(停机时段被场外清仓)与旧逻辑的重复入场风险同为 qty_usd 封顶。
         net = own_net_position(self)
-        if net is None:
-            return
-        self._position = 1 if net > 0 else (-1 if net < 0 else 0)
-        if self._position != 0:
+        st = await load_persisted_state(self)
+        if net is not None and net != 0:
+            self._position = 1 if net > 0 else -1
+            if st is not None and st["position"] == self._position:
+                self._entry_px = st["entry_px"]
+                self._hard_sl_dist = st["sl_dist"]
             self.log.info(
-                f"[{self._strategy_id()}] rehydrated _position={self._position} from own net={net}"
+                f"[{self._strategy_id()}] rehydrated _position={self._position} "
+                f"from own net={net}, anchors={'persisted' if self._entry_px else 'none(仅通道出场)'}"
+            )
+        elif st is not None and st["position"] != 0:
+            self._position = int(st["position"])
+            self._entry_px = st["entry_px"]
+            self._hard_sl_dist = st["sl_dist"]
+            self.log.info(
+                f"[{self._strategy_id()}] rehydrated _position={self._position} "
+                f"from persisted state (own net 不可归属), entry={self._entry_px}"
             )
 
     @survive
@@ -403,6 +421,7 @@ class Donchian4H(Strategy):
         else:
             return
 
+        persist_strategy_state(self)
         order = self.order_factory.market(
             instrument_id=instrument.id,
             order_side=side,
@@ -513,8 +532,25 @@ class Donchian4H(Strategy):
     def on_stop(self) -> None:
         inst_id = InstrumentId.from_str(self.config.instrument_id)
         close_positions_okx_safe(self)
+        # 停机平仓后持久化状态必须归零:否则重启 rehydrate 会认领一个 on_stop
+        # 已平掉的仓,对不存在的仓发出场单(= 反向开仓)。先写库、再关池,
+        # 不能用 fire-and-forget(关池可能抢在写入前完成)。
+        self._position = 0
+        self._entry_px = self._hard_sl_dist = None
         if self._db is not None:
             import asyncio
 
-            asyncio.ensure_future(self._db.close())
+            from paper.db import save_strategy_state
+
+            db, sid = self._db, self._strategy_id()
             self._db = None
+
+            async def _flat_and_close() -> None:
+                try:
+                    await db.execute(
+                        lambda conn: save_strategy_state(conn, sid, 0, None, None)
+                    )
+                finally:
+                    await db.close()
+
+            asyncio.ensure_future(_flat_and_close())

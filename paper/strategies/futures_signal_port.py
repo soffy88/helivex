@@ -38,7 +38,10 @@ from paper.db_pool import ResilientPool
 from paper.order_ids import next_client_order_id
 from paper.strategies._guard import (
     close_positions_okx_safe,
+    load_persisted_state,
+    own_net_position,
     own_open_qty,
+    persist_strategy_state,
     start_exposure_sync,
     start_manual_close_poll,
     resync_position_from_venue,
@@ -128,12 +131,44 @@ class FuturesSignalPort(Strategy):
         self._db = ResilientPool(DB_DSN, DDL, name=self._strategy_id(), logger=self.log)
         start_manual_close_poll(self)
         asyncio.ensure_future(self._boot())
+        asyncio.ensure_future(self._rehydrate_position())
 
     async def _boot(self) -> None:
         if self._db is None:
             return
         await self._db.ensure()
         await self._seed_warmup()
+
+    async def _rehydrate_position(self) -> None:
+        # 此前完全没有 rehydrate:重启后 _position=0,已持仓位成为无人管理的
+        # 僵尸库存(出场分支只在 _position!=0 时走)—— 07-18/19 开的 BTC/SOL
+        # 括号仓因此 4 天无出场,30 回合评估窗停摆。方向优先取 NT cache 的
+        # 策略级归属,归属不到(重启后常见 EXTERNAL)则用自己落库的
+        # paper.strategy_state;锚点(_entry_px/_sl_dist)只能来自落库状态。
+        import asyncio
+
+        await asyncio.sleep(10)
+        if self._position != 0:
+            return
+        net = own_net_position(self)
+        st = await load_persisted_state(self)
+        if net is not None and net != 0:
+            self._position = 1 if net > 0 else -1
+            if st is not None and st["position"] == self._position:
+                self._entry_px = st["entry_px"]
+                self._sl_dist = st["sl_dist"]
+            self.log.info(
+                f"[{self._strategy_id()}] rehydrated _position={self._position} "
+                f"from own net={net}, anchors={'persisted' if self._entry_px else 'none(原出场)'}"
+            )
+        elif st is not None and st["position"] != 0:
+            self._position = int(st["position"])
+            self._entry_px = st["entry_px"]
+            self._sl_dist = st["sl_dist"]
+            self.log.info(
+                f"[{self._strategy_id()}] rehydrated _position={self._position} "
+                f"from persisted state (own net 不可归属), entry={self._entry_px}"
+            )
 
     async def _seed_warmup(self) -> None:
         sid = self._strategy_id()
@@ -337,6 +372,7 @@ class FuturesSignalPort(Strategy):
             elif action in ("exit_long", "exit_short"):
                 self._position = 0
                 self._entry_px = self._sl_dist = None
+            persist_strategy_state(self)
             self.log.info(f"[{strat}] OBSERVE — no order submitted for {action}")
             return
 
@@ -407,6 +443,7 @@ class FuturesSignalPort(Strategy):
         else:
             return
 
+        persist_strategy_state(self)
         order = self.order_factory.market(
             instrument_id=instrument.id,
             order_side=side,
@@ -506,10 +543,28 @@ class FuturesSignalPort(Strategy):
 
     @survive
     def on_stop(self) -> None:
-        if self.config.trade_enabled:
+        flatten = self.config.trade_enabled
+        if flatten:
             close_positions_okx_safe(self)
+            # 停机平仓后持久化状态归零(先写库再关池,防关池抢跑丢写);
+            # observe 模式不平仓,模拟仓状态保留给重启后的 rehydrate 续用。
+            self._position = 0
+            self._entry_px = self._sl_dist = None
         if self._db is not None:
             import asyncio
 
-            asyncio.ensure_future(self._db.close())
+            from paper.db import save_strategy_state
+
+            db, sid = self._db, self._strategy_id()
             self._db = None
+
+            async def _flat_and_close() -> None:
+                try:
+                    if flatten:
+                        await db.execute(
+                            lambda conn: save_strategy_state(conn, sid, 0, None, None)
+                        )
+                finally:
+                    await db.close()
+
+            asyncio.ensure_future(_flat_and_close())
