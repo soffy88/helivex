@@ -425,6 +425,17 @@ class Scalp5M(Strategy):
         # 止损不做 maker:挂单不成交 = 敞口无上限地扛着,这正是止损要防的事。
         # 宁可为止损付 taker 费,也不能让"省 3bps"把尾部风险打开。
         px = self._passive_px(instrument, side) if action != "stop_loss" else None
+        # v2(2026-07-23,实验续跑优化):入场绝不 taker。报价陈旧发生在 bar 收盘
+        # 评估时刻的处理突发(终结报表 §④:市场本身 100ms 一跳,是节点缓存滞后
+        # 2-6s),此刻最新鲜的价是刚收盘的 close(≤~1s)—— 贴 close 挂 post-only;
+        # 若已穿价,OKX 撤单 → 走既有"信号作废"路径,零成本损失一次测量,而不是
+        # 花 10bps 买实测最差的入场类(taker 兜底回合毛 -3.89bps vs maker -1.34)。
+        # 出场兜底不动:仓位必须能平,taker 是代价不是选项。
+        if px is None and action.startswith("enter") and self.config.maker_mode:
+            px = instrument.make_price(price)
+            self.log.info(
+                f"[{self._strategy_id()}] 报价陈旧 — 贴信号 close 挂单 @ {px}"
+            )
         if px is not None:
             order = self.order_factory.limit(
                 instrument_id=instrument.id,

@@ -48,7 +48,14 @@ live:
   maker_mode: true
   maker_timeout_bars: 1
   # 实测 03:20 用滞后报价挂 BUY@76.81(市价已跌到 76.71),post-only 穿价被
-  # OKX 450ms 内撤单。超过此龄不挂单、直接吃单。
+  # OKX 450ms 内撤单。超过此龄不挂单。
+  # v1(07-21~07-23,207 回合)终结报表:docs/SCALP_MAKER_EXPERIMENT_FINAL_2026-07-23.md
+  #   fill rate BTC 90%/ETH 72%/SOL 51%(证伪 97%);逆选非主导;毛 -2.21bps/回合。
+  # v2(2026-07-23 起,用户裁决续跑):入场绝不 taker —— 报价陈旧时贴信号 close
+  #   挂 post-only(穿价被撤=作废),消灭实测最差的入场类(taker 兜底 -3.89bps
+  #   毛 + 10bps 费,80/235 回合)。出场兜底不变。
+  # v2 预登记终结判据:再积累 200 轧平回合后出 v2 报表 —— 若净仍为负,实验
+  #   在"入场零 taker"这一最优执行下也救不了毛边际,无剩余可修项。
   quote_max_age_ms: 2000
   vwap_n: 12
   z_thr: 2.0
