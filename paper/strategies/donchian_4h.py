@@ -51,6 +51,10 @@ class Donchian4HConfig(StrategyConfig, frozen=True):
         0.0  # >0 → 风险定仓(每笔风险 = base 的 risk_pct%);0 = 固定 qty_usd
     )
     max_qty_usd: float = 1000.0  # 风险定仓的单笔名义上限
+    hard_sl_mult: float = 1.5  # 灾难硬止损 = hard_sl_mult × 入场时初始风险距离(0=关)。
+    # 通道出场是移动的,剧烈行情里实际亏损可远超定仓时的风险预算 —— BTC 空单实测
+    # 扛 1474 点亏 $6.45(预算 $50 情形下同结构可超预算,STRATEGY_OPTIMIZATION §1 P1)。
+    # 硬止损只兜尾部,正常路径仍是通道出场。
 
 
 class Donchian4H(Strategy):
@@ -64,6 +68,10 @@ class Donchian4H(Strategy):
         self._closes: deque[float] = deque(maxlen=n + 2)
         self._position: int = 0  # 0=flat, +1=long, -1=short
         self._pending_sl: float | None = None  # 入场时刻到对侧出场通道的距离(定仓用)
+        self._entry_px: float | None = (
+            None  # 硬止损锚点(rehydrate 仓位无锚点→仅通道出场)
+        )
+        self._hard_sl_dist: float | None = None
         self._signal_price: float | None = None
         self._signal_ts: int | None = None
         self._pending_signal_id: int | None = None
@@ -200,6 +208,28 @@ class Donchian4H(Strategy):
     def _evaluate(self, ts_event: int) -> None:
         close = float(self._closes[-1])
         c = self.config
+        # 灾难硬止损(先于通道出场):逆行超过 hard_sl_mult× 入场初始风险距离即市价离场
+        if (
+            self._position != 0
+            and self._entry_px is not None
+            and self._hard_sl_dist
+            and c.hard_sl_mult > 0
+        ):
+            adverse = (close - self._entry_px) * self._position  # 有利为正
+            if adverse <= -self._hard_sl_dist:
+                self._fire_signal(
+                    ts_event,
+                    "stop_loss",
+                    close,
+                    {
+                        "entry": self._entry_px,
+                        "hard_sl_dist": round(self._hard_sl_dist, 6),
+                        "adverse": round(-adverse, 6),
+                        "position": self._position,
+                        "n_bars": len(self._closes),
+                    },
+                )
+                return
         if len(self._closes) < c.n_enter + 1:
             self._fire_signal(
                 ts_event,
@@ -346,12 +376,25 @@ class Donchian4H(Strategy):
         if action == "enter_long":
             side = OrderSide.BUY
             self._position = 1
+            self._entry_px = price
+            self._hard_sl_dist = (
+                self.config.hard_sl_mult * self._pending_sl
+                if self._pending_sl
+                else None
+            )
         elif action == "enter_short":
             side = OrderSide.SELL
             self._position = -1
-        elif action in ("exit_long", "exit_short"):
+            self._entry_px = price
+            self._hard_sl_dist = (
+                self.config.hard_sl_mult * self._pending_sl
+                if self._pending_sl
+                else None
+            )
+        elif action in ("exit_long", "exit_short", "stop_loss"):
             side = OrderSide.SELL if self._position == 1 else OrderSide.BUY
             self._position = 0
+            self._entry_px = self._hard_sl_dist = None
             # 平仓用本策略实际持仓量,避免按现价重算导致的数量漂移残渣
             _own = own_open_qty(self)
             if _own is not None:

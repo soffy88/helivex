@@ -37,6 +37,9 @@ class VwapMR1HConfig(StrategyConfig, frozen=True):
     instrument_id: str
     bar_type: str
     vwap_n: int = 4  # 4H VWAP window
+    std_n: int = 24  # σ 窗口,与 VWAP 窗口解耦 — vwap_n=4 时 σ 只有 3 个样本,
+    # |z|>2 在 26% 的 bar 上成立(SOL 17280 根 1h 实测),"2σ 极值"名存实亡;
+    # 24 根下触发率降到 16.7%,z 范围收敛到 ±3.6(STRATEGY_OPTIMIZATION_2026-07-19 §3)
     z_thr: float = 2.0
     hold: int = 6  # bars before time-exit
     qty_usd: float = 200.0
@@ -56,8 +59,9 @@ class VwapMR1H(Strategy):
 
     def __init__(self, config: VwapMR1HConfig) -> None:
         super().__init__(config)
-        self._closes: deque[float] = deque(maxlen=config.vwap_n + 2)
-        self._volumes: deque[float] = deque(maxlen=config.vwap_n + 2)
+        _win = max(config.vwap_n, config.std_n) + 2
+        self._closes: deque[float] = deque(maxlen=_win)
+        self._volumes: deque[float] = deque(maxlen=_win)
         self._position: int = 0  # 0=flat, +1=long, -1=short
         self._bars_left: int = 0
         self._entry_px: float | None = (
@@ -196,8 +200,8 @@ class VwapMR1H(Strategy):
         if self._position != 0:
             return
 
-        # Need at least vwap_n+1 bars
-        if len(self._closes) < self.config.vwap_n + 1:
+        # Need enough bars for BOTH windows (VWAP + decoupled σ)
+        if len(self._closes) < max(self.config.vwap_n, self.config.std_n) + 1:
             self._fire_signal(
                 bar, "NEUTRAL", close, {"n_bars": len(self._closes), "warmup": True}
             )
@@ -215,12 +219,14 @@ class VwapMR1H(Strategy):
 
         import statistics
 
-        if len(prior_c) < 2:
+        # σ 用独立的 std_n 窗口(不含当前 bar),VWAP 仍用 vwap_n — 解耦见 Config 注释
+        prior_std_c = c_arr[-(self.config.std_n + 1) : -1]
+        if len(prior_std_c) < 2:
             self._fire_signal(
                 bar, "NEUTRAL", close, {"n_bars": len(self._closes), "warmup": True}
             )
             return
-        std = statistics.stdev(prior_c)
+        std = statistics.stdev(prior_std_c)
         z = (close - vwap) / (std + 1e-10)
 
         indic = {
@@ -258,6 +264,7 @@ class VwapMR1H(Strategy):
             "price": price,
             "bar_ts": bar.ts_event,
             "vwap_n": self.config.vwap_n,
+            "std_n": self.config.std_n,
             "z_thr": self.config.z_thr,
         }
         rec = sign_signal(audit_body)

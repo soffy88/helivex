@@ -43,7 +43,10 @@ live:
   adx_enter_breakout: 22
   adx_exit_breakout: 18
   cooldown_bars: 4
-  trailing_atr_mult: 1.5
+  # 2026-07-22 BO 出场网格(110天 5m×3标的, trailing{1.5,2.0,2.5}×exit_adx{12,15,18},
+  # CSCV-PBO=0.00 排序稳健): 2.5/15 全局最优, 净 Sharpe -10.18→-7.37。注意: 九个组合
+  # 全部负期望 —— 毛边际 +16%/110d vs taker 成本 -261%, 参数只能减血不能翻正。
+  trailing_atr_mult: 2.5
   sl_atr_mult: 1.0
   min_rr: 1.5
   cooldown_after_sl: 0

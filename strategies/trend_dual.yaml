@@ -38,6 +38,9 @@ live:
   qty_usd: 200
   risk_pct: 1.0
   max_qty_usd: 1000
+  # 灾难硬止损(2026-07-22,STRATEGY_OPTIMIZATION_2026-07-19 §1 P1):逆行超过
+  # 1.5× 入场初始风险距离即市价离场;通道出场仍是正常路径,硬止损只兜尾部
+  hard_sl_mult: 1.5
 mode: paper
 gate:
   n_splits: 6

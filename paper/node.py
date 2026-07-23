@@ -129,6 +129,7 @@ def build_node() -> TradingNode:
         qty_usd=float(td.get("qty_usd", 200.0)),
         risk_pct=float(td.get("risk_pct", 0.0)),
         max_qty_usd=float(td.get("max_qty_usd", 1000.0)),
+        hard_sl_mult=float(td.get("hard_sl_mult", 1.5)),
     )
     donchian_eth = Donchian4HConfig(
         instrument_id="ETH-USDT-SWAP.OKX",
@@ -138,6 +139,7 @@ def build_node() -> TradingNode:
         qty_usd=float(td.get("qty_usd", 200.0)),
         risk_pct=float(td.get("risk_pct", 0.0)),
         max_qty_usd=float(td.get("max_qty_usd", 1000.0)),
+        hard_sl_mult=float(td.get("hard_sl_mult", 1.5)),
     )
     donchian_sol = Donchian4HConfig(
         instrument_id="SOL-USDT-SWAP.OKX",
@@ -147,6 +149,7 @@ def build_node() -> TradingNode:
         qty_usd=float(td.get("qty_usd", 200.0)),
         risk_pct=float(td.get("risk_pct", 0.0)),
         max_qty_usd=float(td.get("max_qty_usd", 1000.0)),
+        hard_sl_mult=float(td.get("hard_sl_mult", 1.5)),
     )
 
     # Strategy 2 — VWAP-MR 1H SWAP (SOL)
@@ -154,6 +157,7 @@ def build_node() -> TradingNode:
         instrument_id="SOL-USDT-SWAP.OKX",
         bar_type="SOL-USDT-SWAP.OKX-1-HOUR-LAST-EXTERNAL",
         vwap_n=int(vw.get("vwap_n", 4)),
+        std_n=int(vw.get("std_n", 24)),
         z_thr=float(vw.get("z_thr", 2.0)),
         hold=int(vw.get("hold", 6)),
         qty_usd=float(vw.get("qty_usd", 200.0)),

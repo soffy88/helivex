@@ -40,6 +40,9 @@ live:
   min_rr: 1.5
   cooldown_after_sl: 0
   vwap_n: 4
+  # σ 窗口与 VWAP 解耦(2026-07-22,STRATEGY_OPTIMIZATION_2026-07-19 P0):
+  # vwap_n=4 时 σ 仅 3 样本,|z|>2 在 26% 的 bar 成立(假 2σ);24 根 → 16.7%,z 收敛 ±3.6
+  std_n: 24
   z_thr: 2.0
   hold: 6
   qty_usd: 200
