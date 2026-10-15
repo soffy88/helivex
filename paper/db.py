@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import os
 from typing import Any
 
 import asyncpg
 
-DB_DSN = "postgresql://helios:helios_dev_pass@localhost:5434/helivex"
+DB_DSN = os.environ.get("HELIVEX_DB_DSN", "postgresql://helios:helios_dev_pass@localhost:5434/helivex")
 
 DDL = """
 CREATE SCHEMA IF NOT EXISTS paper;
