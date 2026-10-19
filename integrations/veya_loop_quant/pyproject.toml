@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "helivex-adapter-veya-loop"
+version = "0.1.0"
+description = "Veya Loop x Helivex quant adapter (research-only): BO param search over Helivex backtests"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["helivex_adapter*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

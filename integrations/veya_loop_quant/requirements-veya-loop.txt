@@ -1,0 +1,17 @@
+# Veya Loop × Helivex 适配层依赖（研究态）
+# 用法：source venv/bin/activate && pip install -r requirements-veya-loop.txt
+
+# Veya Loop（含 oprim._bayes_opt_plan.bayesian_optimize；装配 veya/platform/3O 主库）
+-e /data/soffy/projects/veya/veya_loop
+
+# 3O 回测引擎与 Helivex 信号层（editable 本地源）
+-e /data/soffy/projects/platform/3O/helios_backtest_v51
+-e /data/soffy/projects/platform/3O/btc_signal
+-e /data/soffy/projects/platform/3O/btc_regime
+-e /data/soffy/projects/platform/3O/btc_oskill
+
+# 运行时补装（veya oprim heavy-SDK 依赖 + parquet）
+pyarrow>=21
+tree-sitter>=0.26
+tree-sitter-python>=0.25
+networkx>=3.2

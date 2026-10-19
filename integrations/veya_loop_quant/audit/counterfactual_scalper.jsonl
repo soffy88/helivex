@@ -1,0 +1,4 @@
+{"case": "scalper_v2_1h", "kind": "breakeven_cost", "value": 3.1826000432520125}
+{"case": "scalper_v2_1h", "kind": "plan", "best_intervention": {"cost_bps": 1.37847629245827, "bb_k": 2.783143346627945}, "scm_best_sharpe": 0.3683260810833872, "n_calls": 14, "engine_sharpe_at_plan": 0.16013445781662408}
+{"case": "scalper_v2_1h", "kind": "breakeven_cost", "value": 1.983928625465782}
+{"case": "scalper_v2_1h", "kind": "plan", "best_intervention": {"cost_bps": 1.37847629245827, "bb_k": 2.783143346627945}, "scm_best_sharpe": 0.30598965255113175, "n_calls": 14, "engine_sharpe_at_plan": 0.16013445781662408}

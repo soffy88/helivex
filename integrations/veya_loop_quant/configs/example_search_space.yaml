@@ -1,0 +1,50 @@
+# Veya Loop × Helivex 参数搜索示例（CC 规格 §4.2 实参化）
+#
+# 说明：
+# - strategy_id: 真实 Helivex 策略 = helivex_signal.DirectionalStrategy（"directional"）
+# - search_space 参数名 = SignalConfig 字段（见 docs/integration/HELIVEX_DISCOVERY.md §2）
+# - 数据：data/btc_2026q2_funded_1h.parquet（run_features 产物，2026-05-01→2026-08-01）
+# - train/test 切分：train 5-6 月，test 7 月（funding 仅 6/30 起有真实值）
+# - 防过拟合：优化只发生在 train；accepted 以 test 门禁为准（gate_on: auto）
+
+strategy_id: "directional"
+symbols: ["BTC-USDT-SWAP"]
+start: "2026-05-01"
+end: "2026-07-01"
+test_window: ["2026-07-01", "2026-08-01"]
+timeframe: "1h"
+capital: 1000000.0
+
+# 数据与引擎覆写（缺省时按 symbol+timeframe 在 data/ 自动查找）
+backtest:
+  parquet_path: "data/btc_2026q2_funded_1h.parquet"
+  cpcv:
+    n_groups: 8
+    n_test_groups: 2
+    embargo_bars: 24
+  cost_model:
+    taker_fee_bps: 5.0
+    fixed_slippage_bps: 1.0
+  # 声明给引擎的搜索广度（n_trials → DSR 通缩口径）：建议与 BO 搜索参数一致
+  config_grid:
+    mom_donchian_lookback: [10, 30, 60]
+    mom_trail_atr_k: [1.5, 2.75, 4.0]
+    kelly_fraction: [0.1, 0.25, 0.5]
+
+search_space:
+  mom_donchian_lookback: [10, 60]
+  mom_trail_atr_k: [1.5, 4.0]
+  kelly_fraction: [0.1, 0.5]
+
+fixed_params: {}
+
+limits:
+  min_sharpe: 0.3
+  max_drawdown: 0.25
+  min_trades: 20
+  max_turnover: 50.0
+
+n_init: 3
+n_iter: 6
+seed: 0
+gate_on: "auto"
