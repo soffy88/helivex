@@ -1,57 +1,46 @@
 strategy: vwap_mr_dual
-description: "1H SWAP VWAP mean reversion \u2014 VWAP z-score+BB+RSI+Stochastic confluence"
+description: "1H SWAP VWAP mean reversion — VWAP z-score 均值回归（三标的组合，VALIDATED-ACCEPTED 2026-08）"
 timeframe: 1H
 instruments:
-- SOL-USDT-SWAP
 - BTC-USDT-SWAP
+- ETH-USDT-SWAP
+- SOL-USDT-SWAP
 db_table: market_data.ohlcv_1h
 db_source: okx_swap_5m
 resample_bars: 12
 indicators:
   vwap:
     enabled: true
-    window: 4
-    z_threshold: 2.0
-  bollinger:
-    enabled: true
-    window: 20
-    num_std: 2.0
-  rsi:
-    enabled: true
-    period: 14
-    oversold: 0.3
-    overbought: 0.7
-  stochastic:
-    enabled: true
-    k_period: 14
-    d_period: 3
-    smooth_k: 3
-    oversold: 0.2
-    overbought: 0.8
+    window: 7
+    z_threshold: 2.02
 signal_logic:
-  min_confluence: 2
   direction: both
 risk:
   cost_bps: 10.0
-  hold_bars: 6
+  hold_bars: 7
 # live paper params (read by paper/node.py → VwapMR1H; edit via Configure tab)
 live:
-  # 2026-07-23 退役(docs/R5.4_VWAP_MR_MAKER_GATE.md,trial #30):gate FAIL×3(taker)
-  # → 07-22 出场重设计+z网格穷尽全负 → R5.4 证明 maker 化也救不了(最乐观 4bps 双腿
-  # maker 仍 -0.68)。false = 节点不再注册该策略(paper/node.py);复活须过新 gate。
-  trade_enabled: false
-  sl_std: 1.0
-  min_rr: 1.5
-  cooldown_after_sl: 0
-  vwap_n: 4
-  # σ 窗口与 VWAP 解耦(2026-07-22,STRATEGY_OPTIMIZATION_2026-07-19 P0):
-  # vwap_n=4 时 σ 仅 3 样本,|z|>2 在 26% 的 bar 成立(假 2σ);24 根 → 16.7%,z 收敛 ±3.6
-  std_n: 24
-  z_thr: 2.0
-  hold: 6
-  qty_usd: 200
+  # ── 2026-08-06 复活：Veya Loop × Helivex 组合回测 VALIDATED-ACCEPTED ──
+  # 证据链（docs/integration/VWAP_MR_FUTURES_1H_OPTIMIZATION.md §4）：
+  #   - 三标的等权组合 BO（3 seed × 30 次回测）：2/3 seed 过 test 门禁
+  #     （test SR +0.467/+0.377 @ 80% 仓位），三标的 test ret 18/18 全正
+  #   - 参数 ±10% 扰动 × 14：28/28 过 min_sharpe 0.3（0.5 与 0.8 仓位各一轮）
+  #   - 保留项：train 段（2026-04→06）组合 SR 为负的区间效应 → 观察期复核
+  trade_enabled: true
+  # 优化参数（seed0 best @ 80% 仓位：vwap_n=6.56/std_n=43.75/z_thr=2.02/hold=7.18/
+  # sl_std=1.63/min_rr=2.39/cooldown_after_sl=5.45，取整）
+  vwap_n: 7
+  std_n: 44
+  z_thr: 2.02
+  hold: 7
+  sl_std: 1.63
+  min_rr: 2.39
+  cooldown_after_sl: 5
+  # 80% 资金配置：max_qty_usd = 0.8 × BASE_EQUITY_USD(5000)；risk_pct 定仓在
+  # 紧止损下会顶到该 cap（回测 position_fraction=0.8 的 paper 侧对应物）
+  qty_usd: 4000
   risk_pct: 1.0
-  max_qty_usd: 1000
+  max_qty_usd: 4000
 mode: paper
 gate:
   n_splits: 6

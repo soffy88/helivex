@@ -152,21 +152,25 @@ def build_node() -> TradingNode:
         hard_sl_mult=float(td.get("hard_sl_mult", 1.5)),
     )
 
-    # Strategy 2 — VWAP-MR 1H SWAP (SOL)
-    vwap_sol = VwapMR1HConfig(
-        instrument_id="SOL-USDT-SWAP.OKX",
-        bar_type="SOL-USDT-SWAP.OKX-1-HOUR-LAST-EXTERNAL",
-        vwap_n=int(vw.get("vwap_n", 4)),
-        std_n=int(vw.get("std_n", 24)),
-        z_thr=float(vw.get("z_thr", 2.0)),
-        hold=int(vw.get("hold", 6)),
-        qty_usd=float(vw.get("qty_usd", 200.0)),
-        risk_pct=float(vw.get("risk_pct", 0.0)),
-        max_qty_usd=float(vw.get("max_qty_usd", 1000.0)),
-        sl_std=float(vw.get("sl_std", 1.0)),
-        min_rr=float(vw.get("min_rr", 1.5)),
-        cooldown_after_sl=int(vw.get("cooldown_after_sl", 0)),
-    )
+    # Strategy 2 — VWAP-MR 1H SWAP（三标的：BTC/ETH/SOL）
+    # 2026-08-06 复活：组合回测 VALIDATED-ACCEPTED（见 strategies/vwap_mr_1h.yaml live 注释）。
+    vwap_cfgs = [
+        VwapMR1HConfig(
+            instrument_id=inst,
+            bar_type=f"{inst}-1-HOUR-LAST-EXTERNAL",
+            vwap_n=int(vw.get("vwap_n", 4)),
+            std_n=int(vw.get("std_n", 24)),
+            z_thr=float(vw.get("z_thr", 2.0)),
+            hold=int(vw.get("hold", 6)),
+            qty_usd=float(vw.get("qty_usd", 200.0)),
+            risk_pct=float(vw.get("risk_pct", 0.0)),
+            max_qty_usd=float(vw.get("max_qty_usd", 1000.0)),
+            sl_std=float(vw.get("sl_std", 1.0)),
+            min_rr=float(vw.get("min_rr", 1.5)),
+            cooldown_after_sl=int(vw.get("cooldown_after_sl", 0)),
+        )
+        for inst in ("BTC-USDT-SWAP.OKX", "ETH-USDT-SWAP.OKX", "SOL-USDT-SWAP.OKX")
+    ]
 
     # Strategy 3 — Daily Donchian Spot (BTC, ETH)
     spot_btc = SpotTrend1DConfig(
@@ -260,11 +264,11 @@ def build_node() -> TradingNode:
     node.trader.add_strategy(Donchian4H(donchian_btc))
     node.trader.add_strategy(Donchian4H(donchian_eth))
     node.trader.add_strategy(Donchian4H(donchian_sol))
-    # vwap_mr_1h 2026-07-23 退役(R5.4/trial#30):gate FAIL×3 → 出场重设计穷尽
-    # → maker 化最乐观 4bps 仍负,修正菜单已空;执行测量已被 scalp_5m 以 10 倍
-    # 样本率覆盖。复活须过新 gate。
+    # vwap_mr_1h 2026-08-06 复活（VALIDATED-ACCEPTED，见 YAML live 注释）：
+    # 组合回测 2/3 seed 过 test 门禁 + 扰动 28/28 稳健；trade_enabled=true → 三标的注册。
     if bool(vw.get("trade_enabled", False)):
-        node.trader.add_strategy(VwapMR1H(vwap_sol))
+        for cfg in vwap_cfgs:
+            node.trader.add_strategy(VwapMR1H(cfg))
     node.trader.add_strategy(SpotTrend1D(spot_btc))
     node.trader.add_strategy(SpotTrend1D(spot_eth))
     node.trader.add_strategy(Scalp5M(scalp_btc))
