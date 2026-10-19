@@ -11,7 +11,7 @@ controlled; install with `bash ops/systemd/install.sh`.
 | helivex-paper | NautilusTrader paper node (OKX Demo) | on-failure |
 | helivex-web | Next.js dashboard :3400 (Basic Auth on non-local) | always |
 | helivex-monitor | health/circuit-breaker alerter (Telegram) | always |
-| helivex-cf | Cloudflare tunnel → btc.uex.hk | always |
+| helivex-cf | Cloudflare tunnel → helivex.kanpan.co | always |
 | helivex-backup.timer | pg_dump every 6h (Persistent) | timer |
 | helivex-logrotate.timer | log rotation 03:30 | timer |
 | helivex-ohlcv-md-adapter.timer | OHLCV 4H/5m (okx_swap) + 1H (okx spot) from iris/md (DB→DB) | timer |

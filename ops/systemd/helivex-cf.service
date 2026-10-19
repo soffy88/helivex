@@ -1,5 +1,5 @@
 [Unit]
-Description=Helivex Cloudflare Tunnel (btc.uex.hk -> :3400)
+Description=Helivex Cloudflare Tunnel (helivex.kanpan.co -> :3400)
 After=network.target helivex-web.service
 Documentation=https://github.com/soffy88/helivex
 

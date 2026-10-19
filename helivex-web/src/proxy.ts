@@ -15,7 +15,7 @@ export function proxy(req: NextRequest) {
   if (!user || !pass) return NextResponse.next(); // auth disabled when unset
 
   // Gate ALL non-local traffic — covers any public exposure (Cloudflare tunnel
-  // btc.uex.hk, Tailscale Funnel, WSL/LAN IP). Direct localhost stays open. A
+  // helivex.kanpan.co, Tailscale Funnel, WSL/LAN IP). Direct localhost stays open. A
   // public client's Host is the public domain (it can't forge localhost through
   // the tunnel). Set DASH_FORCE_AUTH=1 to require auth everywhere.
   const host = (req.headers.get('host') ?? '').toLowerCase();
