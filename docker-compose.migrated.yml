@@ -1,0 +1,91 @@
+# Helivex migrated from manual docker run
+# Based on inspection of running containers on ubuntu26
+
+services:
+  helivex-paper:
+    image: helivex-paper:local
+    container_name: helivex-paper
+    restart: unless-stopped
+    # quant-nautilus has asyncpg/psycopg2/redis/dotenv; add the missing pyyaml/fastapi/uvicorn (user site, image runs as uid app).
+    # Its bundled nautilus_trader 1.225.0 lacks OKXEnvironment/proxy_url that paper/node.py uses (added in 1.226), so overlay 1.228.0 in user site.
+    # deps (pyyaml/fastapi/uvicorn/nautilus_trader==1.228.0) baked into helivex-paper:local (ops/docker/paper-local/Dockerfile). Fallback: quant-nautilus:latest + pip-at-start command, see .bak-20261016b
+    command: python paper/run.py
+    environment:
+      - OKX_API_KEY=${OKX_API_KEY}
+      - OKX_API_SECRET=${OKX_API_SECRET}
+      - OKX_PASSPHRASE=${OKX_PASSPHRASE}
+      - HELIVEX_AUDIT_PRIVATE_KEY_B64=${HELIVEX_AUDIT_PRIVATE_KEY_B64}
+      - HELIVEX_AUDIT_PUBLIC_KEY_B64=${HELIVEX_AUDIT_PUBLIC_KEY_B64}
+      - OKX_WS_PROXY=${OKX_WS_PROXY:-http://172.18.0.1:10808}
+      - TG_BOT_TOKEN=${TG_BOT_TOKEN}
+      - TG_CHAT_ID=${TG_CHAT_ID}
+      - HELIVEX_GW_TOKEN=${HELIVEX_GW_TOKEN}
+      - DASH_USER=${DASH_USER:-helivex}
+      - DASH_PASS=${DASH_PASS}
+      - HELIVEX_DB_DSN=${HELIVEX_DB_DSN}
+      - REDIS_URL=redis://helios-redis:6379/0
+      - OKX_PROXY=http://172.18.0.1:10808
+    volumes:
+      - .:/app
+    working_dir: /app
+    networks:
+      - helios-net
+
+  helivex-web:
+    image: node:22-slim
+    container_name: helivex-web
+    restart: unless-stopped
+    working_dir: /app
+    command: bash -c "npm install 2>/dev/null || true && npm start"
+    environment:
+      - OKX_API_KEY=${OKX_API_KEY}
+      - OKX_API_SECRET=${OKX_API_SECRET}
+      - OKX_PASSPHRASE=${OKX_PASSPHRASE}
+      - HELIVEX_AUDIT_PRIVATE_KEY_B64=${HELIVEX_AUDIT_PRIVATE_KEY_B64}
+      - HELIVEX_AUDIT_PUBLIC_KEY_B64=${HELIVEX_AUDIT_PUBLIC_KEY_B64}
+      - OKX_WS_PROXY=${OKX_WS_PROXY:-http://172.18.0.1:10808}
+      - TG_BOT_TOKEN=${TG_BOT_TOKEN}
+      - TG_CHAT_ID=${TG_CHAT_ID}
+      - HELIVEX_GW_TOKEN=${HELIVEX_GW_TOKEN}
+      - DASH_USER=${DASH_USER:-helivex}
+      - DASH_PASS=${DASH_PASS}
+      - GATEWAY_ORIGIN=http://helivex-gateway:8765
+      - NEXT_PUBLIC_API_BASE=/gw
+      - NEXT_PUBLIC_API_BASE=http://localhost:8080
+      - NEXT_PUBLIC_USE_MOCK=true
+    volumes:
+      - ./helivex-web:/app
+    networks:
+      - helios-net
+    ports:
+      - "3400:3400"
+
+  helivex-gateway:
+    image: python:3.12-slim
+    container_name: helivex-gateway
+    restart: unless-stopped
+    command: bash -c "pip install pyyaml fastapi uvicorn psycopg2-binary redis python-dotenv asyncpg cryptography 2>/dev/null || true && python -m uvicorn gateway.main:app --host 0.0.0.0 --port 8765"
+    environment:
+      - OKX_API_KEY=${OKX_API_KEY}
+      - OKX_API_SECRET=${OKX_API_SECRET}
+      - OKX_PASSPHRASE=${OKX_PASSPHRASE}
+      - HELIVEX_AUDIT_PRIVATE_KEY_B64=${HELIVEX_AUDIT_PRIVATE_KEY_B64}
+      - HELIVEX_AUDIT_PUBLIC_KEY_B64=${HELIVEX_AUDIT_PUBLIC_KEY_B64}
+      - OKX_WS_PROXY=${OKX_WS_PROXY:-http://172.18.0.1:10808}
+      - TG_BOT_TOKEN=${TG_BOT_TOKEN}
+      - TG_CHAT_ID=${TG_CHAT_ID}
+      - HELIVEX_GW_TOKEN=${HELIVEX_GW_TOKEN}
+      - DASH_USER=${DASH_USER:-helivex}
+      - DASH_PASS=${DASH_PASS}
+      - HELIVEX_DB_DSN=${HELIVEX_DB_DSN}
+    volumes:
+      - .:/app
+    working_dir: /app
+    networks:
+      - helios-net
+    ports:
+      - "127.0.0.1:8765:8765"
+
+networks:
+  helios-net:
+    external: true
